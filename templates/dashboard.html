@@ -1,0 +1,358 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - ZEDEDA Camera Agent{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+    <!-- Stats Cards -->
+    <div class="bg-white rounded-lg shadow-md p-6 card-hover">
+        <div class="flex items-center">
+            <div class="p-3 bg-blue-100 rounded-full">
+                <i class="fas fa-camera text-blue-600 text-xl"></i>
+            </div>
+            <div class="ml-4">
+                <h3 class="text-sm font-medium text-gray-600">Total Frames</h3>
+                <p class="text-2xl font-bold text-gray-900" id="total-frames">0</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="bg-white rounded-lg shadow-md p-6 card-hover">
+        <div class="flex items-center">
+            <div class="p-3 bg-green-100 rounded-full">
+                <i class="fas fa-eye text-green-600 text-xl"></i>
+            </div>
+            <div class="ml-4">
+                <h3 class="text-sm font-medium text-gray-600">Processed</h3>
+                <p class="text-2xl font-bold text-gray-900" id="processed-frames">0</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="bg-white rounded-lg shadow-md p-6 card-hover">
+        <div class="flex items-center">
+            <div class="p-3 bg-yellow-100 rounded-full">
+                <i class="fas fa-exclamation-triangle text-yellow-600 text-xl"></i>
+            </div>
+            <div class="ml-4">
+                <h3 class="text-sm font-medium text-gray-600">Detections</h3>
+                <p class="text-2xl font-bold text-gray-900" id="detections">0</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="bg-white rounded-lg shadow-md p-6 card-hover">
+        <div class="flex items-center">
+            <div class="p-3 bg-red-100 rounded-full">
+                <i class="fas fa-envelope text-red-600 text-xl"></i>
+            </div>
+            <div class="ml-4">
+                <h3 class="text-sm font-medium text-gray-600">Alerts Sent</h3>
+                <p class="text-2xl font-bold text-gray-900" id="alerts-sent">0</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+    <!-- System Status -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-lg font-semibold text-gray-800 mb-4">System Status</h3>
+        <div class="space-y-4">
+            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div class="flex items-center">
+                    <i class="fas fa-video text-blue-600 mr-3"></i>
+                    <span class="font-medium">Camera</span>
+                </div>
+                <span id="camera-status-text" class="px-3 py-1 rounded-full text-sm bg-gray-200 text-gray-600">Checking...</span>
+            </div>
+            
+            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div class="flex items-center">
+                    <i class="fas fa-robot text-purple-600 mr-3"></i>
+                    <span class="font-medium">Ollama AI</span>
+                </div>
+                <span id="ollama-status-text" class="px-3 py-1 rounded-full text-sm bg-gray-200 text-gray-600">Checking...</span>
+            </div>
+            
+            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div class="flex items-center">
+                    <i class="fas fa-eye text-green-600 mr-3"></i>
+                    <span class="font-medium">Monitoring</span>
+                </div>
+                <span id="monitoring-status-text" class="px-3 py-1 rounded-full text-sm bg-gray-200 text-gray-600">Stopped</span>
+            </div>
+        </div>
+        
+        <div class="mt-6 flex space-x-3">
+            <button id="test-camera" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                <i class="fas fa-camera mr-2"></i>Test Camera
+            </button>
+            <button id="test-ollama" class="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
+                <i class="fas fa-robot mr-2"></i>Test Ollama
+            </button>
+        </div>
+    </div>
+    
+    <!-- Performance Chart -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-lg font-semibold text-gray-800 mb-4">Performance Metrics</h3>
+        <div class="relative h-64">
+            <canvas id="performance-chart"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Recent Activity -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold text-gray-800">Recent Activity</h3>
+            <button id="refresh-activity" class="text-blue-600 hover:text-blue-800">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
+        <div id="activity-feed" class="space-y-3 max-h-64 overflow-y-auto">
+            <div class="text-center text-gray-500 py-8">
+                <i class="fas fa-clock text-3xl mb-2"></i>
+                <p>No recent activity</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Quick Actions -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-lg font-semibold text-gray-800 mb-4">Quick Actions</h3>
+        <div class="grid grid-cols-2 gap-4">
+            <a href="{{ url_for('monitoring') }}" class="p-4 border-2 border-dashed border-gray-300 rounded-lg text-center hover:border-blue-500 hover:bg-blue-50 transition-colors">
+                <i class="fas fa-eye text-2xl text-blue-600 mb-2"></i>
+                <p class="font-medium">Live View</p>
+            </a>
+            
+            <a href="{{ url_for('configuration') }}" class="p-4 border-2 border-dashed border-gray-300 rounded-lg text-center hover:border-green-500 hover:bg-green-50 transition-colors">
+                <i class="fas fa-cog text-2xl text-green-600 mb-2"></i>
+                <p class="font-medium">Configure</p>
+            </a>
+            
+            <a href="{{ url_for('users') }}" class="p-4 border-2 border-dashed border-gray-300 rounded-lg text-center hover:border-purple-500 hover:bg-purple-50 transition-colors">
+                <i class="fas fa-users text-2xl text-purple-600 mb-2"></i>
+                <p class="font-medium">Manage Users</p>
+            </a>
+            
+            <a href="{{ url_for('logs') }}" class="p-4 border-2 border-dashed border-gray-300 rounded-lg text-center hover:border-orange-500 hover:bg-orange-50 transition-colors">
+                <i class="fas fa-list-alt text-2xl text-orange-600 mb-2"></i>
+                <p class="font-medium">View Logs</p>
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let performanceChart;
+    let activityData = [];
+    
+    // Initialize performance chart
+    function initPerformanceChart() {
+        const ctx = document.getElementById('performance-chart').getContext('2d');
+        performanceChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Frames Processed',
+                        data: [],
+                        borderColor: 'rgb(59, 130, 246)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.4
+                    },
+                    {
+                        label: 'Detections',
+                        data: [],
+                        borderColor: 'rgb(34, 197, 94)',
+                        backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                        tension: 0.4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    }
+                }
+            }
+        });
+    }
+    
+    // Update stats display
+    function updateStats(stats) {
+        document.getElementById('total-frames').textContent = stats.total_frames || 0;
+        document.getElementById('processed-frames').textContent = stats.processed_frames || 0;
+        document.getElementById('detections').textContent = stats.detections || 0;
+        document.getElementById('alerts-sent').textContent = stats.alerts_sent || 0;
+        
+        // Update chart
+        if (performanceChart) {
+            const now = new Date().toLocaleTimeString();
+            performanceChart.data.labels.push(now);
+            performanceChart.data.datasets[0].data.push(stats.processed_frames || 0);
+            performanceChart.data.datasets[1].data.push(stats.detections || 0);
+            
+            // Keep only last 20 points
+            if (performanceChart.data.labels.length > 20) {
+                performanceChart.data.labels.shift();
+                performanceChart.data.datasets[0].data.shift();
+                performanceChart.data.datasets[1].data.shift();
+            }
+            
+            performanceChart.update();
+        }
+    }
+    
+    // Update system status text
+    function updateSystemStatusText() {
+        fetch('/api/status')
+            .then(response => response.json())
+            .then(data => {
+                // Camera status
+                const cameraStatus = document.getElementById('camera-status-text');
+                if (data.camera_available) {
+                    cameraStatus.textContent = 'Online';
+                    cameraStatus.className = 'px-3 py-1 rounded-full text-sm bg-green-100 text-green-800';
+                } else {
+                    cameraStatus.textContent = 'Offline';
+                    cameraStatus.className = 'px-3 py-1 rounded-full text-sm bg-red-100 text-red-800';
+                }
+                
+                // Ollama status
+                const ollamaStatus = document.getElementById('ollama-status-text');
+                if (data.ollama_available) {
+                    ollamaStatus.textContent = 'Online';
+                    ollamaStatus.className = 'px-3 py-1 rounded-full text-sm bg-green-100 text-green-800';
+                } else {
+                    ollamaStatus.textContent = 'Offline';
+                    ollamaStatus.className = 'px-3 py-1 rounded-full text-sm bg-red-100 text-red-800';
+                }
+                
+                // Monitoring status
+                const monitoringStatus = document.getElementById('monitoring-status-text');
+                if (data.monitoring_active) {
+                    monitoringStatus.textContent = 'Active';
+                    monitoringStatus.className = 'px-3 py-1 rounded-full text-sm bg-green-100 text-green-800';
+                } else {
+                    monitoringStatus.textContent = 'Stopped';
+                    monitoringStatus.className = 'px-3 py-1 rounded-full text-sm bg-gray-100 text-gray-800';
+                }
+                
+                // Update stats if available
+                if (data.stats) {
+                    updateStats(data.stats);
+                }
+            });
+    }
+    
+    // Add activity item
+    function addActivity(message, type = 'info') {
+        const feed = document.getElementById('activity-feed');
+        const item = document.createElement('div');
+        
+        const icons = {
+            'detection': 'fas fa-exclamation-triangle text-yellow-500',
+            'alert': 'fas fa-envelope text-red-500',
+            'info': 'fas fa-info-circle text-blue-500',
+            'success': 'fas fa-check-circle text-green-500'
+        };
+        
+        item.className = 'flex items-start space-x-3 p-3 bg-gray-50 rounded-lg';
+        item.innerHTML = `
+            <i class="${icons[type]}"></i>
+            <div class="flex-1">
+                <p class="text-sm text-gray-800">${message}</p>
+                <p class="text-xs text-gray-500">${new Date().toLocaleTimeString()}</p>
+            </div>
+        `;
+        
+        // Remove placeholder if it exists
+        const placeholder = feed.querySelector('.text-center');
+        if (placeholder) {
+            placeholder.remove();
+        }
+        
+        feed.insertBefore(item, feed.firstChild);
+        
+        // Keep only last 10 activities
+        while (feed.children.length > 10) {
+            feed.removeChild(feed.lastChild);
+        }
+    }
+    
+    // Test functions
+    async function testCamera() {
+        showLoading(true);
+        const result = await apiCall('/api/test_camera');
+        showLoading(false);
+        
+        if (result && result.success) {
+            showToast('Camera test successful', 'success');
+            addActivity('Camera test completed successfully', 'success');
+        } else {
+            showToast(result ? result.error : 'Camera test failed', 'error');
+            addActivity('Camera test failed', 'info');
+        }
+    }
+    
+    async function testOllama() {
+        showLoading(true);
+        const result = await apiCall('/api/test_ollama');
+        showLoading(false);
+        
+        if (result && result.success) {
+            showToast('Ollama connection successful', 'success');
+            addActivity('Ollama connection test successful', 'success');
+        } else {
+            showToast(result ? result.error : 'Ollama connection failed', 'error');
+            addActivity('Ollama connection test failed', 'info');
+        }
+    }
+    
+    // Override base handlers
+    function handleDetectionEvent(data) {
+        addActivity(`Monitor detected with ${(data.event.confidence * 100).toFixed(0)}% confidence`, 'detection');
+        updateStats(data.stats);
+    }
+    
+    function handleFrameUpdate(data) {
+        updateStats(data.stats);
+    }
+    
+    // Initialize dashboard
+    document.addEventListener('DOMContentLoaded', function() {
+        initPerformanceChart();
+        updateSystemStatusText();
+        
+        // Set up test buttons
+        document.getElementById('test-camera').addEventListener('click', testCamera);
+        document.getElementById('test-ollama').addEventListener('click', testOllama);
+        
+        // Refresh activity button
+        document.getElementById('refresh-activity').addEventListener('click', updateSystemStatusText);
+        
+        // Update status every 10 seconds
+        setInterval(updateSystemStatusText, 10000);
+        
+        // Add initial activity
+        addActivity('Dashboard loaded', 'info');
+    });
+</script>
+{% endblock %}

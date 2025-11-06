@@ -1,0 +1,540 @@
+{% extends "base.html" %}
+
+{% block title %}System Settings - ZEDEDA Camera Agent{% endblock %}
+{% block page_title %}System Settings{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- System Status -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-lg font-semibold text-gray-800 mb-4">System Status</h3>
+        
+        <div class="space-y-4">
+            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div class="flex items-center">
+                    <i class="fas fa-server text-gray-600 mr-3"></i>
+                    <span class="text-sm font-medium">Web Server</span>
+                </div>
+                <span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800" id="web-status">
+                    <i class="fas fa-circle mr-1"></i>Running
+                </span>
+            </div>
+            
+            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div class="flex items-center">
+                    <i class="fas fa-video text-gray-600 mr-3"></i>
+                    <span class="text-sm font-medium">Camera Agent</span>
+                </div>
+                <span class="px-2 py-1 text-xs font-semibold rounded-full" id="agent-status">
+                    <i class="fas fa-circle mr-1"></i>Checking...
+                </span>
+            </div>
+            
+            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div class="flex items-center">
+                    <i class="fas fa-brain text-gray-600 mr-3"></i>
+                    <span class="text-sm font-medium">Ollama Service</span>
+                </div>
+                <span class="px-2 py-1 text-xs font-semibold rounded-full" id="ollama-status">
+                    <i class="fas fa-circle mr-1"></i>Checking...
+                </span>
+            </div>
+            
+            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div class="flex items-center">
+                    <i class="fas fa-envelope text-gray-600 mr-3"></i>
+                    <span class="text-sm font-medium">Email Service</span>
+                </div>
+                <span class="px-2 py-1 text-xs font-semibold rounded-full" id="email-status">
+                    <i class="fas fa-circle mr-1"></i>Checking...
+                </span>
+            </div>
+        </div>
+        
+        <div class="mt-6 pt-6 border-t border-gray-200">
+            <div class="text-sm text-gray-600 space-y-2">
+                <div class="flex justify-between">
+                    <span>Uptime:</span>
+                    <span id="system-uptime">Loading...</span>
+                </div>
+                <div class="flex justify-between">
+                    <span>CPU Usage:</span>
+                    <span id="cpu-usage">Loading...</span>
+                </div>
+                <div class="flex justify-between">
+                    <span>Memory Usage:</span>
+                    <span id="memory-usage">Loading...</span>
+                </div>
+                <div class="flex justify-between">
+                    <span>Disk Usage:</span>
+                    <span id="disk-usage">Loading...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Environment Variables -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-lg font-semibold text-gray-800 mb-4">Environment Configuration</h3>
+        <p class="text-sm text-gray-600 mb-4">Configure system environment variables (requires restart)</p>
+        
+        <form id="env-form" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Gmail Email</label>
+                <input type="email" id="gmail-email" placeholder="your-email@gmail.com"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Gmail App Password</label>
+                <div class="relative">
+                    <input type="password" id="gmail-password" placeholder="16-character app password"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 pr-10">
+                    <button type="button" onclick="togglePassword('gmail-password')" 
+                            class="absolute inset-y-0 right-0 pr-3 flex items-center">
+                        <i class="fas fa-eye text-gray-400"></i>
+                    </button>
+                </div>
+                <p class="text-xs text-gray-500 mt-1">
+                    <a href="https://support.google.com/accounts/answer/185833" target="_blank" 
+                       class="text-blue-600 hover:text-blue-800">How to generate Gmail App Password</a>
+                </p>
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Ollama Base URL</label>
+                <input type="url" id="ollama-url" value="http://localhost:11434"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Debug Mode</label>
+                <label class="flex items-center">
+                    <input type="checkbox" id="debug-mode" class="mr-2">
+                    <span class="text-sm">Enable verbose logging</span>
+                </label>
+            </div>
+        </form>
+        
+        <div class="mt-6 flex space-x-3">
+            <button id="test-email" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                <i class="fas fa-envelope mr-2"></i>Test Email
+            </button>
+            <button id="save-env" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                <i class="fas fa-save mr-2"></i>Save Environment
+            </button>
+        </div>
+    </div>
+    
+    <!-- Log Settings -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-lg font-semibold text-gray-800 mb-4">Logging Configuration</h3>
+        
+        <form id="log-settings-form" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Log Level</label>
+                <select id="log-level" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <option value="DEBUG">DEBUG - All messages</option>
+                    <option value="INFO" selected>INFO - General information</option>
+                    <option value="WARNING">WARNING - Warning messages only</option>
+                    <option value="ERROR">ERROR - Error messages only</option>
+                </select>
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Log Retention (days)</label>
+                <input type="number" id="log-retention" min="1" max="365" value="30"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Max Log File Size (MB)</label>
+                <input type="number" id="max-log-size" min="1" max="1000" value="100"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            
+            <div class="space-y-3">
+                <label class="flex items-center">
+                    <input type="checkbox" id="log-to-file" checked class="mr-2">
+                    <span class="text-sm">Log to file</span>
+                </label>
+                <label class="flex items-center">
+                    <input type="checkbox" id="log-to-console" checked class="mr-2">
+                    <span class="text-sm">Log to console</span>
+                </label>
+                <label class="flex items-center">
+                    <input type="checkbox" id="log-database" checked class="mr-2">
+                    <span class="text-sm">Log to database</span>
+                </label>
+            </div>
+        </form>
+    </div>
+    
+    <!-- Database Management -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-lg font-semibold text-gray-800 mb-4">Database Management</h3>
+        
+        <div class="space-y-4">
+            <div class="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div class="flex items-center">
+                    <i class="fas fa-database text-blue-600 mr-3"></i>
+                    <div>
+                        <p class="text-sm font-medium text-blue-800">Database Information</p>
+                        <p class="text-xs text-blue-600">SQLite database storing users, logs, and configuration</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4 text-sm">
+                <div class="text-gray-600">
+                    <div class="flex justify-between mb-2">
+                        <span>Database Size:</span>
+                        <span id="db-size">Loading...</span>
+                    </div>
+                    <div class="flex justify-between mb-2">
+                        <span>Total Users:</span>
+                        <span id="db-users">Loading...</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>Total Logs:</span>
+                        <span id="db-logs">Loading...</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="pt-4 border-t border-gray-200">
+                <div class="grid grid-cols-2 gap-3">
+                    <button id="backup-db" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                        <i class="fas fa-download mr-2"></i>Backup
+                    </button>
+                    <button id="optimize-db" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                        <i class="fas fa-cogs mr-2"></i>Optimize
+                    </button>
+                </div>
+                <button id="reset-db" class="w-full mt-3 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+                    <i class="fas fa-trash mr-2"></i>Reset Database
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Security Settings -->
+    <div class="lg:col-span-2 bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-lg font-semibold text-gray-800 mb-4">Security Settings</h3>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <h4 class="text-md font-medium text-gray-700 mb-3">Access Control</h4>
+                <form class="space-y-4">
+                    <label class="flex items-center">
+                        <input type="checkbox" id="require-auth" checked class="mr-2">
+                        <span class="text-sm">Require authentication</span>
+                    </label>
+                    
+                    <label class="flex items-center">
+                        <input type="checkbox" id="session-timeout" checked class="mr-2">
+                        <span class="text-sm">Enable session timeout</span>
+                    </label>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Session Timeout (minutes)</label>
+                        <input type="number" id="timeout-minutes" min="5" max="1440" value="60"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    
+                    <label class="flex items-center">
+                        <input type="checkbox" id="rate-limiting" checked class="mr-2">
+                        <span class="text-sm">Enable rate limiting</span>
+                    </label>
+                </form>
+            </div>
+            
+            <div>
+                <h4 class="text-md font-medium text-gray-700 mb-3">API Security</h4>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">API Key</label>
+                        <div class="flex">
+                            <input type="text" id="api-key" readonly 
+                                   class="flex-1 px-3 py-2 border border-gray-300 rounded-l-lg bg-gray-50">
+                            <button id="regenerate-key" class="px-4 py-2 bg-blue-600 text-white rounded-r-lg hover:bg-blue-700">
+                                <i class="fas fa-refresh"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Allowed IPs (one per line)</label>
+                        <textarea id="allowed-ips" rows="4" placeholder="127.0.0.1&#10;192.168.1.0/24"
+                                  class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <div class="flex">
+                <i class="fas fa-exclamation-triangle text-yellow-400 mr-3 mt-0.5"></i>
+                <div class="text-sm text-yellow-700">
+                    <p class="font-medium mb-1">Security Notice</p>
+                    <p>Changing security settings may require you to re-authenticate. Make sure you have access to your credentials before applying changes.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Action Buttons -->
+<div class="mt-8 flex justify-end space-x-4">
+    <button id="restart-services" class="px-6 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700">
+        <i class="fas fa-redo mr-2"></i>Restart Services
+    </button>
+    <button id="save-all-settings" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+        <i class="fas fa-save mr-2"></i>Save All Settings
+    </button>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Load system status
+    async function loadSystemStatus() {
+        const result = await apiCall('/api/system/status');
+        if (result) {
+            updateStatusIndicators(result);
+            updateSystemMetrics(result);
+        }
+    }
+    
+    // Update status indicators
+    function updateStatusIndicators(status) {
+        const statuses = {
+            agent: document.getElementById('agent-status'),
+            ollama: document.getElementById('ollama-status'),
+            email: document.getElementById('email-status')
+        };
+        
+        Object.keys(statuses).forEach(service => {
+            const element = statuses[service];
+            const isRunning = status[service]?.running || false;
+            
+            element.className = `px-2 py-1 text-xs font-semibold rounded-full ${
+                isRunning ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+            }`;
+            element.innerHTML = `<i class="fas fa-circle mr-1"></i>${isRunning ? 'Running' : 'Stopped'}`;
+        });
+    }
+    
+    // Update system metrics
+    function updateSystemMetrics(metrics) {
+        if (metrics.system) {
+            document.getElementById('system-uptime').textContent = formatUptime(metrics.system.uptime);
+            document.getElementById('cpu-usage').textContent = metrics.system.cpu + '%';
+            document.getElementById('memory-usage').textContent = metrics.system.memory + '%';
+            document.getElementById('disk-usage').textContent = metrics.system.disk + '%';
+        }
+        
+        if (metrics.database) {
+            document.getElementById('db-size').textContent = formatBytes(metrics.database.size);
+            document.getElementById('db-users').textContent = metrics.database.users;
+            document.getElementById('db-logs').textContent = metrics.database.logs;
+        }
+    }
+    
+    // Format uptime
+    function formatUptime(seconds) {
+        const days = Math.floor(seconds / 86400);
+        const hours = Math.floor((seconds % 86400) / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        return `${days}d ${hours}h ${minutes}m`;
+    }
+    
+    // Format bytes
+    function formatBytes(bytes) {
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        let size = bytes;
+        let unit = 0;
+        while (size >= 1024 && unit < sizes.length - 1) {
+            size /= 1024;
+            unit++;
+        }
+        return `${size.toFixed(1)} ${sizes[unit]}`;
+    }
+    
+    // Load environment settings
+    async function loadEnvironmentSettings() {
+        const result = await apiCall('/api/system/environment');
+        if (result) {
+            document.getElementById('gmail-email').value = result.gmail_email || '';
+            document.getElementById('ollama-url').value = result.ollama_url || 'http://localhost:11434';
+            document.getElementById('debug-mode').checked = result.debug_mode || false;
+        }
+    }
+    
+    // Save environment settings
+    async function saveEnvironmentSettings() {
+        const settings = {
+            gmail_email: document.getElementById('gmail-email').value,
+            gmail_password: document.getElementById('gmail-password').value,
+            ollama_url: document.getElementById('ollama-url').value,
+            debug_mode: document.getElementById('debug-mode').checked
+        };
+        
+        const result = await apiCall('/api/system/environment', {
+            method: 'POST',
+            body: JSON.stringify(settings)
+        });
+        
+        if (result && result.success) {
+            showToast('Environment settings saved. Restart required to take effect.', 'success');
+        } else {
+            showToast(result ? result.error : 'Failed to save environment settings', 'error');
+        }
+    }
+    
+    // Test email configuration
+    async function testEmail() {
+        const email = document.getElementById('gmail-email').value;
+        const password = document.getElementById('gmail-password').value;
+        
+        if (!email || !password) {
+            showToast('Please enter email and password first', 'warning');
+            return;
+        }
+        
+        showToast('Testing email configuration...', 'info');
+        
+        const result = await apiCall('/api/system/test-email', {
+            method: 'POST',
+            body: JSON.stringify({ email, password })
+        });
+        
+        if (result && result.success) {
+            showToast('Email test successful!', 'success');
+        } else {
+            showToast(result ? result.error : 'Email test failed', 'error');
+        }
+    }
+    
+    // Toggle password visibility
+    function togglePassword(inputId) {
+        const input = document.getElementById(inputId);
+        const icon = input.nextElementSibling.querySelector('i');
+        
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.className = 'fas fa-eye-slash text-gray-400';
+        } else {
+            input.type = 'password';
+            icon.className = 'fas fa-eye text-gray-400';
+        }
+    }
+    
+    // Save log settings
+    async function saveLogSettings() {
+        const settings = {
+            log_level: document.getElementById('log-level').value,
+            log_retention: parseInt(document.getElementById('log-retention').value),
+            max_log_size: parseInt(document.getElementById('max-log-size').value),
+            log_to_file: document.getElementById('log-to-file').checked,
+            log_to_console: document.getElementById('log-to-console').checked,
+            log_database: document.getElementById('log-database').checked
+        };
+        
+        const result = await apiCall('/api/system/logging', {
+            method: 'POST',
+            body: JSON.stringify(settings)
+        });
+        
+        if (result && result.success) {
+            showToast('Log settings saved successfully', 'success');
+        }
+    }
+    
+    // Database operations
+    async function backupDatabase() {
+        const result = await apiCall('/api/system/database/backup', { method: 'POST' });
+        if (result && result.download_url) {
+            window.open(result.download_url);
+            showToast('Database backup created successfully', 'success');
+        }
+    }
+    
+    async function optimizeDatabase() {
+        const result = await apiCall('/api/system/database/optimize', { method: 'POST' });
+        if (result && result.success) {
+            showToast('Database optimized successfully', 'success');
+            loadSystemStatus(); // Refresh stats
+        }
+    }
+    
+    async function resetDatabase() {
+        if (!confirm('Are you sure you want to reset the database? This will delete ALL data including users, logs, and configuration. This action cannot be undone.')) {
+            return;
+        }
+        
+        if (!confirm('This is your final warning. Reset database and lose ALL data?')) {
+            return;
+        }
+        
+        const result = await apiCall('/api/system/database/reset', { method: 'POST' });
+        if (result && result.success) {
+            showToast('Database reset successfully. Please restart the application.', 'success');
+            setTimeout(() => window.location.reload(), 3000);
+        }
+    }
+    
+    // Generate new API key
+    async function regenerateApiKey() {
+        const result = await apiCall('/api/system/api-key/regenerate', { method: 'POST' });
+        if (result && result.api_key) {
+            document.getElementById('api-key').value = result.api_key;
+            showToast('New API key generated', 'success');
+        }
+    }
+    
+    // Restart services
+    async function restartServices() {
+        if (!confirm('Are you sure you want to restart all services? This may cause a brief interruption.')) {
+            return;
+        }
+        
+        showToast('Restarting services...', 'info');
+        
+        const result = await apiCall('/api/system/restart', { method: 'POST' });
+        if (result && result.success) {
+            showToast('Services restarted successfully', 'success');
+            setTimeout(() => window.location.reload(), 2000);
+        }
+    }
+    
+    // Save all settings
+    async function saveAllSettings() {
+        await saveEnvironmentSettings();
+        await saveLogSettings();
+        showToast('All settings saved successfully', 'success');
+    }
+    
+    // Initialize page
+    document.addEventListener('DOMContentLoaded', function() {
+        loadSystemStatus();
+        loadEnvironmentSettings();
+        
+        // Periodically refresh status
+        setInterval(loadSystemStatus, 30000);
+        
+        // Set up event listeners
+        document.getElementById('test-email').addEventListener('click', testEmail);
+        document.getElementById('save-env').addEventListener('click', saveEnvironmentSettings);
+        document.getElementById('backup-db').addEventListener('click', backupDatabase);
+        document.getElementById('optimize-db').addEventListener('click', optimizeDatabase);
+        document.getElementById('reset-db').addEventListener('click', resetDatabase);
+        document.getElementById('regenerate-key').addEventListener('click', regenerateApiKey);
+        document.getElementById('restart-services').addEventListener('click', restartServices);
+        document.getElementById('save-all-settings').addEventListener('click', saveAllSettings);
+        
+        // Generate initial API key display
+        document.getElementById('api-key').value = 'sk-' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    });
+</script>
+{% endblock %}

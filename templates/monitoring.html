@@ -1,0 +1,387 @@
+{% extends "base.html" %}
+
+{% block title %}Live Monitoring - ZEDEDA Camera Agent{% endblock %}
+{% block page_title %}Live Monitoring{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+    <!-- Live Feed -->
+    <div class="lg:col-span-2">
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-gray-800">Live Camera Feed</h3>
+                <div class="flex items-center space-x-3">
+                    <div id="feed-status" class="flex items-center px-3 py-1 rounded-full bg-gray-100 text-gray-600 text-sm">
+                        <i class="fas fa-pause mr-2"></i>Stopped
+                    </div>
+                    <button id="toggle-feed" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                        <i class="fas fa-play mr-2"></i>Start Feed
+                    </button>
+                </div>
+            </div>
+            
+            <div id="camera-container" class="relative bg-gray-900 rounded-lg overflow-hidden" style="aspect-ratio: 4/3;">
+                <div id="camera-placeholder" class="absolute inset-0 flex items-center justify-center text-white">
+                    <div class="text-center">
+                        <i class="fas fa-camera text-4xl mb-4 opacity-50"></i>
+                        <p class="text-lg opacity-75">Camera feed stopped</p>
+                        <p class="text-sm opacity-50">Click "Start Feed" to begin monitoring</p>
+                    </div>
+                </div>
+                <img id="camera-feed" class="w-full h-full object-cover hidden" alt="Camera Feed">
+                
+                <!-- Frame info overlay -->
+                <div id="frame-info" class="absolute top-4 left-4 bg-black bg-opacity-75 text-white px-3 py-2 rounded-lg text-sm hidden">
+                    <div>Frame: <span id="frame-number">0</span></div>
+                    <div>SSIM: <span id="frame-ssim">0.000</span></div>
+                    <div>Reason: <span id="frame-reason">-</span></div>
+                </div>
+                
+                <!-- Detection overlay -->
+                <div id="detection-overlay" class="absolute inset-0 border-4 border-red-500 hidden"></div>
+                <div id="detection-badge" class="absolute top-4 right-4 bg-red-500 text-white px-3 py-2 rounded-lg font-bold hidden">
+                    MONITOR DETECTED!
+                </div>
+            </div>
+            
+            <!-- Frame controls -->
+            <div class="mt-4 flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <label class="flex items-center">
+                        <input type="checkbox" id="show-frame-info" class="mr-2">
+                        <span class="text-sm">Show frame info</span>
+                    </label>
+                    <label class="flex items-center">
+                        <input type="checkbox" id="auto-refresh" checked class="mr-2">
+                        <span class="text-sm">Auto refresh</span>
+                    </label>
+                </div>
+                <div class="text-sm text-gray-500">
+                    Last update: <span id="last-update">Never</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Detection Info -->
+    <div class="space-y-6">
+        <!-- Current Status -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h3 class="text-lg font-semibold text-gray-800 mb-4">Detection Status</h3>
+            <div class="space-y-4">
+                <div class="p-3 bg-gray-50 rounded-lg">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="font-medium">Processing</span>
+                        <span id="processing-status" class="px-2 py-1 bg-gray-200 text-gray-600 rounded text-sm">Idle</span>
+                    </div>
+                    <div class="text-sm text-gray-600">
+                        Efficiency: <span id="efficiency-rate" class="font-medium">0%</span>
+                    </div>
+                </div>
+                
+                <div class="p-3 bg-gray-50 rounded-lg">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="font-medium">Latest Analysis</span>
+                    </div>
+                    <div id="latest-analysis" class="text-sm text-gray-600">
+                        No analysis yet
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Real-time Stats -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h3 class="text-lg font-semibold text-gray-800 mb-4">Real-time Statistics</h3>
+            <div class="space-y-3">
+                <div class="flex justify-between">
+                    <span class="text-gray-600">Frames Captured</span>
+                    <span id="live-total-frames" class="font-semibold">0</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-600">Frames Processed</span>
+                    <span id="live-processed-frames" class="font-semibold">0</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-600">Detections</span>
+                    <span id="live-detections" class="font-semibold text-yellow-600">0</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-600">Alerts Sent</span>
+                    <span id="live-alerts" class="font-semibold text-red-600">0</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Quick Settings -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h3 class="text-lg font-semibold text-gray-800 mb-4">Quick Settings</h3>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">SSIM Threshold</label>
+                    <input type="range" id="ssim-threshold" min="0.5" max="1.0" step="0.05" value="0.80" class="w-full">
+                    <div class="flex justify-between text-xs text-gray-500 mt-1">
+                        <span>0.5 (Sensitive)</span>
+                        <span id="ssim-value">0.80</span>
+                        <span>1.0 (Conservative)</span>
+                    </div>
+                </div>
+                
+                <button id="apply-settings" class="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+                    Apply Settings
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Detections -->
+<div class="bg-white rounded-lg shadow-md p-6">
+    <div class="flex items-center justify-between mb-4">
+        <h3 class="text-lg font-semibold text-gray-800">Recent Detections</h3>
+        <button id="clear-detections" class="text-red-600 hover:text-red-800 text-sm">
+            <i class="fas fa-trash mr-1"></i>Clear
+        </button>
+    </div>
+    
+    <div id="detections-timeline" class="space-y-4 max-h-96 overflow-y-auto">
+        <div class="text-center text-gray-500 py-8">
+            <i class="fas fa-search text-3xl mb-2"></i>
+            <p>No detections yet</p>
+            <p class="text-sm">Detections will appear here when monitors are detected</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let feedActive = false;
+    let detectionCount = 0;
+    
+    // Toggle feed
+    function toggleFeed() {
+        if (feedActive) {
+            stopFeed();
+        } else {
+            startFeed();
+        }
+    }
+    
+    // Start camera feed
+    function startFeed() {
+        feedActive = true;
+        
+        // Update UI
+        document.getElementById('toggle-feed').innerHTML = '<i class="fas fa-stop mr-2"></i>Stop Feed';
+        document.getElementById('feed-status').innerHTML = '<i class="fas fa-play mr-2"></i>Active';
+        document.getElementById('feed-status').className = 'flex items-center px-3 py-1 rounded-full bg-green-100 text-green-800 text-sm';
+        document.getElementById('processing-status').textContent = 'Active';
+        document.getElementById('processing-status').className = 'px-2 py-1 bg-green-100 text-green-800 rounded text-sm';
+        
+        // Hide placeholder, show feed
+        document.getElementById('camera-placeholder').classList.add('hidden');
+        document.getElementById('camera-feed').classList.remove('hidden');
+        
+        showToast('Camera feed started', 'success');
+    }
+    
+    // Stop camera feed
+    function stopFeed() {
+        feedActive = false;
+        
+        // Update UI
+        document.getElementById('toggle-feed').innerHTML = '<i class="fas fa-play mr-2"></i>Start Feed';
+        document.getElementById('feed-status').innerHTML = '<i class="fas fa-pause mr-2"></i>Stopped';
+        document.getElementById('feed-status').className = 'flex items-center px-3 py-1 rounded-full bg-gray-100 text-gray-600 text-sm';
+        document.getElementById('processing-status').textContent = 'Idle';
+        document.getElementById('processing-status').className = 'px-2 py-1 bg-gray-200 text-gray-600 rounded text-sm';
+        
+        // Show placeholder, hide feed
+        document.getElementById('camera-placeholder').classList.remove('hidden');
+        document.getElementById('camera-feed').classList.add('hidden');
+        
+        // Hide detection elements
+        document.getElementById('detection-overlay').classList.add('hidden');
+        document.getElementById('detection-badge').classList.add('hidden');
+        
+        showToast('Camera feed stopped', 'warning');
+    }
+    
+    // Update frame display
+    function updateFrame(frameData) {
+        if (!feedActive) return;
+        
+        const img = document.getElementById('camera-feed');
+        const frameInfo = document.getElementById('frame-info');
+        
+        // Update image
+        img.src = 'data:image/jpeg;base64,' + frameData.image_b64;
+        
+        // Update frame info
+        document.getElementById('frame-number').textContent = frameData.metadata.frame_number;
+        document.getElementById('frame-ssim').textContent = frameData.metadata.similarity_score?.toFixed(3) || '1.000';
+        document.getElementById('frame-reason').textContent = frameData.metadata.reason;
+        
+        // Show frame info if enabled
+        if (document.getElementById('show-frame-info').checked) {
+            frameInfo.classList.remove('hidden');
+        } else {
+            frameInfo.classList.add('hidden');
+        }
+        
+        // Update last update time
+        document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+    }
+    
+    // Show detection animation
+    function showDetection(event) {
+        if (!feedActive) return;
+        
+        const overlay = document.getElementById('detection-overlay');
+        const badge = document.getElementById('detection-badge');
+        
+        // Show detection indicators
+        overlay.classList.remove('hidden');
+        badge.classList.remove('hidden');
+        
+        // Add detection to timeline
+        addDetectionToTimeline(event);
+        
+        // Hide after 3 seconds
+        setTimeout(() => {
+            overlay.classList.add('hidden');
+            badge.classList.add('hidden');
+        }, 3000);
+    }
+    
+    // Add detection to timeline
+    function addDetectionToTimeline(event) {
+        const timeline = document.getElementById('detections-timeline');
+        const item = document.createElement('div');
+        
+        detectionCount++;
+        
+        item.className = 'flex items-start space-x-4 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg';
+        item.innerHTML = `
+            <div class="flex-shrink-0">
+                <div class="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center text-white font-bold">
+                    ${detectionCount}
+                </div>
+            </div>
+            <div class="flex-1">
+                <div class="flex items-center justify-between mb-2">
+                    <h4 class="font-semibold text-red-800">Monitor Detected</h4>
+                    <span class="text-sm text-gray-500">${new Date(event.timestamp).toLocaleTimeString()}</span>
+                </div>
+                <p class="text-sm text-gray-700 mb-2">Confidence: ${(event.confidence * 100).toFixed(0)}%</p>
+                <p class="text-sm text-gray-600">${event.response}</p>
+            </div>
+        `;
+        
+        // Remove placeholder if it exists
+        const placeholder = timeline.querySelector('.text-center');
+        if (placeholder) {
+            placeholder.remove();
+        }
+        
+        timeline.insertBefore(item, timeline.firstChild);
+        
+        // Keep only last 20 detections
+        while (timeline.children.length > 20) {
+            timeline.removeChild(timeline.lastChild);
+        }
+        
+        // Scroll to top
+        timeline.scrollTop = 0;
+    }
+    
+    // Update live stats
+    function updateLiveStats(stats) {
+        document.getElementById('live-total-frames').textContent = stats.total_frames || 0;
+        document.getElementById('live-processed-frames').textContent = stats.processed_frames || 0;
+        document.getElementById('live-detections').textContent = stats.detections || 0;
+        document.getElementById('live-alerts').textContent = stats.alerts_sent || 0;
+        
+        // Calculate efficiency
+        const efficiency = stats.total_frames > 0 ? 
+            ((stats.processed_frames / stats.total_frames) * 100).toFixed(1) : 0;
+        document.getElementById('efficiency-rate').textContent = efficiency + '%';
+    }
+    
+    // Update latest analysis
+    function updateLatestAnalysis(response) {
+        const analysisEl = document.getElementById('latest-analysis');
+        const maxLength = 100;
+        const text = response.length > maxLength ? 
+            response.substring(0, maxLength) + '...' : response;
+        analysisEl.textContent = text;
+    }
+    
+    // Apply settings
+    function applySettings() {
+        const threshold = document.getElementById('ssim-threshold').value;
+        
+        // This would typically send settings to the backend
+        showToast(`SSIM threshold updated to ${threshold}`, 'success');
+    }
+    
+    // Clear detections
+    function clearDetections() {
+        const timeline = document.getElementById('detections-timeline');
+        timeline.innerHTML = `
+            <div class="text-center text-gray-500 py-8">
+                <i class="fas fa-search text-3xl mb-2"></i>
+                <p>No detections yet</p>
+                <p class="text-sm">Detections will appear here when monitors are detected</p>
+            </div>
+        `;
+        detectionCount = 0;
+        showToast('Detection history cleared', 'info');
+    }
+    
+    // Override base handlers
+    function handleDetectionEvent(data) {
+        showDetection(data.event);
+        updateLiveStats(data.stats);
+        updateLatestAnalysis(data.event.response);
+        
+        // Flash the page title
+        document.title = '🚨 Detection! - Live Monitoring';
+        setTimeout(() => {
+            document.title = 'Live Monitoring - ZEDEDA Camera Agent';
+        }, 3000);
+    }
+    
+    function handleFrameUpdate(data) {
+        updateFrame(data.frame);
+        updateLiveStats(data.stats);
+    }
+    
+    // Initialize monitoring page
+    document.addEventListener('DOMContentLoaded', function() {
+        // Set up event listeners
+        document.getElementById('toggle-feed').addEventListener('click', toggleFeed);
+        document.getElementById('apply-settings').addEventListener('click', applySettings);
+        document.getElementById('clear-detections').addEventListener('click', clearDetections);
+        
+        // SSIM threshold slider
+        const ssimSlider = document.getElementById('ssim-threshold');
+        const ssimValue = document.getElementById('ssim-value');
+        
+        ssimSlider.addEventListener('input', function() {
+            ssimValue.textContent = this.value;
+        });
+        
+        // Auto-start feed if monitoring is active
+        fetch('/api/status')
+            .then(response => response.json())
+            .then(data => {
+                if (data.monitoring_active) {
+                    startFeed();
+                }
+                updateLiveStats(data.stats || {});
+            });
+    });
+</script>
+{% endblock %}
