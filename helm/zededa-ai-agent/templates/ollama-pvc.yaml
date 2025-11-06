@@ -1,0 +1,27 @@
+{{- if .Values.ollama.enabled }}
+{{- if .Values.ollama.persistence.enabled }}
+{{- if not .Values.ollama.persistence.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "zededa-ai-agent.fullname" . }}-ollama-pvc
+  labels:
+    {{- include "zededa-ai-agent.ollama.labels" . | nindent 4 }}
+  {{- with .Values.ollama.persistence.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    - {{ .Values.ollama.persistence.accessMode }}
+  {{- if .Values.ollama.persistence.storageClass }}
+  storageClassName: {{ .Values.ollama.persistence.storageClass }}
+  {{- else }}
+  storageClassName: local-path
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.ollama.persistence.size }}
+{{- end }}
+{{- end }}
+{{- end }}

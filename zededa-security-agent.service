@@ -1,0 +1,24 @@
+[Unit]
+Description=ZEDEDA Vision AI Security Agent
+After=network.target ollama.service
+Wants=ollama.service
+
+[Service]
+Type=simple
+User=nvidia
+Group=nvidia
+WorkingDirectory=/home/nvidia/Developer/agent-attempt-2
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+EnvironmentFile=-/home/nvidia/Developer/agent-attempt-2/.env
+ExecStart=/usr/bin/python3 /home/nvidia/Developer/agent-attempt-2/agent_enhanced.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

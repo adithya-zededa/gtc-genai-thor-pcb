@@ -1,0 +1,102 @@
+{{- if .Values.ollama.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "zededa-ai-agent.fullname" . }}-ollama
+  labels:
+    {{- include "zededa-ai-agent.ollama.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.ollama.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "zededa-ai-agent.ollama.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "zededa-ai-agent.ollama.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "zededa-ai-agent.serviceAccountName" . }}
+      {{- if .Values.ollama.runtimeClassName }}
+      runtimeClassName: {{ .Values.ollama.runtimeClassName }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: ollama
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        image: "{{ .Values.ollama.image.repository }}:{{ .Values.ollama.image.tag }}"
+        imagePullPolicy: {{ .Values.ollama.image.pullPolicy }}
+        command: ["/bin/sh", "-c"]
+        args:
+          - >-
+            ollama serve &
+            until ollama list >/dev/null 2>&1; do sleep 2; done &&
+            ollama pull {{ .Values.ollama.visionModel | quote }} &&
+            wait
+        ports:
+        - name: http
+          containerPort: {{ .Values.ollama.service.targetPort }}
+          protocol: TCP
+        livenessProbe:
+          {{- toYaml .Values.ollama.livenessProbe | nindent 12 }}
+        readinessProbe:
+          {{- toYaml .Values.ollama.readinessProbe | nindent 12 }}
+        resources:
+          {{- if .Values.ollama.resources.limits }}
+          limits:
+            {{- if .Values.ollama.gpu.enabled }}
+            nvidia.com/gpu: {{ .Values.ollama.gpu.count }}
+            {{- end }}
+            {{- range $key, $value := .Values.ollama.resources.limits }}
+            {{ $key }}: {{ $value }}
+            {{- end }}
+          {{- end }}
+          {{- if .Values.ollama.resources.requests }}
+          requests:
+            {{- if .Values.ollama.gpu.enabled }}
+            nvidia.com/gpu: {{ .Values.ollama.gpu.count }}
+            {{- end }}
+            {{- range $key, $value := .Values.ollama.resources.requests }}
+            {{ $key }}: {{ $value }}
+            {{- end }}
+          {{- end }}
+        env:
+        {{- range .Values.ollama.env }}
+        - name: {{ .name }}
+          value: {{ .value | quote }}
+        {{- end }}
+        - name: VISION_MODEL
+          value: {{ .Values.ollama.visionModel | quote }}
+        {{- if .Values.ollama.persistence.enabled }}
+        volumeMounts:
+        - name: ollama-data
+          mountPath: /root/.ollama
+        {{- end }}
+      {{- if .Values.ollama.persistence.enabled }}
+      volumes:
+      - name: ollama-data
+        persistentVolumeClaim:
+          {{- if .Values.ollama.persistence.existingClaim }}
+          claimName: {{ .Values.ollama.persistence.existingClaim }}
+          {{- else }}
+          claimName: {{ include "zededa-ai-agent.fullname" . }}-ollama-pvc
+          {{- end }}
+      {{- end }}
+      {{- with .Values.ollama.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ollama.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ollama.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

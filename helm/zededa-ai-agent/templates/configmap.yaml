@@ -1,0 +1,11 @@
+{{- if and .Values.web.enabled (.Values.web.config.enabled | default false) (.Values.web.config.content) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zededa-ai-agent.fullname" . }}-config
+  labels:
+    {{- include "zededa-ai-agent.labels" . | nindent 4 }}
+data:
+  {{ .Values.web.config.fileName }}: |
+{{ .Values.web.config.content | nindent 4 }}
+{{- end }}

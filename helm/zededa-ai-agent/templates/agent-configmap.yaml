@@ -1,0 +1,51 @@
+{{- if .Values.agent.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "zededa-ai-agent.fullname" . }}-agent-config
+  labels:
+    {{- include "zededa-ai-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+data:
+  alert_rules.json: |
+    {
+      "alert_rules": [
+        {{- range $index, $rule := .Values.agent.alertRules }}
+        {{- if $index }},{{ end }}
+        {
+          "id": {{ $rule.id | quote }},
+          "description": {{ $rule.description | quote }},
+          "enabled": {{ $rule.enabled }}
+        }
+        {{- end }}
+      ],
+      "notification_settings": {
+        "desktop_notifications": {{ .Values.agent.notifications.desktop }},
+        "email_alerts": {{ .Values.agent.notifications.email.enabled }},
+        "slack_alerts": {{ .Values.agent.notifications.slack.enabled }},
+        "sound_alerts": false
+      }
+      {{- if or .Values.agent.notifications.email.enabled .Values.agent.notifications.slack.enabled }},{{ end }}
+      {{- if .Values.agent.notifications.email.enabled }}
+      "email_config": {
+        "smtp_server": {{ .Values.agent.notifications.email.smtpServer | quote }},
+        "smtp_port": {{ .Values.agent.notifications.email.smtpPort }},
+        "sender_email": {{ .Values.agent.notifications.email.senderEmail | quote }},
+        "sender_password": {{ .Values.agent.notifications.email.senderPassword | quote }},
+        "recipient_emails": [
+          {{- range $index, $email := .Values.agent.notifications.email.recipientEmails }}
+          {{- if $index }},{{ end }}
+          {{ $email | quote }}
+          {{- end }}
+        ]
+      }
+      {{- if .Values.agent.notifications.slack.enabled }},{{ end }}
+      {{- end }}
+      {{- if .Values.agent.notifications.slack.enabled }}
+      "slack_config": {
+        "webhook_url": {{ .Values.agent.notifications.slack.webhookUrl | quote }},
+        "channel": {{ .Values.agent.notifications.slack.channel | quote }}
+      }
+      {{- end }}
+    }
+{{- end }}

@@ -1,0 +1,11 @@
+# ZEDEDA Email Agent - Dependencies
+
+Flask>=3.0.0
+Flask-Cors>=4.0.0
+python-dotenv>=1.0.1
+PyYAML>=6.0.1
+gunicorn>=21.2.0
+requests>=2.31.0
+psutil>=5.9.0
+opencv-python>=4.8.0
+scikit-image>=0.22.0

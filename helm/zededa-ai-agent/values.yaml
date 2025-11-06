@@ -1,0 +1,255 @@
+# Default values for zededa-ai-agent
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+global:
+  # Global image registry
+  imageRegistry: ""
+  imagePullSecrets: []
+
+# Email automation service configuration
+web:
+  enabled: true
+  replicaCount: 1
+
+  image:
+    repository: adithyazededa/zededa-ai-agent-web
+    pullPolicy: IfNotPresent
+    tag: "v2.0.0"
+
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 5000
+    nodePort: null
+    annotations: {}
+
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: email-agent.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 30
+    timeoutSeconds: 3
+    successThreshold: 1
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    successThreshold: 1
+    failureThreshold: 3
+
+  model: "llava:7b"
+  ollama:
+    url: ""
+
+  email:
+    smtpServer: "smtp.gmail.com"
+    smtpPort: 587
+    useTls: true
+    user: ""
+    from: "adithya7shankar@gmail.com"
+    password: ""
+    passwordSecretName: ""
+    passwordSecretKey: "password"
+
+  config:
+    enabled: true
+    mountPath: /app/config
+    fileName: config.yaml
+    content: |
+      rules:
+        - id: COMPUTER_DETECTED
+          description: "Trigger when the camera vision pipeline spots a computer."
+          condition:
+            field: primary_label
+            operator: eq
+            value: computer
+          email:
+            to:
+              - adithya7shankar@gmail.com
+            subject: "Computer detected by camera"
+            body: |
+              Hi Adithya,
+
+              The vision pipeline just detected a computer in the latest frame.
+              Event details:
+                • label: {{primary_label}}
+                • confidence: {{confidence}}
+                • timestamp: {{timestamp}}
+
+              -- ZEDEDA Email Agent
+
+  extraEnv: []
+
+# Ollama inference service
+ollama:
+  enabled: true
+  replicaCount: 1
+
+  image:
+    repository: ollama/ollama
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 11434
+    targetPort: 11434
+    nodePort: null
+    annotations: {}
+
+  visionModel: "llava:7b"
+  runtimeClassName: "nvidia"
+
+  persistence:
+    enabled: false
+    existingClaim: ""
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 10Gi
+    annotations: {}
+
+  gpu:
+    enabled: true
+    count: 1
+    vendor: nvidia
+
+  env:
+    - name: OLLAMA_HOST
+      value: "0.0.0.0:11434"
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 12Gi
+    requests:
+      cpu: 500m
+      memory: 8Gi
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  livenessProbe:
+    httpGet:
+      path: /api/version
+      port: 11434
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    timeoutSeconds: 10
+    successThreshold: 1
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /api/version
+      port: 11434
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 10
+    successThreshold: 1
+    failureThreshold: 3
+
+# Optional: legacy camera agent (disabled by default)
+agent:
+  enabled: false
+  replicaCount: 1
+
+  image:
+    repository: adithyazededa/zededa-ai-agent-agent
+    pullPolicy: IfNotPresent
+    tag: "v2.0.0"
+
+  cameraIndex: 0
+  captureInterval: 5
+  visionModel: "llava"
+
+  alertRules: []
+
+  notifications:
+    desktop: false
+    email:
+      enabled: false
+      smtpServer: "smtp.gmail.com"
+      smtpPort: 587
+      senderEmail: ""
+      senderPassword: ""
+      recipientEmails: []
+    slack:
+      enabled: false
+      webhookUrl: ""
+      channel: "#security-alerts"
+
+  resources:
+    limits: {}
+    requests: {}
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  service:
+    enabled: false
+    type: ClusterIP
+    port: 8081
+
+  securityContext:
+    privileged: false
+
+  volumes: []
+
+# Service Account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Pod Security Context
+podSecurityContext: {}
+
+# Security Context
+securityContext: {}
+
+# Autoscaling (disabled by default)
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# Network Policies
+networkPolicy:
+  enabled: false
+  policyTypes:
+    - Ingress
+    - Egress

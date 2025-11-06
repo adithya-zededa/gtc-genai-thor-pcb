@@ -1,0 +1,21 @@
+apiVersion: v2
+name: zededa-ai-agent
+description: ZEDEDA Email Automation Agent powered by Ollama LLaVA 1.5
+type: application
+version: 2.0.0
+appVersion: "2.0.0"
+keywords:
+  - zededa
+  - edge-ai
+  - email
+  - automation
+  - ollama
+  - llava
+  - agents
+maintainers:
+  - name: ZEDEDA
+    email: support@zededa.com
+home: https://zededa.com
+sources:
+  - https://github.com/zededa/vision-ai
+icon: https://zededa.com/wp-content/uploads/2022/12/mk1.png

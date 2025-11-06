@@ -1,0 +1,106 @@
+{{- if .Values.web.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "zededa-ai-agent.fullname" . }}-web
+  labels:
+    {{- include "zededa-ai-agent.web.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.web.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "zededa-ai-agent.web.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "zededa-ai-agent.web.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "zededa-ai-agent.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: web
+        image: "{{ .Values.web.image.repository }}:{{ .Values.web.image.tag }}"
+        imagePullPolicy: {{ .Values.web.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.web.service.targetPort }}
+          protocol: TCP
+        env:
+        - name: OLLAMA_URL
+          value: {{ include "zededa-ai-agent.ollamaUrl" . | quote }}
+        - name: OLLAMA_MODEL
+          value: {{ .Values.web.model | quote }}
+        - name: EMAIL_SMTP_SERVER
+          value: {{ .Values.web.email.smtpServer | quote }}
+        - name: EMAIL_SMTP_PORT
+          value: "{{ .Values.web.email.smtpPort }}"
+        - name: EMAIL_USE_TLS
+          value: "{{ if .Values.web.email.useTls }}true{{ else }}false{{ end }}"
+        {{- if .Values.web.email.user }}
+        - name: EMAIL_USER
+          value: {{ .Values.web.email.user | quote }}
+        {{- end }}
+        {{- if .Values.web.email.from }}
+        - name: EMAIL_FROM
+          value: {{ .Values.web.email.from | quote }}
+        {{- end }}
+        {{- if .Values.web.email.passwordSecretName }}
+        - name: EMAIL_PASS
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.web.email.passwordSecretName }}
+              key: {{ .Values.web.email.passwordSecretKey }}
+        {{- else if .Values.web.email.password }}
+        - name: EMAIL_PASS
+          value: {{ .Values.web.email.password | quote }}
+        {{- end }}
+        - name: CONFIG_PATH
+          value: {{ printf "%s/%s" .Values.web.config.mountPath .Values.web.config.fileName | quote }}
+        - name: PORT
+          value: "{{ .Values.web.service.targetPort }}"
+        {{- range .Values.web.extraEnv }}
+        - name: {{ .name }}
+          value: {{ .value | quote }}
+        {{- end }}
+        livenessProbe:
+          {{- toYaml .Values.web.livenessProbe | nindent 12 }}
+        readinessProbe:
+          {{- toYaml .Values.web.readinessProbe | nindent 12 }}
+        resources:
+          {{- toYaml .Values.web.resources | nindent 12 }}
+        {{- with .Values.securityContext }}
+        securityContext:
+          {{- toYaml . | nindent 12 }}
+        {{- end }}
+        {{- if and (.Values.web.config.enabled | default false) (.Values.web.config.content) }}
+        volumeMounts:
+        - name: web-config
+          mountPath: {{ .Values.web.config.mountPath }}
+          readOnly: true
+        {{- end }}
+      {{- if and (.Values.web.config.enabled | default false) (.Values.web.config.content) }}
+      volumes:
+      - name: web-config
+        configMap:
+          name: {{ include "zededa-ai-agent.fullname" . }}-config
+      {{- end }}
+      {{- with .Values.web.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.web.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.web.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

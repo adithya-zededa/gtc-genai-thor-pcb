@@ -1,0 +1,91 @@
+services:
+  email-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    image: adithyazededa/zededa-ai-agent-web:v2.0.0
+    container_name: zededa-email-agent
+    environment:
+      - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llava:7b}
+      - EMAIL_SMTP_SERVER=${EMAIL_SMTP_SERVER:-smtp.gmail.com}
+      - EMAIL_SMTP_PORT=${EMAIL_SMTP_PORT:-587}
+      - EMAIL_USE_TLS=${EMAIL_USE_TLS:-true}
+      - EMAIL_USER=${EMAIL_USER:-}
+      - EMAIL_PASS=${EMAIL_PASS:-}
+      - EMAIL_FROM=${EMAIL_FROM:-adithya7shankar@gmail.com}
+      - CONFIG_PATH=/app/config.yaml
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    ports:
+      - "8080:5000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://127.0.0.1:5000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      - ollama
+
+  camera-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.camera
+    image: adithyazededa/zededa-camera-agent:v1.0.0
+    container_name: zededa-camera-agent
+    environment:
+      - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
+      - VISION_MODEL=${VISION_MODEL:-llava:7b}
+      - CAMERA_INDEX=${CAMERA_INDEX:-0}
+      - CAPTURE_INTERVAL=${CAPTURE_INTERVAL:-5}
+      - EMAIL_USER=${EMAIL_USER:-}
+      - EMAIL_PASS=${EMAIL_PASS:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./camera_config.yaml:/app/camera_config.yaml:ro
+      - ./detected_images:/app/detected_images
+      - ./logs:/app/logs
+    devices:
+      - /dev/video0:/dev/video0
+    privileged: false
+    restart: unless-stopped
+    depends_on:
+      - ollama
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import cv2; cap = cv2.VideoCapture(0); success = cap.isOpened(); cap.release(); exit(0 if success else 1)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: zededa-ollama
+    runtime: nvidia
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    volumes:
+      - ollama-data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    entrypoint: ["/bin/sh", "-c", "ollama serve & until ollama list >/dev/null 2>&1; do sleep 2; done && ollama pull llava:7b && wait"]
+    restart: unless-stopped
+
+volumes:
+  ollama-data:

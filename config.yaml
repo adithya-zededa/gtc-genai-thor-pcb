@@ -1,0 +1,21 @@
+rules:
+  - id: COMPUTER_DETECTED
+    description: Trigger when the camera vision pipeline spots a computer.
+    condition:
+      field: primary_label
+      operator: eq
+      value: computer
+    email:
+      to:
+        - adithya7shankar@gmail.com
+      subject: "Computer detected by camera"
+      body: |
+        Hi Adithya,
+
+        The vision pipeline just detected a computer in the latest frame.
+        Event details:
+          • label: {{primary_label}}
+          • confidence: {{confidence}}
+          • timestamp: {{timestamp}}
+
+        -- ZEDEDA Email Agent
