@@ -121,6 +121,7 @@ rules:
       subject: 🖥️ Computer Monitor Detected - ZEDEDA Security Alert
       to: &id001
       - adithya7shankar@gmail.com
+      - adithya@zededa.com
   conditions:
   - field: primary_label
     operator: eq

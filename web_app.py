@@ -9,6 +9,7 @@ import json
 import yaml
 import base64
 import sqlite3
+import logging
 from datetime import datetime, timedelta
 from typing import Optional
 from pathlib import Path
@@ -18,6 +19,10 @@ import threading
 import time
 from camera_agent import MonitorDetectionAgent
 import cv2
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 import requests
 import csv
 import io
@@ -456,16 +461,37 @@ def api_users():
         conn.close()
         return jsonify([dict(user) for user in users])
 
-@app.route('/api/users/<int:user_id>', methods=['DELETE'])
+@app.route('/api/users/<int:user_id>', methods=['DELETE', 'PUT'])
 def api_delete_user(user_id):
-    """Delete user"""
-    conn = get_db_connection()
-    conn.execute('UPDATE users SET active = 0 WHERE id = ?', (user_id,))
-    conn.commit()
-    conn.close()
+    """Delete or update user"""
+    if request.method == 'DELETE':
+        conn = get_db_connection()
+        conn.execute('UPDATE users SET active = 0 WHERE id = ?', (user_id,))
+        conn.commit()
+        conn.close()
+        
+        update_email_recipients()
+        return jsonify({'success': True, 'message': 'User deactivated'})
     
-    update_email_recipients()
-    return jsonify({'success': True, 'message': 'User deactivated'})
+    elif request.method == 'PUT':
+        data = request.json
+        conn = get_db_connection()
+        try:
+            conn.execute('''
+                UPDATE users 
+                SET email = ?, name = ?, role = ?
+                WHERE id = ?
+            ''', (data['email'], data['name'], data.get('role', 'user'), user_id))
+            conn.commit()
+            
+            # Update configuration with updated user email
+            update_email_recipients()
+            
+            return jsonify({'success': True, 'message': 'User updated successfully'})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)})
+        finally:
+            conn.close()
 
 @app.route('/api/config', methods=['GET', 'POST'])
 def api_config():
@@ -788,37 +814,59 @@ def check_ollama_availability():
         return False
 
 def update_email_recipients():
-    """Update email recipients in configuration based on users"""
+    """Update email recipients in configuration based on active users"""
     try:
-        # Get active users
+        # Get active users with valid emails
         conn = get_db_connection()
-        users = conn.execute('SELECT email FROM users WHERE active = 1').fetchall()
+        users = conn.execute('SELECT email FROM users WHERE active = 1 AND email IS NOT NULL AND email != ""').fetchall()
         conn.close()
         
         emails = [user['email'] for user in users]
         
+        if not emails:
+            logger.warning("No active users found to update email recipients")
+            return
+        
         # Update configuration
-        with open('camera_config.yaml', 'r') as f:
+        config_path = 'camera_config.yaml'
+        with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
         
-        rules = config.get('rules', []) if config else []
+        if not config:
+            logger.error("Failed to load camera configuration")
+            return
+        
+        rules = config.get('rules', [])
+        if not rules:
+            logger.warning("No rules found in configuration to update")
+            return
+        
         updated = False
         for rule in rules:
-            actions_email = rule.get('actions', {}).get('email') if isinstance(rule.get('actions'), dict) else None
-            legacy_email = rule.get('email') if isinstance(rule.get('email'), dict) else None
-
-            if actions_email is not None:
-                rule['actions']['email']['to'] = emails
-                updated = True
-            elif legacy_email is not None:
+            # Check for actions.email.to structure
+            if 'actions' in rule and isinstance(rule['actions'], dict):
+                if 'email' in rule['actions'] and isinstance(rule['actions']['email'], dict):
+                    rule['actions']['email']['to'] = emails
+                    updated = True
+                    logger.info(f"Updated rule '{rule.get('id', 'unknown')}' with {len(emails)} recipients")
+            
+            # Check for legacy email.to structure
+            elif 'email' in rule and isinstance(rule['email'], dict):
                 rule['email']['to'] = emails
                 updated = True
+                logger.info(f"Updated legacy rule '{rule.get('id', 'unknown')}' with {len(emails)} recipients")
         
         if updated:
-            with open('camera_config.yaml', 'w') as f:
-                yaml.safe_dump(config, f, default_flow_style=False, allow_unicode=True)
+            # Write back to file
+            with open(config_path, 'w') as f:
+                yaml.safe_dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+            
+            logger.info(f"Email recipients updated successfully. Recipients: {', '.join(emails)}")
+        else:
+            logger.warning("No rules were updated with email recipients")
+            
     except Exception as e:
-        print(f"Failed to update email recipients: {e}")
+        logger.error(f"Failed to update email recipients: {e}", exc_info=True)
 
 # Socket.IO events
 @socketio.on('connect')
