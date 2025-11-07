@@ -35,11 +35,11 @@
                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
         </div>
         
-        <div class="flex items-end space-x-2">
-            <button id="export-logs" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+        <div class="flex items-end space-x-3">
+            <button id="export-logs" class="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-sky-500 text-white font-semibold shadow-md shadow-emerald-200/60 transition-transform transform hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-emerald-300">
                 <i class="fas fa-download mr-2"></i>Export
             </button>
-            <button id="clear-logs" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+            <button id="clear-logs" class="px-4 py-2 rounded-xl bg-gradient-to-r from-rose-500 to-red-600 text-white font-semibold shadow-md shadow-rose-200/60 transition-transform transform hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-rose-300">
                 <i class="fas fa-trash mr-2"></i>Clear
             </button>
         </div>
@@ -218,6 +218,119 @@
     let itemsPerPage = 25;
     let sortField = 'timestamp';
     let sortDirection = 'desc';
+
+    const escapeHtml = (value) => {
+        if (value === null || value === undefined) return '';
+        return value
+            .toString()
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    };
+
+    const formatMultiline = (value) => {
+        const safe = escapeHtml(value || '');
+        return safe.replace(/\n/g, '<br>');
+    };
+
+    const formatPreview = (value) => {
+        if (!value) return 'View LLM conversation';
+        const trimmed = value.trim();
+        const truncated = trimmed.length > 160 ? `${trimmed.slice(0, 160)}…` : trimmed;
+        return escapeHtml(truncated);
+    };
+
+    function renderDecisionDetails(details = {}) {
+        if (!details || Object.keys(details).length === 0) {
+            return '<span class="text-gray-500">No decision details recorded.</span>';
+        }
+
+        const segments = [];
+
+        if (details.classification) {
+            segments.push(`<p><span class="font-semibold text-gray-700">Classification:</span> ${escapeHtml(details.classification)}</p>`);
+        }
+
+        if (typeof details.confidence !== 'undefined') {
+            const numericConfidence = Number(details.confidence);
+            let confidenceDisplay = escapeHtml(details.confidence);
+            if (!Number.isNaN(numericConfidence)) {
+                if (numericConfidence <= 1) {
+                    confidenceDisplay = `${(numericConfidence * 100).toFixed(1)}%`;
+                } else {
+                    confidenceDisplay = `${numericConfidence}`;
+                }
+            }
+            segments.push(`<p><span class="font-semibold text-gray-700">Confidence:</span> ${confidenceDisplay}</p>`);
+        }
+
+        if (details.monitor_type) {
+            segments.push(`<p><span class="font-semibold text-gray-700">Monitor Type:</span> ${escapeHtml(details.monitor_type)}</p>`);
+        }
+
+        if (details.reasoning) {
+            segments.push(`
+                <div>
+                    <p class="font-semibold text-gray-700 mb-1">Reasoning</p>
+                    <div class="whitespace-pre-line break-words bg-white rounded-md border border-gray-200 p-3">${formatMultiline(details.reasoning)}</div>
+                </div>
+            `);
+        }
+
+        if (details.tool_arguments) {
+            segments.push(`
+                <details class="rounded-md border border-gray-200 bg-white">
+                    <summary class="cursor-pointer px-3 py-2 text-sm font-medium text-blue-600">Tool Arguments</summary>
+                    <pre class="px-3 py-2 text-xs text-gray-800 whitespace-pre-wrap break-words overflow-auto">${escapeHtml(JSON.stringify(details.tool_arguments, null, 2))}</pre>
+                </details>
+            `);
+        }
+
+        if (details.tool_response) {
+            segments.push(`
+                <details class="rounded-md border border-gray-200 bg-white">
+                    <summary class="cursor-pointer px-3 py-2 text-sm font-medium text-blue-600">Raw Tool Response</summary>
+                    <pre class="px-3 py-2 text-xs text-gray-800 whitespace-pre-wrap break-words overflow-auto">${escapeHtml(JSON.stringify(details.tool_response, null, 2))}</pre>
+                </details>
+            `);
+        }
+
+        if (details.error) {
+            segments.push(`<p class="text-red-600 text-sm">Error: ${escapeHtml(details.error)}</p>`);
+        }
+
+        if (details.tool_error) {
+            segments.push(`<p class="text-amber-600 text-sm">Tool Warning: ${escapeHtml(details.tool_error)}</p>`);
+        }
+
+        return segments.join('');
+    }
+
+    function buildResponseHtml(log) {
+        const responseSource = log.response || log.vision_description || '';
+        const preview = formatPreview(responseSource);
+        const visionHtml = formatMultiline(log.vision_description || log.response || '');
+        const decisionHtml = renderDecisionDetails(log.decision_details || {});
+        const visionBlock = visionHtml ? visionHtml : '<span class="text-gray-500">No description recorded.</span>';
+
+        return `
+            <details class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <summary class="cursor-pointer text-blue-600 font-semibold">${preview}</summary>
+                <div class="mt-3 space-y-4 text-sm text-gray-800">
+                    <div>
+                        <p class="font-semibold text-gray-700 mb-1">Vision LLM</p>
+                        <div class="whitespace-pre-line break-words bg-white rounded-md border border-gray-200 p-3">${visionBlock}</div>
+                    </div>
+                    <div>
+                        <p class="font-semibold text-gray-700 mb-1">Decision LLM</p>
+                        <div class="space-y-2">${decisionHtml}</div>
+                    </div>
+                </div>
+            </details>
+        `;
+    }
     
     // Load logs
     async function loadLogs() {
@@ -278,8 +391,15 @@
             }
             
             // Search filter
-            if (searchTerm && !log.response?.toLowerCase().includes(searchTerm)) {
-                return false;
+            if (searchTerm) {
+                const searchSpace = [
+                    log.response || '',
+                    log.vision_description || '',
+                    JSON.stringify(log.decision_details || {})
+                ].join(' ').toLowerCase();
+                if (!searchSpace.includes(searchTerm)) {
+                    return false;
+                }
             }
             
             return true;
@@ -349,37 +469,46 @@
         pageData.forEach(log => {
             const row = document.createElement('tr');
             row.className = 'hover:bg-gray-50';
+            row.id = `log-${log.id}`;
             
             const status = getLogStatus(log);
             const statusBadge = getStatusBadge(status);
+            const formattedTimestamp = formatTimestamp(log.timestamp);
+            const confidenceText = typeof log.confidence === 'number' ? `${(log.confidence * 100).toFixed(1)}%` : 'N/A';
+            const responseHtml = buildResponseHtml(log);
+            const analysisText = log.response || log.vision_description || '';
             
             row.innerHTML = `
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    ${formatTimestamp(log.timestamp)}
+                    ${formattedTimestamp}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                     ${statusBadge}
                 </td>
-                <td class="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">
-                    ${log.response || log.error || 'No response'}
+                <td class="px-6 py-4 text-sm text-gray-900 align-top">
+                    ${responseHtml}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    ${log.confidence ? (log.confidence * 100).toFixed(1) + '%' : 'N/A'}
+                    ${confidenceText}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm">
                     ${log.image_path ? `
-                        <button onclick="showImage('${log.image_path}', '${log.response || ''}', '${log.timestamp}')" 
-                                class="text-blue-600 hover:text-blue-800">
+                        <button
+                            class="view-image-btn text-blue-600 hover:text-blue-800"
+                            data-image="${encodeURIComponent(log.image_path || '')}"
+                            data-analysis="${encodeURIComponent(analysisText)}"
+                            data-timestamp="${log.timestamp}"
+                        >
                             <i class="fas fa-image mr-1"></i>View
                         </button>
                     ` : 'N/A'}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    <div class="flex space-x-2">
-                        <button onclick="showLogDetails('${log.id}')" class="text-blue-600 hover:text-blue-800">
-                            <i class="fas fa-info-circle"></i>
+                    <div class="flex space-x-3">
+                        <button onclick="openLogDetails('${log.id}')" class="text-blue-600 hover:text-blue-800" title="Open event">
+                            <i class="fas fa-external-link-alt"></i>
                         </button>
-                        <button onclick="deleteLog('${log.id}')" class="text-red-600 hover:text-red-800">
+                        <button onclick="deleteLog('${log.id}')" class="text-red-600 hover:text-red-800" title="Delete event">
                             <i class="fas fa-trash"></i>
                         </button>
                     </div>
@@ -387,12 +516,22 @@
             `;
             
             tbody.appendChild(row);
+
+            const viewButton = row.querySelector('.view-image-btn');
+            if (viewButton) {
+                viewButton.addEventListener('click', () => {
+                    const imagePath = decodeURIComponent(viewButton.dataset.image || '');
+                    const analysis = decodeURIComponent(viewButton.dataset.analysis || '');
+                    const timestamp = viewButton.dataset.timestamp || '';
+                    showImage(imagePath, analysis, timestamp);
+                });
+            }
         });
     }
     
     // Get log status
     function getLogStatus(log) {
-        if (log.error) return 'error';
+        if (log.error || (log.decision_details && log.decision_details.error)) return 'error';
         if (log.detected) return 'detected';
         return 'no_detection';
     }
@@ -582,12 +721,8 @@
         }
     }
     
-    // Show log details (could open a modal with full details)
-    function showLogDetails(logId) {
-        const log = currentLogs.find(l => l.id === logId);
-        if (log) {
-            alert(`Log Details:\nTimestamp: ${log.timestamp}\nDetected: ${log.detected}\nResponse: ${log.response}\nConfidence: ${log.confidence}\nSSIM Score: ${log.ssim_score}`);
-        }
+    function openLogDetails(logId) {
+        window.location.href = `/logs/${logId}`;
     }
 </script>
 {% endblock %}

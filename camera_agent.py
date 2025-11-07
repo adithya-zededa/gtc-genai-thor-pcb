@@ -12,7 +12,7 @@ import os
 import smtplib
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from email.message import EmailMessage
 from pathlib import Path
@@ -127,6 +127,8 @@ class DetectionEvent:
     primary_label: str
     full_response: str
     image_path: Optional[str] = None
+    vision_description: str = ""
+    decision_trace: Dict[str, Any] = field(default_factory=dict)
 
 
 class OllamaVisionClient:
@@ -179,6 +181,257 @@ class OllamaVisionClient:
             return True
         except Exception as e:
             logger.error(f"Ollama connection test failed: {e}")
+            return False
+
+
+class DecisionLLM:
+    """Second-stage LLM for monitor detection decisions with tool calling capability."""
+    
+    def __init__(self, base_url: str, model: str = "llama3.2:latest", timeout: int = 30):
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.timeout = timeout
+        self.tools = self._define_tools()
+        logger.info(f"Initialized Decision LLM: {base_url}, model: {model}")
+    
+    def _define_tools(self) -> List[Dict]:
+        """Define available tools for the decision LLM."""
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "trigger_monitor_alert",
+                    "description": "Trigger an alert when a computer monitor or screen is definitively detected",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "confidence": {
+                                "type": "number",
+                                "description": "Confidence level (0.0-1.0) that a monitor is present"
+                            },
+                            "monitor_type": {
+                                "type": "string",
+                                "description": "Type of monitor detected (e.g., 'desktop monitor', 'laptop screen', 'dual monitors')"
+                            },
+                            "reasoning": {
+                                "type": "string",
+                                "description": "Brief explanation of why this is considered a positive detection"
+                            }
+                        },
+                        "required": ["confidence", "monitor_type", "reasoning"]
+                    }
+                }
+            }
+        ]
+    
+    def make_detection_decision(self, vision_description: str) -> Optional[Dict[str, Any]]:
+        """Use llama3.2 to decide on detection and return structured trace data."""
+        try:
+            classification_system_prompt = (
+                "You are deciding whether a computer monitor or screen is DEFINITELY present in a description from a vision system. "
+                "Respond with exactly one of the following: \n"
+                "- 'DETECTION_CONFIRMED' if the description proves a qualifying screen is visible.\n"
+                "- 'NO_DETECTION: <reason>' if no screen is present or you are uncertain.\n"
+                "Do not use any other words."
+            )
+
+            classification_user_prompt = (
+                "Vision AI description:\n"
+                f"{vision_description}\n\n"
+                "Is a computer monitor or other computer display definitely visible?"
+            )
+
+            classification_payload = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": classification_system_prompt},
+                    {"role": "user", "content": classification_user_prompt}
+                ],
+                "stream": False
+            }
+
+            logger.info(f"🤖 Decision LLM classification pass: {vision_description[:100]}...")
+
+            classification_response = requests.post(
+                f"{self.base_url}/api/chat",
+                json=classification_payload,
+                timeout=self.timeout
+            )
+            classification_response.raise_for_status()
+
+            classification_result = classification_response.json()
+            classification_message = classification_result.get("message", {})
+            classification_text = classification_message.get("content", "").strip() if isinstance(classification_message.get("content"), str) else ""
+
+            logger.debug(
+                f"Decision LLM classification raw response: {json.dumps(classification_result, indent=2) if isinstance(classification_result, dict) else classification_result}"
+            )
+
+            if not classification_text:
+                logger.info("Decision LLM returned empty classification response; treating as no detection")
+                return {
+                    "detected": False,
+                    "decision_trace": {
+                        "classification": "",
+                        "vision_description": vision_description,
+                        "error": "empty_classification_response"
+                    }
+                }
+
+            if classification_text.upper().startswith("NO_DETECTION"):
+                logger.info(f"✅ Decision LLM classification: {classification_text}")
+                return {
+                    "detected": False,
+                    "decision_trace": {
+                        "classification": classification_text,
+                        "vision_description": vision_description
+                    }
+                }
+
+            if "DETECTION_CONFIRMED" not in classification_text.upper():
+                logger.warning(f"Decision LLM classification unclear: {classification_text}")
+                return {
+                    "detected": False,
+                    "decision_trace": {
+                        "classification": classification_text,
+                        "vision_description": vision_description
+                    }
+                }
+
+            # Positive classification – request structured tool call
+            tool_system_prompt = (
+                "You have already determined that a qualifying computer monitor or screen is visible. "
+                "Call the function 'trigger_monitor_alert' with JSON arguments containing: confidence (0.7-1.0), monitor_type, and reasoning. "
+                "Return the tool call only; no plain text."
+            )
+
+            tool_user_prompt = (
+                "Vision AI description:\n"
+                f"{vision_description}\n\n"
+                "Provide the alert parameters now."
+            )
+
+            tool_payload = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": tool_system_prompt},
+                    {"role": "user", "content": tool_user_prompt}
+                ],
+                "tools": self.tools,
+                "stream": False
+            }
+
+            logger.info("🤖 Decision LLM requesting structured alert via tool call...")
+
+            tool_response = requests.post(
+                f"{self.base_url}/api/chat",
+                json=tool_payload,
+                timeout=self.timeout
+            )
+            tool_response.raise_for_status()
+
+            result = tool_response.json()
+            assistant_message = result.get("message", {})
+            tool_calls = assistant_message.get("tool_calls") or []
+
+            logger.debug(
+                f"Decision LLM tool-call raw response: {json.dumps(result, indent=2) if isinstance(result, dict) else result}"
+            )
+
+            for tool_call in tool_calls:
+                function_payload = tool_call.get("function", {}) if isinstance(tool_call, dict) else {}
+                if function_payload.get("name") != "trigger_monitor_alert":
+                    continue
+
+                arguments = function_payload.get("arguments", {})
+                if isinstance(arguments, str):
+                    try:
+                        arguments = json.loads(arguments)
+                    except json.JSONDecodeError:
+                        logger.warning(f"Decision LLM returned non-JSON arguments: {arguments}")
+                        continue
+
+                raw_confidence = arguments.get("confidence", 0.85)
+                try:
+                    confidence = float(raw_confidence)
+                except (TypeError, ValueError):
+                    confidence = 0.85
+
+                monitor_type = arguments.get("monitor_type") or "monitor"
+                reasoning = arguments.get("reasoning", "Monitor detected by llama3.2 decision model")
+
+                if confidence < 0.5:
+                    logger.info(
+                        "Decision LLM provided tool call with low confidence %.2f; treating as no detection", confidence
+                    )
+                    return None
+
+                decision_trace = {
+                    "classification": classification_text,
+                    "confidence": confidence,
+                    "monitor_type": monitor_type,
+                    "reasoning": reasoning,
+                    "tool_arguments": arguments,
+                    "tool_response": result,
+                    "vision_description": vision_description
+                }
+
+                logger.info(f"🚨 Decision LLM triggered alert via tool call: confidence={confidence:.2f}, type={monitor_type}")
+                return {
+                    "detected": True,
+                    "confidence": confidence,
+                    "monitor_type": monitor_type,
+                    "reasoning": reasoning,
+                    "tool_call": True,
+                    "decision_trace": decision_trace
+                }
+
+            logger.warning("Decision LLM positive classification but no tool call produced")
+            return {
+                "detected": False,
+                "decision_trace": {
+                    "classification": classification_text,
+                    "vision_description": vision_description,
+                    "tool_error": "positive_classification_no_tool_call"
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Decision LLM error: {e}")
+            return {
+                "detected": False,
+                "decision_trace": {
+                    "error": str(e),
+                    "vision_description": vision_description
+                }
+            }
+    
+    def test_connection(self) -> bool:
+        """Test connection to decision LLM."""
+        try:
+            payload = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": "Reply with OK."}
+                ],
+                "stream": False
+            }
+
+            response = requests.post(
+                f"{self.base_url}/api/chat",
+                json=payload,
+                timeout=10
+            )
+            response.raise_for_status()
+
+            result = response.json()
+            assistant_message = result.get("message", {})
+            content = assistant_message.get("content", "")
+            return isinstance(content, str) and "OK" in content.upper()
+
+        except Exception as e:
+            logger.error(f"Decision LLM connection test failed: {e}")
             return False
 
 
@@ -531,8 +784,10 @@ class MonitorDetectionAgent:
         # Initialize components
         ollama_url = os.getenv("OLLAMA_URL", self.config.get("ollama", {}).get("url", "http://localhost:11434"))
         vision_model = os.getenv("VISION_MODEL", self.config.get("ollama", {}).get("model", "gemma3:4b"))
+        decision_model = os.getenv("DECISION_MODEL", self.config.get("ollama", {}).get("decision_model", "llama3.2:latest"))
         
         self.ollama_client = OllamaVisionClient(ollama_url, vision_model)
+        self.decision_llm = DecisionLLM(ollama_url, decision_model)
         
         camera_config = self.config.get("camera", {})
         camera_index = int(os.getenv("CAMERA_INDEX", camera_config.get("device_index", 0)))
@@ -699,10 +954,10 @@ This alert was generated by the ZEDEDA Camera Monitoring Agent.
         return True
     
     def analyze_frame(self, image_data: bytes, frame_metadata: dict = None) -> Optional[DetectionEvent]:
-        """Analyze a frame for monitor detection."""
+        """Analyze a frame for monitor detection using two-stage LLM approach."""
         try:
             prompt = self.config.get("detection", {}).get("prompt", 
-                "Look carefully at this image. Is there a computer monitor, laptop screen, or any kind of display screen visible?")
+                "Look carefully at this image. Describe what you see in 2-3 concise sentences. Focus on identifying objects, furniture, electronics, and the general setting. Be specific about any screens, displays, or computer equipment you observe.")
             
             # Log frame processing info
             if frame_metadata:
@@ -719,116 +974,82 @@ This alert was generated by the ZEDEDA Camera Monitoring Agent.
             else:
                 logger.info(f"🔍 Analyzing frame - Size: {len(image_data)} bytes")
             
-            # Send to Ollama for analysis
-            result = self.ollama_client.analyze_image(image_data, prompt)
-            response_text = result.get("response", "").lower()
+            # STAGE 1: Vision LLM describes what it sees
+            logger.info("🔍 Stage 1: Vision LLM analyzing image...")
+            vision_result = self.ollama_client.analyze_image(image_data, prompt)
+            vision_description = vision_result.get('response', '')
             
-            # Log the actual LLM response for debugging
-            full_response = result.get('response', '')
-            if len(full_response) > 500:
-                logger.info(f"LLM Response: {full_response[:500]}... [truncated]")
+            if len(vision_description) > 500:
+                logger.info(f"Vision LLM Response: {vision_description[:500]}... [truncated]")
             else:
-                logger.info(f"LLM Response: {full_response}")
+                logger.info(f"Vision LLM Response: {vision_description}")
             
-            # Smart detection logic - check for positive and negative context
-            response_text = full_response.lower()
+            if not vision_description:
+                logger.warning("Vision LLM returned empty response")
+                return None
             
-            detected = False
-            confidence = 0.0
+            # STAGE 2: Decision LLM determines if monitor is present
+            logger.info("🤖 Stage 2: Decision LLM evaluating...")
+            decision_result = self.decision_llm.make_detection_decision(vision_description)
+            decision_trace = decision_result.get("decision_trace", {}) if isinstance(decision_result, dict) else {}
             
-            # Negative indicators that should override positive detections
-            negative_indicators = [
-                "no visible", "no computer", "no monitor", "no screen", "no display",
-                "not visible", "not present", "not showing", "not see", "not seen",
-                "cannot see", "can't see", "don't see", "doesn't show",
-                "absent", "missing", "none", "without", "lacks"
-            ]
-            
-            # Positive monitor keywords
-            monitor_keywords = [
-                "monitor", "monitors", "computer monitor", "lcd monitor", "display monitor",
-                "desktop monitor", "external monitor", "dual monitor", "widescreen monitor",
-                "screen", "display", "computer screen", "laptop screen", "desktop display"
-            ]
-            
-            # First check for negative context
-            has_negative_context = False
-            for negative in negative_indicators:
-                if negative in response_text:
-                    # Check if the negative is related to computer equipment
-                    negative_index = response_text.find(negative)
-                    # Look at the context around the negative indicator (50 chars each side)
-                    start = max(0, negative_index - 50)
-                    end = min(len(response_text), negative_index + len(negative) + 50)
-                    context = response_text[start:end]
-                    
-                    # Check if computer-related terms appear near the negative indicator
-                    computer_terms = ["computer", "monitor", "screen", "display", "equipment", "laptop", "desktop"]
-                    for term in computer_terms:
-                        if term in context:
-                            has_negative_context = True
-                            logger.info(f"Negative context detected: '{negative}' near '{term}' in: '{context}'")
-                            break
-                    
-                    if has_negative_context:
-                        break
-            
-            # Only check for positive keywords if no negative context was found
-            if not has_negative_context:
-                for keyword in monitor_keywords:
-                    if keyword in response_text:
-                        # Additional validation: check if the keyword is in a positive context
-                        keyword_index = response_text.find(keyword)
-                        start = max(0, keyword_index - 30)
-                        end = min(len(response_text), keyword_index + len(keyword) + 30)
-                        context = response_text[start:end]
-                        
-                        # Check for negation near the keyword
-                        negations = ["no", "not", "without", "absent", "missing", "can't see", "cannot see"]
-                        has_local_negation = any(neg in context for neg in negations)
-                        
-                        if not has_local_negation:
-                            detected = True
-                            confidence = 0.85
-                            logger.info(f"Monitor detected - Scene description contains '{keyword}' in positive context: '{context}'")
-                            break
-                        else:
-                            logger.info(f"Keyword '{keyword}' found but in negative context: '{context}'")
-            
-            if not detected:
-                if has_negative_context:
-                    logger.info(f"No monitor detected - Negative context found: '{full_response[:100]}...'")
-                else:
-                    logger.info(f"No monitor detected - No relevant keywords found: '{full_response[:100]}...'")
-            
-            if detected:
-                event = DetectionEvent(
+            if decision_result and decision_result.get("detected"):
+                # Monitor detected by decision LLM
+                confidence = decision_result.get("confidence", 0.85)
+                monitor_type = decision_result.get("monitor_type", "computer_monitor")
+                reasoning = decision_result.get("reasoning", "Monitor detected by decision LLM")
+                
+                logger.info(f"🚨 MONITOR DETECTED! Confidence: {confidence:.2f}, Type: {monitor_type}")
+                logger.info(f"🎯 Detection reasoning: {reasoning}")
+                
+                # Create detection event
+                combined_response = (
+                    "Vision description:\n"
+                    f"{vision_description}\n\n"
+                    "Decision reasoning:\n"
+                    f"{reasoning}"
+                )
+
+                detection_event = DetectionEvent(
                     timestamp=datetime.now().isoformat(),
                     confidence=confidence,
                     primary_label="computer_monitor",
-                    full_response=result.get("response", "")
+                    full_response=combined_response,
+                    image_path=None,
+                    vision_description=vision_description,
+                    decision_trace=decision_trace
                 )
                 
-                # Save image if configured
+                # Save detection image if enabled
                 if self.save_images:
-                    image_filename = f"detection_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
-                    image_path = self.images_dir / image_filename
-                    with open(image_path, 'wb') as f:
-                        f.write(image_data)
-                    event.image_path = str(image_path)
-                    logger.info(f"Detection image saved: {image_path}")
+                    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    image_path = self.images_dir / f"detection_{timestamp_str}.jpg"
+                    
+                    try:
+                        with open(image_path, 'wb') as f:
+                            f.write(image_data)
+                        detection_event.image_path = str(image_path)
+                        logger.info(f"Detection image saved: {image_path}")
+                    except Exception as e:
+                        logger.error(f"Failed to save detection image: {e}")
                 
-                return event
-            
-            return None
-            
+                return detection_event
+            else:
+                # No detection
+                logger.info("✅ No monitor detected by decision LLM")
+                return None
+                
         except Exception as e:
-            logger.error(f"Frame analysis failed: {e}")
+            logger.error(f"Frame analysis failed: {e}", exc_info=True)
+            self.last_error = str(e)
             return None
     
     def process_detection(self, event: DetectionEvent) -> bool:
         """Process a detection event and send alerts."""
         logger.info(f"Processing detection: {event.primary_label} (confidence: {event.confidence:.2f})")
+        
+        # Update statistics
+        self.stats["detections"] += 1
         
         alerts_sent = 0
         

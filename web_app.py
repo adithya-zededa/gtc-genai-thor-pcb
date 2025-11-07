@@ -13,7 +13,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session, Response, send_file
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session, Response, send_file, abort
 from flask_socketio import SocketIO, emit
 import threading
 import time
@@ -262,10 +262,11 @@ class WebCameraAgent:
         """Persist detection event to the database for UI visibility"""
         try:
             conn = get_db_connection()
+            decision_details_json = json.dumps(event.decision_trace or {})
             conn.execute(
                 '''
-                INSERT INTO detection_logs (timestamp, confidence, response, image_path, frame_number, reason)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO detection_logs (timestamp, confidence, response, image_path, frame_number, reason, vision_description, decision_details)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ''',
                 (
                     event.timestamp,
@@ -273,7 +274,9 @@ class WebCameraAgent:
                     event.full_response,
                     event.image_path or '',
                     frame_metadata.get('frame_number'),
-                    frame_metadata.get('reason')
+                    frame_metadata.get('reason'),
+                    getattr(event, 'vision_description', ''),
+                    decision_details_json
                 )
             )
             conn.commit()
@@ -312,9 +315,22 @@ def init_db():
             response TEXT,
             image_path TEXT,
             frame_number INTEGER,
-            reason TEXT
+            reason TEXT,
+            vision_description TEXT,
+            decision_details TEXT
         )
     ''')
+
+    # Ensure new columns exist when upgrading from previous schema
+    try:
+        cursor.execute('ALTER TABLE detection_logs ADD COLUMN vision_description TEXT')
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute('ALTER TABLE detection_logs ADD COLUMN decision_details TEXT')
+    except sqlite3.OperationalError:
+        pass
     
     # Configuration history table
     cursor.execute('''
@@ -383,6 +399,45 @@ def logs():
     ''').fetchall()
     conn.close()
     return render_template('logs.html', detections=detections)
+
+@app.route('/logs/<int:log_id>')
+def log_detail(log_id):
+    """Single detection event detail view"""
+    conn = get_db_connection()
+    log_row = conn.execute('SELECT * FROM detection_logs WHERE id = ?', (log_id,)).fetchone()
+    conn.close()
+
+    if not log_row:
+        abort(404)
+
+    log_data = dict(log_row)
+
+    decision_details = {}
+    if log_data.get('decision_details'):
+        try:
+            decision_details = json.loads(log_data['decision_details'])
+        except json.JSONDecodeError:
+            decision_details = {"raw": log_data['decision_details']}
+
+    image_url = None
+    if log_data.get('image_path'):
+        image_url = url_for('api_serve_image', image_path=log_data['image_path'])
+
+    confidence_percent = None
+    try:
+        if log_data.get('confidence') is not None:
+            confidence_percent = float(log_data['confidence']) * 100
+    except (TypeError, ValueError):
+        confidence_percent = None
+
+    log_data['decision_details'] = decision_details
+
+    return render_template(
+        'log_detail.html',
+        log=log_data,
+        image_url=image_url,
+        confidence_percent=confidence_percent
+    )
 
 @app.route('/settings')
 def settings():
@@ -599,7 +654,7 @@ def api_logs():
         try:
             conn = get_db_connection()
             logs = conn.execute('''
-                SELECT id, timestamp, confidence, response, image_path, frame_number, reason
+                SELECT id, timestamp, confidence, response, image_path, frame_number, reason, vision_description, decision_details
                 FROM detection_logs 
                 ORDER BY timestamp DESC
             ''').fetchall()
@@ -607,6 +662,13 @@ def api_logs():
             
             logs_list = []
             for log in logs:
+                decision_details = {}
+                if log['decision_details']:
+                    try:
+                        decision_details = json.loads(log['decision_details'])
+                    except json.JSONDecodeError:
+                        decision_details = {"raw": log['decision_details']}
+
                 logs_list.append({
                     'id': log['id'],
                     'timestamp': log['timestamp'],
@@ -615,6 +677,8 @@ def api_logs():
                     'image_path': log['image_path'],
                     'frame_number': log['frame_number'],
                     'reason': log['reason'],
+                    'vision_description': log['vision_description'],
+                    'decision_details': decision_details,
                     'detected': log['confidence'] is not None and log['confidence'] > 0
                 })
             
@@ -653,7 +717,7 @@ def api_export_logs():
         
         conn = get_db_connection()
         logs = conn.execute('''
-            SELECT timestamp, confidence, response, image_path, frame_number, reason
+            SELECT timestamp, confidence, response, image_path, frame_number, reason, vision_description, decision_details
             FROM detection_logs 
             ORDER BY timestamp DESC
         ''').fetchall()
@@ -662,7 +726,7 @@ def api_export_logs():
         if format_type == 'csv':
             output = io.StringIO()
             writer = csv.writer(output)
-            writer.writerow(['Timestamp', 'Confidence', 'Response', 'Image Path', 'Frame Number', 'Reason'])
+            writer.writerow(['Timestamp', 'Confidence', 'Response', 'Image Path', 'Frame Number', 'Reason', 'Vision Description', 'Decision Details'])
             
             for log in logs:
                 writer.writerow([
@@ -671,7 +735,9 @@ def api_export_logs():
                     log['response'],
                     log['image_path'],
                     log['frame_number'],
-                    log['reason']
+                    log['reason'],
+                    log['vision_description'],
+                    log['decision_details']
                 ])
             
             return Response(
