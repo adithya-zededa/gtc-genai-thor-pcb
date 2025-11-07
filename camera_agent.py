@@ -5,24 +5,20 @@ Monitors /dev/video0 and sends alerts when a computer monitor is detected.
 """
 
 import base64
-import cv2
 import json
 import logging
 import os
 import smtplib
 import sys
-import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from email.message import EmailMessage
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import requests
 import yaml
 from dotenv import load_dotenv
-from skimage.metrics import structural_similarity as ssim
-import numpy as np
 
 # Load environment variables
 load_dotenv()
@@ -39,86 +35,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def encode_frame_optimized(frame, frame_number, timestamp, total_frames, quality=60):
-    """
-    Encode frame to base64 with optimized JPEG compression.
-    
-    Args:
-        frame: OpenCV frame (BGR format)
-        frame_number: Frame number in sequence
-        timestamp: Timestamp of the frame
-        total_frames: Total frames in sequence (for live feed, use current count)
-        quality: JPEG quality (1-100)
-    
-    Returns:
-        Base64-encoded frame or None if encoding fails
-    """
-    try:
-        # Encode frame as JPEG with specified quality
-        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), quality]
-        success, buffer = cv2.imencode('.jpg', frame, encode_param)
-        
-        if not success:
-            logger.warning(f"Failed to encode frame {frame_number}")
-            return None
-        
-        # Convert to base64
-        frame_b64 = base64.b64encode(buffer).decode('utf-8')
-        return frame_b64
-        
-    except Exception as e:
-        logger.error(f"Error encoding frame {frame_number}: {e}")
-        return None
-
-
-def should_process_frame(current_frame, prev_frame, diff_threshold=0.80, min_time_interval=None, last_processed_time=None):
-    """
-    Determine if current frame should be processed based on visual difference.
-    
-    Args:
-        current_frame: Current OpenCV frame (BGR)
-        prev_frame: Previous processed frame (BGR) or None
-        diff_threshold: SSIM threshold below which frames are considered different
-        min_time_interval: Not used - kept for compatibility
-        last_processed_time: Not used - kept for compatibility
-    
-    Returns:
-        Tuple of (should_process: bool, similarity_score: float, reason: str)
-    """
-    current_time = time.time()
-    
-    # Always process first frame
-    if prev_frame is None:
-        return True, 1.0, "initial_frame"
-    
-    try:
-        # Resize frames to smaller size for faster SSIM computation
-        target_size = (320, 240)
-        current_small = cv2.resize(current_frame, target_size)
-        prev_small = cv2.resize(prev_frame, target_size)
-        
-        # Convert to grayscale for SSIM comparison
-        current_gray = cv2.cvtColor(current_small, cv2.COLOR_BGR2GRAY)
-        prev_gray = cv2.cvtColor(prev_small, cv2.COLOR_BGR2GRAY)
-        
-        # Compute SSIM
-        similarity_score = ssim(prev_gray, current_gray, data_range=255)
-        
-        # Process if frames are sufficiently different
-        if similarity_score < diff_threshold:
-            return True, similarity_score, f"scene_change (SSIM={similarity_score:.3f})"
-        else:
-            return False, similarity_score, f"scene_similar (SSIM={similarity_score:.3f})"
-            
-    except Exception as e:
-        logger.warning(f"SSIM calculation failed, defaulting to process: {e}")
-        # Fallback to processing frame if SSIM fails
-        return True, 0.0, "ssim_fallback"
-
-
-logger = logging.getLogger(__name__)
-
-
 @dataclass
 class DetectionEvent:
     """Represents a monitor detection event."""
@@ -129,6 +45,7 @@ class DetectionEvent:
     image_path: Optional[str] = None
     vision_description: str = ""
     decision_trace: Dict[str, Any] = field(default_factory=dict)
+    detected: bool = False
 
 
 class OllamaVisionClient:
@@ -435,230 +352,6 @@ class DecisionLLM:
             return False
 
 
-class CameraMonitor:
-    """Handles camera capture and image processing with smart frame preprocessing."""
-    
-    def __init__(self, source: Union[int, str] = 0, resolution: tuple = (640, 480), 
-                 diff_threshold: float = 0.80, min_time_interval: float = None, backend: Optional[int] = None):
-        self.source: Union[int, str] = source
-        self.base_source_description = f"index {source}" if isinstance(source, int) else str(source)
-        self.source_description = self.base_source_description
-        self.backend = backend
-        self.resolution = resolution
-        self.camera = None
-        self._last_backend_label: Optional[str] = None
-        
-        # Frame preprocessing settings
-        self.diff_threshold = diff_threshold
-        self.min_time_interval = min_time_interval  # Not used anymore but kept for compatibility
-        self.prev_processed_frame = None
-        self.last_processed_time = None
-        self.frame_count = 0
-        self.processed_count = 0
-        
-        backend_label = f", backend={self._backend_name(backend)}" if backend is not None else ""
-        logger.info(
-            f"Initializing camera monitor for source {self.base_source_description}{backend_label} "
-            f"with SSIM preprocessing (diff_threshold={diff_threshold})"
-        )
-    
-    def initialize_camera(self) -> bool:
-        """Initialize camera connection."""
-        try:
-            # Release existing camera handle if present
-            if self.camera and self.camera.isOpened():
-                self.camera.release()
-            self.camera = None
-            self.prev_processed_frame = None
-            self.last_processed_time = None
-            self.frame_count = 0
-            self.processed_count = 0
-
-            attempts: List[tuple[str, Any]] = []
-            attempted_labels = set()
-
-            def add_attempt(label: str, factory):
-                if label in attempted_labels:
-                    return
-                attempted_labels.add(label)
-                attempts.append((label, factory))
-
-            if self.backend is not None:
-                add_attempt(f"backend={self._backend_name(self.backend)}", lambda: cv2.VideoCapture(self.source, self.backend))
-
-            add_attempt("default", lambda: cv2.VideoCapture(self.source))
-
-            if isinstance(self.source, int):
-                add_attempt("CAP_V4L2", lambda: cv2.VideoCapture(self.source, cv2.CAP_V4L2))
-                add_attempt("CAP_ANY", lambda: cv2.VideoCapture(self.source, cv2.CAP_ANY))
-            else:
-                add_attempt("CAP_ANY", lambda: cv2.VideoCapture(self.source, cv2.CAP_ANY))
-
-            last_error = None
-            for label, factory in attempts:
-                try:
-                    logger.debug(f"Attempting to open camera source {self.base_source_description} using {label}")
-                    camera = factory()
-                except Exception as exc:
-                    last_error = str(exc)
-                    logger.warning(f"Camera open attempt failed ({label}): {exc}")
-                    continue
-
-                if not camera or not camera.isOpened():
-                    if camera:
-                        camera.release()
-                    logger.debug(f"Camera source {self.base_source_description} not opened via {label}")
-                    continue
-
-                self.camera = camera
-                self._last_backend_label = label
-                break
-
-            if not self.camera or not self.camera.isOpened():
-                error_message = last_error or "Device not found or busy"
-                logger.error(f"Failed to open camera source {self.base_source_description}: {error_message}")
-                self.camera = None
-                return False
-
-            # Set resolution if specified
-            width, height = self.resolution
-            if width:
-                self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-            if height:
-                self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-
-            ret, frame = self.camera.read()
-            if not ret:
-                logger.error("Failed to capture test frame after initializing camera")
-                self.camera.release()
-                self.camera = None
-                return False
-
-            self.source_description = f"{self.base_source_description} via {self._last_backend_label or 'default'}"
-            logger.info(
-                f"Camera initialized successfully: {self.source_description} at {width}x{height}"
-            )
-            return True
-            
-        except Exception as e:
-            logger.error(f"Camera initialization failed: {e}")
-            if self.camera:
-                try:
-                    self.camera.release()
-                except Exception:
-                    pass
-                self.camera = None
-            return False
-    
-    def capture_frame(self) -> Optional[bytes]:
-        """Capture a frame and return as JPEG bytes."""
-        if not self.camera or not self.camera.isOpened():
-            logger.warning("Camera not initialized or unavailable, attempting reinitialization")
-            if not self.initialize_camera():
-                logger.error("Camera reinitialization failed during capture")
-                return None
-        
-        try:
-            ret, frame = self.camera.read()
-            if not ret:
-                logger.error("Failed to capture frame")
-                return None
-            
-            # Convert to JPEG
-            success, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-            if not success:
-                logger.error("Failed to encode frame as JPEG")
-                return None
-            
-            return buffer.tobytes()
-            
-        except Exception as e:
-            logger.error(f"Frame capture failed: {e}")
-            return None
-    
-    def capture_frame_smart(self) -> Optional[tuple[bytes, dict]]:
-        """
-        Capture a frame with smart preprocessing to reduce unnecessary LLM calls.
-        
-        Returns:
-            Tuple of (image_bytes, metadata) if frame should be processed, None otherwise
-            metadata contains processing decision info
-        """
-        if not self.camera or not self.camera.isOpened():
-            logger.warning("Camera not initialized or unavailable during smart capture, attempting reinitialization")
-            if not self.initialize_camera():
-                logger.error("Camera reinitialization failed during smart capture")
-                return None
-        
-        try:
-            ret, frame = self.camera.read()
-            if not ret:
-                logger.error("Failed to capture frame")
-                return None
-            
-            self.frame_count += 1
-            current_time = time.time()
-            
-            # Check if this frame should be processed
-            should_process, similarity_score, reason = should_process_frame(
-                frame, 
-                self.prev_processed_frame,
-                self.diff_threshold
-            )
-            
-            metadata = {
-                'frame_number': self.frame_count,
-                'timestamp': current_time,
-                'should_process': should_process,
-                'similarity_score': similarity_score,
-                'reason': reason,
-                'processed_count': self.processed_count
-            }
-            
-            if should_process:
-                # Convert to JPEG bytes
-                success, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                if not success:
-                    logger.error("Failed to encode frame as JPEG")
-                    return None
-                
-                # Update tracking variables
-                self.prev_processed_frame = frame.copy()
-                self.last_processed_time = current_time
-                self.processed_count += 1
-                
-                logger.info(f"Frame {self.frame_count} selected for processing: {reason} (processed {self.processed_count}/{self.frame_count} frames)")
-                
-                return buffer.tobytes(), metadata
-            else:
-                logger.debug(f"Frame {self.frame_count} skipped: {reason}")
-                return None
-                
-        except Exception as e:
-            logger.error(f"Smart frame capture failed: {e}")
-            return None
-    
-    def release(self):
-        """Release camera resources."""
-        if self.camera:
-            self.camera.release()
-            self.camera = None
-            logger.info("Camera released")
-
-    @staticmethod
-    def _backend_name(backend: Optional[int]) -> str:
-        if backend is None:
-            return "default"
-        backend_map = {
-            getattr(cv2, "CAP_ANY", None): "CAP_ANY",
-            getattr(cv2, "CAP_V4L2", None): "CAP_V4L2",
-            getattr(cv2, "CAP_GSTREAMER", None): "CAP_GSTREAMER",
-            getattr(cv2, "CAP_FFMPEG", None): "CAP_FFMPEG",
-            getattr(cv2, "CAP_DSHOW", None): "CAP_DSHOW",
-        }
-        return backend_map.get(backend, str(backend))
-
-
 class AlertManager:
     """Handles alert notifications via email and other channels."""
     
@@ -788,77 +481,21 @@ class MonitorDetectionAgent:
         
         self.ollama_client = OllamaVisionClient(ollama_url, vision_model)
         self.decision_llm = DecisionLLM(ollama_url, decision_model)
-        
-        camera_config = self.config.get("camera", {})
-        camera_index = int(os.getenv("CAMERA_INDEX", camera_config.get("device_index", 0)))
-        camera_device_path = os.getenv("CAMERA_DEVICE_PATH", camera_config.get("device_path"))
-        camera_source_override = os.getenv("CAMERA_SOURCE")
-
-        if camera_source_override:
-            camera_source: Union[int, str] = camera_source_override
-        elif camera_device_path:
-            camera_source = camera_device_path
-        else:
-            camera_source = camera_index
-
-        resolution_config = camera_config.get("resolution", {})
-        width = int(os.getenv("CAMERA_WIDTH", resolution_config.get("width", 640)))
-        height = int(os.getenv("CAMERA_HEIGHT", resolution_config.get("height", 480)))
-        resolution = (width, height)
-
-        backend_config = os.getenv("CAMERA_BACKEND") or camera_config.get("backend")
-        backend_value: Optional[int] = None
-        if backend_config:
-            backend_lookup = {
-                "CAP_ANY": getattr(cv2, "CAP_ANY", None),
-                "CAP_V4L2": getattr(cv2, "CAP_V4L2", None),
-                "CAP_GSTREAMER": getattr(cv2, "CAP_GSTREAMER", None),
-                "CAP_FFMPEG": getattr(cv2, "CAP_FFMPEG", None),
-                "CAP_DSHOW": getattr(cv2, "CAP_DSHOW", None),
-            }
-            backend_value = backend_lookup.get(str(backend_config).upper())
-            if backend_value is None:
-                try:
-                    backend_value = int(backend_config)
-                except (ValueError, TypeError):
-                    logger.warning(f"Unknown camera backend '{backend_config}', falling back to default")
-                    backend_value = None
-        
-        # Get preprocessing settings - remove min_time_interval
-        preprocessing = camera_config.get("preprocessing", {})
-        diff_threshold = float(os.getenv("DIFF_THRESHOLD", preprocessing.get("diff_threshold", 0.80)))
-        
-        self.camera_monitor = CameraMonitor(
-            camera_source,
-            resolution=resolution,
-            diff_threshold=diff_threshold,
-            backend=backend_value
-        )
-        
         self.alert_manager = AlertManager(self.config)
         
-        # Runtime settings
-        self.capture_interval = int(os.getenv("CAPTURE_INTERVAL", self.config.get("camera", {}).get("capture_interval", 5)))
-        self.save_images = self.config.get("camera", {}).get("save_detection_images", False)
-        self.save_processed_frames = self.config.get("camera", {}).get("save_processed_frames", True)
+        camera_config = self.config.get("camera", {})
+        self.save_images = camera_config.get("save_detection_images", False)
+        self.save_processed_frames = camera_config.get("save_processed_frames", False)
         self.images_dir = Path("detected_images")
         self.processed_frames_dir = Path("processed_frames")
-        
+
         if self.save_images:
             self.images_dir.mkdir(exist_ok=True)
-        
+
         if self.save_processed_frames:
             self.processed_frames_dir.mkdir(exist_ok=True)
         
-        # Statistics
-        self.stats = {
-            "frames_processed": 0,
-            "detections": 0,
-            "alerts_sent": 0,
-            "start_time": datetime.now()
-        }
-        
-        logger.info(f"Monitor Detection Agent initialized: interval={self.capture_interval}s")
+        logger.info("Monitor Detection Agent initialized for web integration")
     
     def _load_config(self) -> Dict[str, Any]:
         """Load configuration from YAML file."""
@@ -892,9 +529,7 @@ class MonitorDetectionAgent:
                 "timeout": 60
             },
             "detection": {
-                "prompt": "Look carefully at this image. Is there a computer monitor, laptop screen, or any kind of display screen visible? Answer with YES if you see any type of computer screen/monitor/display, or NO if you don't see any screens. Be very specific about what you see.",
-                "confidence_threshold": 0.7,
-                "keywords": ["monitor", "screen", "display", "computer", "laptop", "desktop"]
+                "prompt": "Describe the image in 2-3 concise sentences."
             },
             "rules": [
                 {
@@ -932,32 +567,44 @@ This alert was generated by the ZEDEDA Camera Monitoring Agent.
                 }
             }
         }
-    
-    def initialize(self) -> bool:
-        """Initialize all components."""
-        logger.info("Starting agent initialization...")
-        self.last_error = None
-        
-        # Test Ollama connection
-        if not self.ollama_client.test_connection():
-            logger.error("Failed to connect to Ollama service")
-            self.last_error = f"Failed to connect to Ollama service at {self.ollama_client.base_url}"
-            return False
-        
-        # Initialize camera
-        if not self.camera_monitor.initialize_camera():
-            logger.error("Failed to initialize camera")
-            self.last_error = f"Failed to access camera source {self.camera_monitor.source_description}"
-            return False
-        
-        logger.info("Agent initialization complete")
-        return True
+
+    def _save_event_image(
+        self,
+        image_data: bytes,
+        target_dir: Path,
+        prefix: str,
+        event_time: datetime,
+        frame_metadata: Optional[dict] = None
+    ) -> Optional[str]:
+        """Persist an event image and return the file path."""
+        try:
+            target_dir.mkdir(exist_ok=True)
+        except Exception as exc:
+            logger.error(f"Failed to create image directory {target_dir}: {exc}")
+            return None
+
+        timestamp_str = event_time.strftime("%Y%m%d_%H%M%S_%f")
+        frame_suffix = ""
+        if frame_metadata and frame_metadata.get("frame_number") is not None:
+            frame_suffix = f"_f{frame_metadata['frame_number']}"
+
+        filename = f"{prefix}_{timestamp_str}{frame_suffix}.jpg"
+        file_path = target_dir / filename
+
+        try:
+            with open(file_path, 'wb') as image_file:
+                image_file.write(image_data)
+            logger.debug(f"Event image saved: {file_path}")
+            return str(file_path)
+        except Exception as exc:
+            logger.error(f"Failed to save event image to {file_path}: {exc}")
+            return None
     
     def analyze_frame(self, image_data: bytes, frame_metadata: dict = None) -> Optional[DetectionEvent]:
         """Analyze a frame for monitor detection using two-stage LLM approach."""
         try:
             prompt = self.config.get("detection", {}).get("prompt", 
-                "Look carefully at this image. Describe what you see in 2-3 concise sentences. Focus on identifying objects, furniture, electronics, and the general setting. Be specific about any screens, displays, or computer equipment you observe.")
+                "Describe the image in 2-3 concise sentences.")
             
             # Log frame processing info
             if frame_metadata:
@@ -991,18 +638,23 @@ This alert was generated by the ZEDEDA Camera Monitoring Agent.
             # STAGE 2: Decision LLM determines if monitor is present
             logger.info("🤖 Stage 2: Decision LLM evaluating...")
             decision_result = self.decision_llm.make_detection_decision(vision_description)
-            decision_trace = decision_result.get("decision_trace", {}) if isinstance(decision_result, dict) else {}
-            
-            if decision_result and decision_result.get("detected"):
+            if not isinstance(decision_result, dict):
+                decision_result = {}
+
+            decision_trace = decision_result.get("decision_trace", {})
+            detected = bool(decision_result.get("detected"))
+            event_time = datetime.now()
+            timestamp_iso = event_time.isoformat()
+
+            if detected:
                 # Monitor detected by decision LLM
-                confidence = decision_result.get("confidence", 0.85)
+                confidence = float(decision_result.get("confidence", 0.85))
                 monitor_type = decision_result.get("monitor_type", "computer_monitor")
                 reasoning = decision_result.get("reasoning", "Monitor detected by decision LLM")
                 
                 logger.info(f"🚨 MONITOR DETECTED! Confidence: {confidence:.2f}, Type: {monitor_type}")
                 logger.info(f"🎯 Detection reasoning: {reasoning}")
                 
-                # Create detection event
                 combined_response = (
                     "Vision description:\n"
                     f"{vision_description}\n\n"
@@ -1011,33 +663,66 @@ This alert was generated by the ZEDEDA Camera Monitoring Agent.
                 )
 
                 detection_event = DetectionEvent(
-                    timestamp=datetime.now().isoformat(),
+                    timestamp=timestamp_iso,
                     confidence=confidence,
-                    primary_label="computer_monitor",
+                    primary_label=monitor_type,
                     full_response=combined_response,
                     image_path=None,
                     vision_description=vision_description,
-                    decision_trace=decision_trace
+                    decision_trace=decision_trace,
+                    detected=True
                 )
                 
-                # Save detection image if enabled
                 if self.save_images:
-                    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    image_path = self.images_dir / f"detection_{timestamp_str}.jpg"
-                    
-                    try:
-                        with open(image_path, 'wb') as f:
-                            f.write(image_data)
-                        detection_event.image_path = str(image_path)
-                        logger.info(f"Detection image saved: {image_path}")
-                    except Exception as e:
-                        logger.error(f"Failed to save detection image: {e}")
+                    image_path = self._save_event_image(
+                        image_data,
+                        self.images_dir,
+                        "detection",
+                        event_time,
+                        frame_metadata
+                    )
+                    if image_path:
+                        detection_event.image_path = image_path
                 
                 return detection_event
-            else:
-                # No detection
-                logger.info("✅ No monitor detected by decision LLM")
-                return None
+
+            # No detection – record outcome for visibility
+            classification_text = decision_trace.get("classification") or decision_result.get("classification")
+            if not classification_text:
+                classification_text = "NO_DETECTION"
+
+            combined_response = (
+                "Vision description:\n"
+                f"{vision_description}\n\n"
+                "Decision outcome:\n"
+                f"{classification_text}"
+            )
+
+            logger.info("✅ No monitor detected by decision LLM")
+
+            detection_event = DetectionEvent(
+                timestamp=timestamp_iso,
+                confidence=0.0,
+                primary_label="no_detection",
+                full_response=combined_response,
+                image_path=None,
+                vision_description=vision_description,
+                decision_trace=decision_trace,
+                detected=False
+            )
+
+            if self.save_processed_frames:
+                image_path = self._save_event_image(
+                    image_data,
+                    self.processed_frames_dir,
+                    "event",
+                    event_time,
+                    frame_metadata
+                )
+                if image_path:
+                    detection_event.image_path = image_path
+
+            return detection_event
                 
         except Exception as e:
             logger.error(f"Frame analysis failed: {e}", exc_info=True)
@@ -1046,11 +731,11 @@ This alert was generated by the ZEDEDA Camera Monitoring Agent.
     
     def process_detection(self, event: DetectionEvent) -> bool:
         """Process a detection event and send alerts."""
+        if not event.detected:
+            logger.debug("Skipping alert processing for non-detection event")
+            return False
+
         logger.info(f"Processing detection: {event.primary_label} (confidence: {event.confidence:.2f})")
-        
-        # Update statistics
-        self.stats["detections"] += 1
-        
         alerts_sent = 0
         
         # Process each rule
@@ -1066,168 +751,5 @@ This alert was generated by the ZEDEDA Camera Monitoring Agent.
         if self.config.get("notifications", {}).get("desktop", {}).get("enabled", False):
             if self.alert_manager.send_desktop_notification(event):
                 alerts_sent += 1
-        
-        self.stats["alerts_sent"] += alerts_sent
         return alerts_sent > 0
     
-    def run_monitoring_loop(self):
-        """Main monitoring loop."""
-        logger.info("Starting camera monitoring loop...")
-        
-        if not self.initialize():
-            logger.error("Failed to initialize agent")
-            return False
-        
-        try:
-            while True:
-                start_time = time.time()
-                
-                # Capture frame with smart preprocessing
-                capture_result = self.camera_monitor.capture_frame_smart()
-                if not capture_result:
-                    # Frame was skipped due to preprocessing, wait for capture interval
-                    time.sleep(self.capture_interval)
-                    continue
-                
-                image_data, frame_metadata = capture_result
-                self.stats["frames_processed"] += 1
-                
-                # Save processed frame if enabled
-                if self.save_processed_frames:
-                    processed_frame_filename = f"processed_frame_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{frame_metadata['frame_number']:06d}.jpg"
-                    processed_frame_path = self.processed_frames_dir / processed_frame_filename
-                    with open(processed_frame_path, 'wb') as f:
-                        f.write(image_data)
-                    logger.info(f"📸 Processed frame saved: {processed_frame_path} (Reason: {frame_metadata['reason']}, SSIM: {frame_metadata.get('similarity_score', 'N/A'):.3f})")
-                
-                # Log frame processing stats periodically
-                if self.stats["frames_processed"] % 10 == 0:
-                    processed_ratio = (frame_metadata['processed_count'] / frame_metadata['frame_number']) * 100
-                    logger.info(f"📊 Frame efficiency: {frame_metadata['processed_count']}/{frame_metadata['frame_number']} processed ({processed_ratio:.1f}%), {len(os.listdir(self.processed_frames_dir))} files saved")
-                
-                # Analyze frame
-                event = self.analyze_frame(image_data, frame_metadata)
-                if event:
-                    self.stats["detections"] += 1
-                    logger.info(f"Monitor detected! Confidence: {event.confidence:.2f} (Frame {frame_metadata['frame_number']}, {frame_metadata['reason']})")
-                    
-                    # Add frame metadata to the event
-                    event.full_response += f"\n\n[Frame Info: #{frame_metadata['frame_number']}, Reason: {frame_metadata['reason']}, SSIM: {frame_metadata['similarity_score']:.3f}]"
-                    
-                    # Process alerts
-                    if self.process_detection(event):
-                        logger.info("Alerts sent successfully")
-                    else:
-                        logger.warning("No alerts were sent")
-                
-                # Log statistics periodically
-                if self.stats["frames_processed"] % 50 == 0:
-                    runtime = datetime.now() - self.stats["start_time"]
-                    total_frames = frame_metadata['frame_number']
-                    processed_frames = frame_metadata['processed_count']
-                    efficiency = (processed_frames / total_frames) * 100 if total_frames > 0 else 0
-                    
-                    logger.info(f"Statistics: {processed_frames}/{total_frames} frames processed ({efficiency:.1f}% efficiency), "
-                              f"{self.stats['detections']} detections, "
-                              f"{self.stats['alerts_sent']} alerts, "
-                              f"runtime: {runtime}")
-                
-                # Sleep until next capture
-                processing_time = time.time() - start_time
-                sleep_time = max(0, self.capture_interval - processing_time)
-                
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
-                
-        except KeyboardInterrupt:
-            logger.info("Monitoring stopped by user")
-        except Exception as e:
-            logger.error(f"Monitoring loop error: {e}")
-            raise
-        finally:
-            self.camera_monitor.release()
-            logger.info("Camera monitoring stopped")
-    
-    def test_setup(self) -> bool:
-        """Test the complete setup without running the monitoring loop."""
-        logger.info("Running setup test...")
-        
-        # Test Ollama connection
-        if not self.ollama_client.test_connection():
-            logger.error("❌ Ollama connection test failed")
-            return False
-        logger.info("✅ Ollama connection successful")
-        
-        # Test camera
-        if not self.camera_monitor.initialize_camera():
-            logger.error("❌ Camera initialization failed")
-            return False
-        logger.info("✅ Camera initialization successful")
-        
-        # Test frame capture
-        image_data = self.camera_monitor.capture_frame()
-        if not image_data:
-            logger.error("❌ Frame capture test failed")
-            return False
-        logger.info("✅ Frame capture successful")
-        
-        # Test smart frame capture
-        try:
-            smart_result = self.camera_monitor.capture_frame_smart()
-            if smart_result:
-                image_data_smart, metadata = smart_result
-                logger.info(f"✅ Smart frame capture successful: {metadata['reason']}")
-            else:
-                logger.info("✅ Smart frame capture working (frame skipped due to preprocessing)")
-        except Exception as e:
-            logger.warning(f"⚠️  Smart frame capture test failed (falling back to regular capture): {e}")
-        
-        # Test image analysis
-        try:
-            test_metadata = {'frame_number': 1, 'reason': 'test_frame', 'similarity_score': 1.0}
-            event = self.analyze_frame(image_data, test_metadata)
-            logger.info(f"✅ Image analysis successful (detection: {'Yes' if event else 'No'})")
-        except Exception as e:
-            logger.error(f"❌ Image analysis failed: {e}")
-            return False
-        
-        self.camera_monitor.release()
-        logger.info("✅ All tests passed!")
-        return True
-
-
-def main():
-    """Main entry point."""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="ZEDEDA Camera Monitor Detection Agent")
-    parser.add_argument("--config", "-c", default="camera_config.yaml", 
-                       help="Configuration file path")
-    parser.add_argument("--test", "-t", action="store_true", 
-                       help="Run setup test only")
-    parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], 
-                       default="INFO", help="Logging level")
-    
-    args = parser.parse_args()
-    
-    # Set log level
-    logging.getLogger().setLevel(getattr(logging, args.log_level))
-    
-    # Create agent
-    agent = MonitorDetectionAgent(args.config)
-    
-    if args.test:
-        # Run test mode
-        success = agent.test_setup()
-        sys.exit(0 if success else 1)
-    else:
-        # Run monitoring loop
-        try:
-            agent.run_monitoring_loop()
-        except Exception as e:
-            logger.error(f"Agent failed: {e}")
-            sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()

@@ -218,18 +218,21 @@ class WebCameraAgent:
                         
                         # Send to agent for LLM analysis
                         event = self.agent.analyze_frame(image_data, frame_metadata)
-                        
-                        if event:
+
+                        if not event:
+                            print(f"⚠️  Analysis failed for frame {frame_count}")
+                            continue
+
+                        # Persist the outcome for UI visibility
+                        self._record_detection(event, frame_metadata)
+
+                        if event.detected:
                             self.stats['detections'] += 1
                             print(f"🔔 Detection! Confidence: {event.confidence:.2f}")
-                            
-                            # Process alerts
+
                             if self.agent.process_detection(event):
                                 self.stats['alerts_sent'] += 1
-                            
-                            self._record_detection(event, frame_metadata)
-                            
-                            # Emit detection event
+
                             socketio.emit('detection_event', {
                                 'event': {
                                     'timestamp': event.timestamp,
@@ -239,7 +242,9 @@ class WebCameraAgent:
                                 'stats': self._serialize_stats()
                             })
                         else:
-                            print(f"   No detection in frame {frame_count}")
+                            classification = event.decision_trace.get('classification') if event.decision_trace else None
+                            classification_display = classification or 'NO_DETECTION'
+                            print(f"   No detection in frame {frame_count} (Decision: {classification_display})")
                 
                 # Small delay to control frame rate
                 time.sleep(0.1)
@@ -938,13 +943,13 @@ def update_email_recipients():
 @socketio.on('connect')
 def handle_connect():
     """Handle client connection"""
-    print('Client connected')
+    logger.debug('Socket client connected')
     emit('connected', {'message': 'Connected to ZEDEDA Camera Agent'})
 
 @socketio.on('disconnect')
 def handle_disconnect():
     """Handle client disconnection"""
-    print('Client disconnected')
+    logger.debug('Socket client disconnected')
 
 if __name__ == '__main__':
     # Initialize database schema before serving requests

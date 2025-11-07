@@ -21,45 +21,7 @@ camera:
   save_detection_images: true
   save_processed_frames: true
 detection:
-  confidence_threshold: 0.7
-  negative_keywords:
-  - 'no'
-  - not
-  - none
-  - absent
-  - missing
-  positive_keywords:
-  - monitor
-  - screen
-  - display
-  - computer
-  - laptop
-  - desktop
-  - 'yes'
-  - visible
-  - see
-  prompt: 'Describe what you see in this image in 2-3 concise sentences. Focus on
-    identifying objects, furniture, electronics, and the general setting. Be specific
-    about any screens, displays, or computer equipment you observe.
-
-
-    Examples of good descriptions:
-
-    - "A desk with a laptop computer, wireless mouse, and coffee mug. A monitor is
-    visible on the left side showing a desktop interface."
-
-    - "A living room with a sofa, coffee table, and wall-mounted television. No computer
-    equipment visible."
-
-    - "An office workspace with dual monitors, keyboard, and office chair. Papers
-    and notebooks scattered on the desk."
-
-    - "A kitchen counter with appliances and a tablet device lying flat."
-
-
-    Describe exactly what you observe without making assumptions.
-
-    '
+  prompt: Describe the image in 2-3 concise sentences.
 env_defaults:
   CAMERA_INDEX: '0'
   CAPTURE_INTERVAL: '5'
