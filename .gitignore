@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Camera Agent - Images and Data
+detected_images/
+processed_frames/
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+*.log.*
+
+# Test files
+test_*.py
+*_test.py
+test_agent_standalone.py
+check_status.py
+test_setup.py
+test_camera_setup.py
+demo_*.py
+
+# Environment variables
+.env
+.env.*
+
+# TLS certificates
+*.crt
+*.key
+*.pem
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backups
+*.bak
+*.backup
+*.old
+
+# Docker
+docker-compose.override.yml
+
+# Temporary files
+*.tmp
+*.temp

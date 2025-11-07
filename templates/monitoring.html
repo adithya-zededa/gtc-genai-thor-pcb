@@ -183,7 +183,29 @@
         document.getElementById('camera-placeholder').classList.add('hidden');
         document.getElementById('camera-feed').classList.remove('hidden');
         
+        // Start polling for frames
+        pollCameraFrame();
+        
         showToast('Camera feed started', 'success');
+    }
+    
+    // Poll for camera frames
+    async function pollCameraFrame() {
+        if (!feedActive) return;
+        
+        try {
+            const result = await apiCall('/api/capture_frame');
+            if (result && result.success) {
+                updateFrame(result);
+            }
+        } catch (error) {
+            console.error('Frame capture error:', error);
+        }
+        
+        // Poll every 500ms if auto-refresh is enabled
+        if (feedActive && document.getElementById('auto-refresh').checked) {
+            setTimeout(pollCameraFrame, 500);
+        }
     }
     
     // Stop camera feed
@@ -303,9 +325,10 @@
         document.getElementById('live-detections').textContent = stats.detections || 0;
         document.getElementById('live-alerts').textContent = stats.alerts_sent || 0;
         
-        // Calculate efficiency
+        // Calculate efficiency: (total - processed) / total
+        // This shows the percentage of frames that were skipped (not sent to LLM)
         const efficiency = stats.total_frames > 0 ? 
-            ((stats.processed_frames / stats.total_frames) * 100).toFixed(1) : 0;
+            (((stats.total_frames - stats.processed_frames) / stats.total_frames) * 100).toFixed(1) : 0;
         document.getElementById('efficiency-rate').textContent = efficiency + '%';
     }
     
@@ -342,8 +365,11 @@
     
     // Override base handlers
     function handleDetectionEvent(data) {
+        console.log('Detection event received:', data);
         showDetection(data.event);
-        updateLiveStats(data.stats);
+        if (data.stats) {
+            updateLiveStats(data.stats);
+        }
         updateLatestAnalysis(data.event.response);
         
         // Flash the page title
@@ -354,8 +380,13 @@
     }
     
     function handleFrameUpdate(data) {
-        updateFrame(data.frame);
-        updateLiveStats(data.stats);
+        console.log('Frame update received:', data);
+        if (data.frame) {
+            updateFrame(data.frame);
+        }
+        if (data.stats) {
+            updateLiveStats(data.stats);
+        }
     }
     
     // Initialize monitoring page
@@ -382,6 +413,20 @@
                 }
                 updateLiveStats(data.stats || {});
             });
+        
+        // Periodically refresh stats (fallback if WebSocket doesn't update)
+        setInterval(() => {
+            if (feedActive) {
+                fetch('/api/status')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.stats) {
+                            updateLiveStats(data.stats);
+                        }
+                    })
+                    .catch(error => console.error('Stats refresh error:', error));
+            }
+        }, 2000); // Every 2 seconds
     });
 </script>
 {% endblock %}

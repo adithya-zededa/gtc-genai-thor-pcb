@@ -203,6 +203,7 @@
     <script>
         // Global variables
         let socket;
+        let isReconnecting = false;
         
         // Initialize socket connection
         function initSocket() {
@@ -210,11 +211,16 @@
             
             socket.on('connect', function() {
                 updateConnectionStatus(true);
-                showToast('Connected to server', 'success');
+                // Only show toast on reconnection, not initial connection
+                if (isReconnecting) {
+                    showToast('Reconnected to server', 'success');
+                }
+                isReconnecting = false;
             });
             
             socket.on('disconnect', function() {
                 updateConnectionStatus(false);
+                isReconnecting = true;
                 showToast('Disconnected from server', 'error');
             });
             

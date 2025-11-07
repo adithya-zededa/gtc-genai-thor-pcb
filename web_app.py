@@ -10,14 +10,17 @@ import yaml
 import base64
 import sqlite3
 from datetime import datetime, timedelta
+from typing import Optional
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session, Response, send_file
 from flask_socketio import SocketIO, emit
 import threading
 import time
 from camera_agent import MonitorDetectionAgent
 import cv2
 import requests
+import csv
+import io
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -25,8 +28,9 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Global variables
 camera_agent = None
-monitoring_active = False
-monitoring_thread = None
+DATA_DIR = Path('.')
+DETECTED_IMAGES_DIR = DATA_DIR / 'detected_images'
+PROCESSED_FRAMES_DIR = DATA_DIR / 'processed_frames'
 
 class WebCameraAgent:
     """Web-integrated camera agent with real-time updates"""
@@ -35,86 +39,246 @@ class WebCameraAgent:
         self.agent = None
         self.is_monitoring = False
         self.last_frame = None
+        self.last_error = None
+        self._thread: Optional[threading.Thread] = None
+        self.camera = None  # Web app owns the camera
+        self.last_processed_time = 0
+        self.capture_interval = 5  # seconds between agent processing
         self.stats = {
             'total_frames': 0,
             'processed_frames': 0,
             'detections': 0,
             'alerts_sent': 0,
-            'uptime_start': datetime.now()
+            'uptime_start': datetime.now().isoformat()
         }
     
     def initialize(self):
-        """Initialize the camera agent"""
+        """Initialize the camera agent (without camera - web app handles that)"""
         try:
             self.agent = MonitorDetectionAgent()
-            return self.agent.initialize()
+            # Don't initialize camera in agent - web app will handle it
+            # Just test Ollama connection
+            if not self.agent.ollama_client.test_connection():
+                self.last_error = f"Failed to connect to Ollama service at {self.agent.ollama_client.base_url}"
+                return False
+            
+            self.last_error = None
+            return True
         except Exception as e:
+            self.last_error = str(e)
             print(f"Failed to initialize camera agent: {e}")
+            return False
+    
+    def initialize_camera(self):
+        """Initialize camera for web app streaming"""
+        try:
+            if self.camera and self.camera.isOpened():
+                return True
+            
+            self.camera = cv2.VideoCapture(0)
+            if not self.camera.isOpened():
+                self.last_error = "Failed to open camera"
+                return False
+            
+            # Set resolution
+            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            
+            return True
+        except Exception as e:
+            self.last_error = str(e)
             return False
     
     def start_monitoring(self):
         """Start monitoring in background thread"""
         if self.is_monitoring:
             return False
+        if not self.agent:
+            if not self.initialize():
+                return False
         
+        # Initialize camera for web app
+        if not self.initialize_camera():
+            return False
+
         self.is_monitoring = True
         thread = threading.Thread(target=self._monitoring_loop)
         thread.daemon = True
         thread.start()
+        self._thread = thread
         return True
     
     def stop_monitoring(self):
         """Stop monitoring"""
         self.is_monitoring = False
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=5)
+        self._thread = None
+        if self.camera:
+            self.camera.release()
+            self.camera = None
     
     def _monitoring_loop(self):
-        """Main monitoring loop with web integration"""
+        """Main monitoring loop - web app captures, agent analyzes periodically"""
+        prev_frame_for_ssim = None
+        frame_count = 0
+        
         while self.is_monitoring:
             try:
-                # Capture frame
-                capture_result = self.agent.camera_monitor.capture_frame_smart()
-                if capture_result:
-                    image_data, frame_metadata = capture_result
-                    self.stats['processed_frames'] += 1
+                current_time = time.time()
+                
+                # Ensure camera is available
+                if not self.camera or not self.camera.isOpened():
+                    if not self.initialize_camera():
+                        self.last_error = "Camera connection lost"
+                        time.sleep(2)
+                        continue
+                    self.last_error = None
+                
+                # Capture frame from web app's camera
+                ret, frame = self.camera.read()
+                if not ret:
+                    self.last_error = "Failed to capture frame"
+                    time.sleep(1)
+                    continue
+                
+                frame_count += 1
+                self.stats['total_frames'] += 1
+                
+                # Encode frame for storage/display
+                success, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                if success:
+                    image_data = buffer.tobytes()
                     
                     # Store latest frame for web display
                     self.last_frame = {
                         'image_b64': base64.b64encode(image_data).decode('utf-8'),
-                        'metadata': frame_metadata,
-                        'timestamp': datetime.now().isoformat()
+                        'timestamp': datetime.now().isoformat(),
+                        'frame_number': frame_count
                     }
                     
-                    # Analyze frame
-                    event = self.agent.analyze_frame(image_data, frame_metadata)
-                    if event:
-                        self.stats['detections'] += 1
-                        
-                        # Process alerts
-                        if self.agent.process_detection(event):
-                            self.stats['alerts_sent'] += 1
-                        
-                        # Emit real-time update
-                        socketio.emit('detection_event', {
-                            'event': {
-                                'timestamp': event.timestamp,
-                                'confidence': event.confidence,
-                                'response': event.full_response[:200] + '...' if len(event.full_response) > 200 else event.full_response
-                            },
-                            'stats': self.stats.copy()
-                        })
-                    
-                    # Emit frame update
+                    # Emit frame update to web clients
                     socketio.emit('frame_update', {
                         'frame': self.last_frame,
-                        'stats': self.stats.copy()
+                        'stats': self._serialize_stats()
                     })
                 
-                self.stats['total_frames'] += 1
-                time.sleep(1)  # Reduced for more responsive web updates
+                # Check if enough time has passed to send frame to agent
+                if current_time - self.last_processed_time >= self.capture_interval:
+                    self.last_processed_time = current_time
+                    
+                    # Check if frame is different enough using SSIM (agent's logic)
+                    should_process = True
+                    reason = "periodic_check"
+                    
+                    if prev_frame_for_ssim is not None:
+                        try:
+                            from skimage.metrics import structural_similarity as ssim
+                            import numpy as np
+                            
+                            # Resize for faster SSIM
+                            target_size = (320, 240)
+                            current_small = cv2.resize(frame, target_size)
+                            prev_small = cv2.resize(prev_frame_for_ssim, target_size)
+                            
+                            current_gray = cv2.cvtColor(current_small, cv2.COLOR_BGR2GRAY)
+                            prev_gray = cv2.cvtColor(prev_small, cv2.COLOR_BGR2GRAY)
+                            
+                            similarity = ssim(prev_gray, current_gray, data_range=255)
+                            
+                            if similarity < 0.80:  # Scene changed
+                                should_process = True
+                                reason = f"scene_change (SSIM={similarity:.3f})"
+                            else:
+                                should_process = False
+                                reason = f"scene_similar (SSIM={similarity:.3f})"
+                        except Exception as e:
+                            print(f"SSIM check failed: {e}")
+                            should_process = True
+                            reason = "ssim_fallback"
+                    
+                    if should_process:
+                        self.stats['processed_frames'] += 1
+                        prev_frame_for_ssim = frame.copy()
+                        
+                        # Create metadata
+                        frame_metadata = {
+                            'frame_number': frame_count,
+                            'timestamp': current_time,
+                            'reason': reason,
+                            'processed_count': self.stats['processed_frames']
+                        }
+                        
+                        print(f"🔍 Sending frame {frame_count} to agent for analysis: {reason}")
+                        
+                        # Send to agent for LLM analysis
+                        event = self.agent.analyze_frame(image_data, frame_metadata)
+                        
+                        if event:
+                            self.stats['detections'] += 1
+                            print(f"🔔 Detection! Confidence: {event.confidence:.2f}")
+                            
+                            # Process alerts
+                            if self.agent.process_detection(event):
+                                self.stats['alerts_sent'] += 1
+                            
+                            self._record_detection(event, frame_metadata)
+                            
+                            # Emit detection event
+                            socketio.emit('detection_event', {
+                                'event': {
+                                    'timestamp': event.timestamp,
+                                    'confidence': event.confidence,
+                                    'response': event.full_response[:200] + '...' if len(event.full_response) > 200 else event.full_response
+                                },
+                                'stats': self._serialize_stats()
+                            })
+                        else:
+                            print(f"   No detection in frame {frame_count}")
+                
+                # Small delay to control frame rate
+                time.sleep(0.1)
                 
             except Exception as e:
                 print(f"Monitoring loop error: {e}")
-                time.sleep(5)
+                self.last_error = str(e)
+                time.sleep(2)
+
+    def _serialize_stats(self):
+        """Return stats dict with JSON-serializable values"""
+        stats_copy = self.stats.copy()
+        uptime_start = stats_copy.get('uptime_start')
+        if isinstance(uptime_start, datetime):
+            stats_copy['uptime_start'] = uptime_start.isoformat()
+        stats_copy['last_update'] = datetime.now().isoformat()
+        return stats_copy
+
+    def _record_detection(self, event, frame_metadata):
+        """Persist detection event to the database for UI visibility"""
+        try:
+            conn = get_db_connection()
+            conn.execute(
+                '''
+                INSERT INTO detection_logs (timestamp, confidence, response, image_path, frame_number, reason)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    event.timestamp,
+                    event.confidence,
+                    event.full_response,
+                    event.image_path or '',
+                    frame_metadata.get('frame_number'),
+                    frame_metadata.get('reason')
+                )
+            )
+            conn.commit()
+        except Exception as e:
+            print(f"Failed to record detection: {e}")
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 # Initialize database
 def init_db():
@@ -229,12 +393,15 @@ def api_start_monitoring():
     if not camera_agent:
         camera_agent = WebCameraAgent()
         if not camera_agent.initialize():
-            return jsonify({'success': False, 'error': 'Failed to initialize camera'})
+            error_message = camera_agent.last_error or 'Failed to initialize camera'
+            camera_agent = None
+            return jsonify({'success': False, 'error': error_message})
     
     if camera_agent.start_monitoring():
         return jsonify({'success': True, 'message': 'Monitoring started'})
     else:
-        return jsonify({'success': False, 'error': 'Monitoring already active'})
+        error_message = camera_agent.last_error or 'Monitoring already active'
+        return jsonify({'success': False, 'error': error_message})
 
 @app.route('/api/stop_monitoring', methods=['POST'])
 def api_stop_monitoring():
@@ -256,7 +423,7 @@ def api_status():
         'monitoring_active': camera_agent.is_monitoring if camera_agent else False,
         'camera_available': check_camera_availability(),
         'ollama_available': check_ollama_availability(),
-        'stats': camera_agent.stats if camera_agent else {}
+        'stats': camera_agent._serialize_stats() if camera_agent else {}
     }
     
     return jsonify(status)
@@ -334,7 +501,9 @@ def api_config():
 @app.route('/api/test_camera')
 def api_test_camera():
     """Test camera functionality"""
+    global camera_agent
     try:
+        # Try to open camera temporarily for testing
         cap = cv2.VideoCapture(0)
         if cap.isOpened():
             ret, frame = cap.read()
@@ -397,16 +566,218 @@ def api_recent_images():
     except Exception as e:
         return jsonify({'error': str(e)})
 
+@app.route('/api/logs', methods=['GET', 'DELETE'])
+def api_logs():
+    """Get or clear detection logs"""
+    if request.method == 'GET':
+        try:
+            conn = get_db_connection()
+            logs = conn.execute('''
+                SELECT id, timestamp, confidence, response, image_path, frame_number, reason
+                FROM detection_logs 
+                ORDER BY timestamp DESC
+            ''').fetchall()
+            conn.close()
+            
+            logs_list = []
+            for log in logs:
+                logs_list.append({
+                    'id': log['id'],
+                    'timestamp': log['timestamp'],
+                    'confidence': log['confidence'],
+                    'response': log['response'],
+                    'image_path': log['image_path'],
+                    'frame_number': log['frame_number'],
+                    'reason': log['reason'],
+                    'detected': log['confidence'] is not None and log['confidence'] > 0
+                })
+            
+            return jsonify({'success': True, 'logs': logs_list})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)})
+    
+    elif request.method == 'DELETE':
+        try:
+            conn = get_db_connection()
+            conn.execute('DELETE FROM detection_logs')
+            conn.commit()
+            conn.close()
+            return jsonify({'success': True, 'message': 'All logs cleared'})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/logs/<int:log_id>', methods=['DELETE'])
+def api_delete_log(log_id):
+    """Delete a specific log entry"""
+    try:
+        conn = get_db_connection()
+        conn.execute('DELETE FROM detection_logs WHERE id = ?', (log_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'Log deleted'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/logs/export', methods=['POST'])
+def api_export_logs():
+    """Export logs as CSV"""
+    try:
+        data = request.get_json()
+        format_type = data.get('format', 'csv')
+        
+        conn = get_db_connection()
+        logs = conn.execute('''
+            SELECT timestamp, confidence, response, image_path, frame_number, reason
+            FROM detection_logs 
+            ORDER BY timestamp DESC
+        ''').fetchall()
+        conn.close()
+        
+        if format_type == 'csv':
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(['Timestamp', 'Confidence', 'Response', 'Image Path', 'Frame Number', 'Reason'])
+            
+            for log in logs:
+                writer.writerow([
+                    log['timestamp'],
+                    log['confidence'],
+                    log['response'],
+                    log['image_path'],
+                    log['frame_number'],
+                    log['reason']
+                ])
+            
+            return Response(
+                output.getvalue(),
+                mimetype='text/csv',
+                headers={'Content-Disposition': f'attachment; filename=detection_logs_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'}
+            )
+        else:
+            logs_list = [dict(log) for log in logs]
+            return Response(
+                json.dumps(logs_list, indent=2),
+                mimetype='application/json',
+                headers={'Content-Disposition': f'attachment; filename=detection_logs_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'}
+            )
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/image/<path:image_path>')
+def api_serve_image(image_path):
+    """Serve detection images"""
+    try:
+        # Sanitize and resolve the image path
+        safe_path = Path(image_path).resolve()
+        
+        # Check if path is within allowed directories
+        detected_dir = DETECTED_IMAGES_DIR.resolve()
+        processed_dir = (DATA_DIR / 'processed_frames').resolve()
+        
+        if not (str(safe_path).startswith(str(detected_dir)) or str(safe_path).startswith(str(processed_dir))):
+            return jsonify({'error': 'Access denied'}), 403
+        
+        if safe_path.exists() and safe_path.is_file():
+            return send_file(safe_path, mimetype='image/jpeg')
+        else:
+            return jsonify({'error': 'Image not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/system/status')
+def api_system_status():
+    """Get system status information"""
+    try:
+        import psutil
+        
+        status = {
+            'cpu_percent': psutil.cpu_percent(interval=1),
+            'memory_percent': psutil.virtual_memory().percent,
+            'disk_percent': psutil.disk_usage('/').percent,
+            'camera_available': check_camera_availability(),
+            'ollama_available': check_ollama_availability()
+        }
+        return jsonify({'success': True, 'status': status})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/system/environment', methods=['GET', 'POST'])
+def api_system_environment():
+    """Get or update system environment variables"""
+    if request.method == 'GET':
+        try:
+            env_vars = {
+                'CAMERA_INDEX': os.getenv('CAMERA_INDEX', '0'),
+                'OLLAMA_URL': os.getenv('OLLAMA_URL', 'http://localhost:11434'),
+                'VISION_MODEL': os.getenv('VISION_MODEL', 'gemma3:4b'),
+                'DIFF_THRESHOLD': os.getenv('DIFF_THRESHOLD', '0.80'),
+                'CAPTURE_INTERVAL': os.getenv('CAPTURE_INTERVAL', '5'),
+                'LOG_LEVEL': os.getenv('LOG_LEVEL', 'INFO')
+            }
+            return jsonify({'success': True, 'environment': env_vars})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)})
+    
+    elif request.method == 'POST':
+        try:
+            data = request.get_json()
+            # Note: This only updates in-memory; for persistence, update .env file
+            for key, value in data.items():
+                os.environ[key] = str(value)
+            return jsonify({'success': True, 'message': 'Environment variables updated (in-memory only)'})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/video_feed')
+def video_feed():
+    """Stream live video frames from camera"""
+    def generate():
+        try:
+            while True:
+                if camera_agent and camera_agent.last_frame:
+                    # Use the latest frame captured by monitoring loop
+                    frame_data = base64.b64decode(camera_agent.last_frame['image_b64'])
+                    
+                    # Yield frame in multipart format
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + frame_data + b'\r\n')
+                
+                # Control frame rate
+                time.sleep(0.033)  # ~30 FPS
+        except Exception as e:
+            print(f"Video feed error: {e}")
+    
+    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/api/capture_frame')
+def capture_frame():
+    """Get the latest captured frame"""
+    try:
+        if camera_agent and camera_agent.last_frame:
+            return jsonify({
+                'success': True,
+                'image_b64': camera_agent.last_frame['image_b64'],
+                'timestamp': camera_agent.last_frame['timestamp'],
+                'metadata': {
+                    'frame_number': camera_agent.last_frame.get('frame_number', 0),
+                    'source': 'live_stream'
+                }
+            })
+        
+        return jsonify({'success': False, 'error': 'No frames available yet'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 # Helper functions
 def check_camera_availability():
     """Check if camera is available"""
-    try:
-        cap = cv2.VideoCapture(0)
-        available = cap.isOpened()
-        cap.release()
-        return available
-    except:
-        return False
+    global camera_agent
+    if camera_agent and camera_agent.camera:
+        try:
+            return camera_agent.camera.isOpened()
+        except:
+            return False
+    return False
 
 def check_ollama_availability():
     """Check if Ollama is available"""
@@ -430,11 +801,22 @@ def update_email_recipients():
         with open('camera_config.yaml', 'r') as f:
             config = yaml.safe_load(f)
         
-        if 'rules' in config and len(config['rules']) > 0:
-            config['rules'][0]['email']['to'] = emails
-            
+        rules = config.get('rules', []) if config else []
+        updated = False
+        for rule in rules:
+            actions_email = rule.get('actions', {}).get('email') if isinstance(rule.get('actions'), dict) else None
+            legacy_email = rule.get('email') if isinstance(rule.get('email'), dict) else None
+
+            if actions_email is not None:
+                rule['actions']['email']['to'] = emails
+                updated = True
+            elif legacy_email is not None:
+                rule['email']['to'] = emails
+                updated = True
+        
+        if updated:
             with open('camera_config.yaml', 'w') as f:
-                yaml.dump(config, f, default_flow_style=False)
+                yaml.safe_dump(config, f, default_flow_style=False, allow_unicode=True)
     except Exception as e:
         print(f"Failed to update email recipients: {e}")
 
@@ -451,8 +833,9 @@ def handle_disconnect():
     print('Client disconnected')
 
 if __name__ == '__main__':
-    # Initialize database
+    # Initialize database schema before serving requests
     init_db()
+    update_email_recipients()
     
     # Run the app
     print("🌐 Starting ZEDEDA Camera Agent Web Interface...")

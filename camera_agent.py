@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from email.message import EmailMessage
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import requests
 import yaml
@@ -185,11 +185,15 @@ class OllamaVisionClient:
 class CameraMonitor:
     """Handles camera capture and image processing with smart frame preprocessing."""
     
-    def __init__(self, device_index: int = 0, resolution: tuple = (640, 480), 
-                 diff_threshold: float = 0.80, min_time_interval: float = None):
-        self.device_index = device_index
+    def __init__(self, source: Union[int, str] = 0, resolution: tuple = (640, 480), 
+                 diff_threshold: float = 0.80, min_time_interval: float = None, backend: Optional[int] = None):
+        self.source: Union[int, str] = source
+        self.base_source_description = f"index {source}" if isinstance(source, int) else str(source)
+        self.source_description = self.base_source_description
+        self.backend = backend
         self.resolution = resolution
         self.camera = None
+        self._last_backend_label: Optional[str] = None
         
         # Frame preprocessing settings
         self.diff_threshold = diff_threshold
@@ -199,38 +203,107 @@ class CameraMonitor:
         self.frame_count = 0
         self.processed_count = 0
         
-        logger.info(f"Initializing camera monitor for device {device_index} with SSIM preprocessing (diff_threshold={diff_threshold})")
+        backend_label = f", backend={self._backend_name(backend)}" if backend is not None else ""
+        logger.info(
+            f"Initializing camera monitor for source {self.base_source_description}{backend_label} "
+            f"with SSIM preprocessing (diff_threshold={diff_threshold})"
+        )
     
     def initialize_camera(self) -> bool:
         """Initialize camera connection."""
         try:
-            self.camera = cv2.VideoCapture(self.device_index)
-            if not self.camera.isOpened():
-                logger.error(f"Failed to open camera device {self.device_index}")
+            # Release existing camera handle if present
+            if self.camera and self.camera.isOpened():
+                self.camera.release()
+            self.camera = None
+            self.prev_processed_frame = None
+            self.last_processed_time = None
+            self.frame_count = 0
+            self.processed_count = 0
+
+            attempts: List[tuple[str, Any]] = []
+            attempted_labels = set()
+
+            def add_attempt(label: str, factory):
+                if label in attempted_labels:
+                    return
+                attempted_labels.add(label)
+                attempts.append((label, factory))
+
+            if self.backend is not None:
+                add_attempt(f"backend={self._backend_name(self.backend)}", lambda: cv2.VideoCapture(self.source, self.backend))
+
+            add_attempt("default", lambda: cv2.VideoCapture(self.source))
+
+            if isinstance(self.source, int):
+                add_attempt("CAP_V4L2", lambda: cv2.VideoCapture(self.source, cv2.CAP_V4L2))
+                add_attempt("CAP_ANY", lambda: cv2.VideoCapture(self.source, cv2.CAP_ANY))
+            else:
+                add_attempt("CAP_ANY", lambda: cv2.VideoCapture(self.source, cv2.CAP_ANY))
+
+            last_error = None
+            for label, factory in attempts:
+                try:
+                    logger.debug(f"Attempting to open camera source {self.base_source_description} using {label}")
+                    camera = factory()
+                except Exception as exc:
+                    last_error = str(exc)
+                    logger.warning(f"Camera open attempt failed ({label}): {exc}")
+                    continue
+
+                if not camera or not camera.isOpened():
+                    if camera:
+                        camera.release()
+                    logger.debug(f"Camera source {self.base_source_description} not opened via {label}")
+                    continue
+
+                self.camera = camera
+                self._last_backend_label = label
+                break
+
+            if not self.camera or not self.camera.isOpened():
+                error_message = last_error or "Device not found or busy"
+                logger.error(f"Failed to open camera source {self.base_source_description}: {error_message}")
+                self.camera = None
                 return False
-            
-            # Set resolution
-            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.resolution[0])
-            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.resolution[1])
-            
-            # Test capture
+
+            # Set resolution if specified
+            width, height = self.resolution
+            if width:
+                self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+            if height:
+                self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+
             ret, frame = self.camera.read()
             if not ret:
-                logger.error("Failed to capture test frame")
+                logger.error("Failed to capture test frame after initializing camera")
+                self.camera.release()
+                self.camera = None
                 return False
-            
-            logger.info(f"Camera initialized successfully: {self.resolution[0]}x{self.resolution[1]}")
+
+            self.source_description = f"{self.base_source_description} via {self._last_backend_label or 'default'}"
+            logger.info(
+                f"Camera initialized successfully: {self.source_description} at {width}x{height}"
+            )
             return True
             
         except Exception as e:
             logger.error(f"Camera initialization failed: {e}")
+            if self.camera:
+                try:
+                    self.camera.release()
+                except Exception:
+                    pass
+                self.camera = None
             return False
     
     def capture_frame(self) -> Optional[bytes]:
         """Capture a frame and return as JPEG bytes."""
-        if not self.camera:
-            logger.error("Camera not initialized")
-            return None
+        if not self.camera or not self.camera.isOpened():
+            logger.warning("Camera not initialized or unavailable, attempting reinitialization")
+            if not self.initialize_camera():
+                logger.error("Camera reinitialization failed during capture")
+                return None
         
         try:
             ret, frame = self.camera.read()
@@ -258,9 +331,11 @@ class CameraMonitor:
             Tuple of (image_bytes, metadata) if frame should be processed, None otherwise
             metadata contains processing decision info
         """
-        if not self.camera:
-            logger.error("Camera not initialized")
-            return None
+        if not self.camera or not self.camera.isOpened():
+            logger.warning("Camera not initialized or unavailable during smart capture, attempting reinitialization")
+            if not self.initialize_camera():
+                logger.error("Camera reinitialization failed during smart capture")
+                return None
         
         try:
             ret, frame = self.camera.read()
@@ -314,7 +389,21 @@ class CameraMonitor:
         """Release camera resources."""
         if self.camera:
             self.camera.release()
+            self.camera = None
             logger.info("Camera released")
+
+    @staticmethod
+    def _backend_name(backend: Optional[int]) -> str:
+        if backend is None:
+            return "default"
+        backend_map = {
+            getattr(cv2, "CAP_ANY", None): "CAP_ANY",
+            getattr(cv2, "CAP_V4L2", None): "CAP_V4L2",
+            getattr(cv2, "CAP_GSTREAMER", None): "CAP_GSTREAMER",
+            getattr(cv2, "CAP_FFMPEG", None): "CAP_FFMPEG",
+            getattr(cv2, "CAP_DSHOW", None): "CAP_DSHOW",
+        }
+        return backend_map.get(backend, str(backend))
 
 
 class AlertManager:
@@ -335,9 +424,30 @@ class AlertManager:
             # Create email message
             msg = EmailMessage()
             
+            # Resolve email action configuration (supports legacy and new schema)
+            actions_email = rule.get("actions", {}).get("email")
+            legacy_email = rule.get("email", {})
+            email_action = actions_email if actions_email is not None else legacy_email
+
+            if not email_action:
+                logger.warning(f"Rule {rule.get('id', 'unknown')} missing email configuration; skipping alert")
+                return False
+
+            if not email_action.get("enabled", legacy_email.get("enabled", True)):
+                logger.info(f"Email action disabled for rule {rule.get('id', 'unknown')}")
+                return False
+            
             # Template substitution
-            subject_template = rule.get("email", {}).get("subject", "Computer Monitor Detected")
-            body_template = rule.get("email", {}).get("body", "A computer monitor was detected in the camera feed.")
+            subject_template = (
+                email_action.get("subject")
+                or legacy_email.get("subject")
+                or "Computer Monitor Detected"
+            )
+            body_template = (
+                email_action.get("body")
+                or legacy_email.get("body")
+                or "A computer monitor was detected in the camera feed."
+            )
             
             # Replace template variables
             template_vars = {
@@ -363,7 +473,7 @@ class AlertManager:
             msg["From"] = os.getenv("EMAIL_FROM", sender_email)
             
             # Get recipient emails
-            recipients = rule.get("actions", {}).get("email", {}).get("to", [])
+            recipients = email_action.get("to") or legacy_email.get("to", [])
             if not recipients:
                 logger.error("No email recipients configured in rule")
                 return False
@@ -416,6 +526,7 @@ class MonitorDetectionAgent:
     def __init__(self, config_path: str = "camera_config.yaml"):
         self.config_path = config_path
         self.config = self._load_config()
+        self.last_error: Optional[str] = None
         
         # Initialize components
         ollama_url = os.getenv("OLLAMA_URL", self.config.get("ollama", {}).get("url", "http://localhost:11434"))
@@ -423,16 +534,50 @@ class MonitorDetectionAgent:
         
         self.ollama_client = OllamaVisionClient(ollama_url, vision_model)
         
-        camera_index = int(os.getenv("CAMERA_INDEX", self.config.get("camera", {}).get("device_index", 0)))
         camera_config = self.config.get("camera", {})
+        camera_index = int(os.getenv("CAMERA_INDEX", camera_config.get("device_index", 0)))
+        camera_device_path = os.getenv("CAMERA_DEVICE_PATH", camera_config.get("device_path"))
+        camera_source_override = os.getenv("CAMERA_SOURCE")
+
+        if camera_source_override:
+            camera_source: Union[int, str] = camera_source_override
+        elif camera_device_path:
+            camera_source = camera_device_path
+        else:
+            camera_source = camera_index
+
+        resolution_config = camera_config.get("resolution", {})
+        width = int(os.getenv("CAMERA_WIDTH", resolution_config.get("width", 640)))
+        height = int(os.getenv("CAMERA_HEIGHT", resolution_config.get("height", 480)))
+        resolution = (width, height)
+
+        backend_config = os.getenv("CAMERA_BACKEND") or camera_config.get("backend")
+        backend_value: Optional[int] = None
+        if backend_config:
+            backend_lookup = {
+                "CAP_ANY": getattr(cv2, "CAP_ANY", None),
+                "CAP_V4L2": getattr(cv2, "CAP_V4L2", None),
+                "CAP_GSTREAMER": getattr(cv2, "CAP_GSTREAMER", None),
+                "CAP_FFMPEG": getattr(cv2, "CAP_FFMPEG", None),
+                "CAP_DSHOW": getattr(cv2, "CAP_DSHOW", None),
+            }
+            backend_value = backend_lookup.get(str(backend_config).upper())
+            if backend_value is None:
+                try:
+                    backend_value = int(backend_config)
+                except (ValueError, TypeError):
+                    logger.warning(f"Unknown camera backend '{backend_config}', falling back to default")
+                    backend_value = None
         
         # Get preprocessing settings - remove min_time_interval
         preprocessing = camera_config.get("preprocessing", {})
         diff_threshold = float(os.getenv("DIFF_THRESHOLD", preprocessing.get("diff_threshold", 0.80)))
         
         self.camera_monitor = CameraMonitor(
-            camera_index, 
-            diff_threshold=diff_threshold
+            camera_source,
+            resolution=resolution,
+            diff_threshold=diff_threshold,
+            backend=backend_value
         )
         
         self.alert_manager = AlertManager(self.config)
@@ -536,15 +681,18 @@ This alert was generated by the ZEDEDA Camera Monitoring Agent.
     def initialize(self) -> bool:
         """Initialize all components."""
         logger.info("Starting agent initialization...")
+        self.last_error = None
         
         # Test Ollama connection
         if not self.ollama_client.test_connection():
             logger.error("Failed to connect to Ollama service")
+            self.last_error = f"Failed to connect to Ollama service at {self.ollama_client.base_url}"
             return False
         
         # Initialize camera
         if not self.camera_monitor.initialize_camera():
             logger.error("Failed to initialize camera")
+            self.last_error = f"Failed to access camera source {self.camera_monitor.source_description}"
             return False
         
         logger.info("Agent initialization complete")
@@ -558,9 +706,15 @@ This alert was generated by the ZEDEDA Camera Monitoring Agent.
             
             # Log frame processing info
             if frame_metadata:
+                similarity_score = frame_metadata.get('similarity_score', 'N/A')
+                if isinstance(similarity_score, (int, float)):
+                    ssim_str = f"{similarity_score:.3f}"
+                else:
+                    ssim_str = str(similarity_score)
+                
                 logger.info(f"🔍 Analyzing frame #{frame_metadata.get('frame_number', 'unknown')} - "
                           f"Reason: {frame_metadata.get('reason', 'unknown')}, "
-                          f"SSIM: {frame_metadata.get('similarity_score', 'N/A'):.3f}, "
+                          f"SSIM: {ssim_str}, "
                           f"Size: {len(image_data)} bytes")
             else:
                 logger.info(f"🔍 Analyzing frame - Size: {len(image_data)} bytes")
