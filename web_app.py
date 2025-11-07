@@ -10,6 +10,8 @@ import yaml
 import base64
 import sqlite3
 import logging
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Optional
 from pathlib import Path
@@ -47,16 +49,60 @@ class WebCameraAgent:
         self.last_error = None
         self._thread: Optional[threading.Thread] = None
         self.camera = None  # Web app owns the camera
-        self.last_processed_time = 0
-        self.capture_interval = 5  # seconds between agent processing
+        self.last_processed_time = 0.0
+        self.capture_interval = 5.0  # seconds between agent processing
+        self.analysis_workers = 1
+        self.max_pending_analyses = 4
+        self._analysis_executor: Optional[ThreadPoolExecutor] = None
+        self._analysis_futures = deque()
+        self.ssim_threshold = 0.80
+        self.motion_burst_interval = 1.0
+        self.motion_burst_window = 10.0
+        self.motion_burst_ssim = 0.75
+        self.last_motion_time = 0.0
+        self._last_backpressure_log = 0.0
         self.stats = {
             'total_frames': 0,
             'processed_frames': 0,
             'detections': 0,
             'alerts_sent': 0,
+            'dropped_frames': 0,
+            'analysis_avg_ms': 0.0,
+            'analysis_samples': 0,
             'uptime_start': datetime.now().isoformat()
         }
     
+    @staticmethod
+    def _safe_positive_int(value, default):
+        try:
+            val = int(value)
+            return val if val > 0 else default
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _safe_positive_float(value, default):
+        try:
+            val = float(value)
+            return val if val > 0 else default
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _safe_float(value, default):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _clamp(value, minimum, maximum, default):
+        try:
+            val = float(value)
+        except (TypeError, ValueError):
+            return default
+        return max(minimum, min(maximum, val))
+
     def initialize(self):
         """Initialize the camera agent (without camera - web app handles that)"""
         try:
@@ -67,6 +113,54 @@ class WebCameraAgent:
                 self.last_error = f"Failed to connect to Ollama service at {self.agent.ollama_client.base_url}"
                 return False
             
+            camera_config = self.agent.config.get("camera", {})
+            if camera_config:
+                interval = camera_config.get("capture_interval")
+                self.capture_interval = self._safe_positive_float(interval, self.capture_interval)
+
+                preprocessing_cfg = camera_config.get("preprocessing", {})
+                threshold_cfg = preprocessing_cfg.get("diff_threshold")
+                env_threshold = os.getenv("SSIM_DIFF_THRESHOLD")
+                threshold_source = env_threshold if env_threshold is not None else threshold_cfg
+                if threshold_source is not None:
+                    self.ssim_threshold = self._clamp(threshold_source, 0.0, 1.0, self.ssim_threshold)
+
+            advanced_cfg = self.agent.config.get("advanced", {})
+            configured_workers = self._safe_positive_int(advanced_cfg.get("max_concurrent_analyses"), self.analysis_workers)
+            env_workers = os.getenv("MAX_CONCURRENT_ANALYSES")
+            self.analysis_workers = self._safe_positive_int(env_workers, configured_workers)
+
+            default_pending = max(self.analysis_workers * 2, 1)
+            configured_pending = self._safe_positive_int(advanced_cfg.get("max_pending_analyses"), default_pending)
+            env_pending = os.getenv("MAX_PENDING_ANALYSES")
+            self.max_pending_analyses = self._safe_positive_int(env_pending, configured_pending)
+
+            motion_interval_source = os.getenv("MOTION_BURST_INTERVAL")
+            if motion_interval_source is None:
+                motion_interval_source = advanced_cfg.get("motion_burst_interval")
+            motion_interval = self._safe_float(motion_interval_source, self.motion_burst_interval)
+            self.motion_burst_interval = motion_interval if motion_interval > 0 else 0.0
+
+            motion_window_source = os.getenv("MOTION_BURST_WINDOW")
+            if motion_window_source is None:
+                motion_window_source = advanced_cfg.get("motion_burst_window")
+            motion_window = self._safe_float(motion_window_source, self.motion_burst_window)
+            self.motion_burst_window = motion_window if motion_window > 0 else 0.0
+
+            burst_ssim_source = os.getenv("MOTION_BURST_SSIM")
+            if burst_ssim_source is None:
+                burst_ssim_source = advanced_cfg.get("motion_burst_ssim")
+            if burst_ssim_source is not None:
+                self.motion_burst_ssim = self._clamp(burst_ssim_source, 0.0, 1.0, self.motion_burst_ssim)
+
+            self.last_motion_time = 0.0
+
+            # Reset executor so configuration updates apply on the next start
+            if self._analysis_executor:
+                self._analysis_executor.shutdown(wait=False, cancel_futures=True)
+                self._analysis_executor = None
+            self._analysis_futures.clear()
+
             self.last_error = None
             return True
         except Exception as e:
@@ -106,6 +200,12 @@ class WebCameraAgent:
         if not self.initialize_camera():
             return False
 
+        self._analysis_futures.clear()
+        self._ensure_analysis_executor()
+        self._last_backpressure_log = 0.0
+        self.last_processed_time = 0.0
+        self.last_motion_time = 0.0
+
         self.is_monitoring = True
         thread = threading.Thread(target=self._monitoring_loop)
         thread.daemon = True
@@ -122,7 +222,59 @@ class WebCameraAgent:
         if self.camera:
             self.camera.release()
             self.camera = None
+        if self._analysis_executor:
+            self._analysis_executor.shutdown(wait=False, cancel_futures=True)
+            self._analysis_executor = None
+        self._analysis_futures.clear()
     
+    def _ensure_analysis_executor(self):
+        if self._analysis_executor:
+            return
+        try:
+            self._analysis_executor = ThreadPoolExecutor(
+                max_workers=self.analysis_workers,
+                thread_name_prefix="ollama-analysis"
+            )
+        except ValueError:
+            self.analysis_workers = max(self.analysis_workers, 1)
+            self._analysis_executor = ThreadPoolExecutor(
+                max_workers=self.analysis_workers,
+                thread_name_prefix="ollama-analysis"
+            )
+
+    def _effective_capture_interval(self, similarity, current_time):
+        interval = self.capture_interval
+        burst_active = False
+
+        if self.motion_burst_interval > 0:
+            if similarity is not None and similarity <= self.motion_burst_ssim:
+                self.last_motion_time = current_time
+                interval = min(interval, self.motion_burst_interval)
+                burst_active = True
+            elif self.last_motion_time and self.motion_burst_window > 0:
+                if current_time - self.last_motion_time <= self.motion_burst_window:
+                    interval = min(interval, self.motion_burst_interval)
+                    burst_active = True
+                else:
+                    self.last_motion_time = 0.0
+
+        return interval, burst_active
+
+    def _record_backpressure(self, current_time, frame_number, pending):
+        self.stats['dropped_frames'] += 1
+        if current_time - self._last_backpressure_log >= 1.0:
+            print(
+                f"⏳ Skipping frame {frame_number}; {pending} tasks pending (limit {self.max_pending_analyses})"
+            )
+            self._last_backpressure_log = current_time
+
+    def _update_latency_stats(self, latency_ms):
+        samples = self.stats.get('analysis_samples', 0)
+        average = self.stats.get('analysis_avg_ms', 0.0)
+        new_samples = samples + 1
+        self.stats['analysis_avg_ms'] = ((average * samples) + latency_ms) / new_samples
+        self.stats['analysis_samples'] = new_samples
+
     def _monitoring_loop(self):
         """Main monitoring loop - web app captures, agent analyzes periodically"""
         prev_frame_for_ssim = None
@@ -130,6 +282,7 @@ class WebCameraAgent:
         
         while self.is_monitoring:
             try:
+                self._drain_analysis_results()
                 current_time = time.time()
                 
                 # Ensure camera is available
@@ -152,99 +305,87 @@ class WebCameraAgent:
                 
                 # Encode frame for storage/display
                 success, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                if success:
-                    image_data = buffer.tobytes()
-                    
-                    # Store latest frame for web display
-                    self.last_frame = {
-                        'image_b64': base64.b64encode(image_data).decode('utf-8'),
-                        'timestamp': datetime.now().isoformat(),
-                        'frame_number': frame_count
-                    }
-                    
-                    # Emit frame update to web clients
-                    socketio.emit('frame_update', {
-                        'frame': self.last_frame,
-                        'stats': self._serialize_stats()
-                    })
-                
-                # Check if enough time has passed to send frame to agent
-                if current_time - self.last_processed_time >= self.capture_interval:
-                    self.last_processed_time = current_time
-                    
-                    # Check if frame is different enough using SSIM (agent's logic)
-                    should_process = True
-                    reason = "periodic_check"
-                    
-                    if prev_frame_for_ssim is not None:
-                        try:
-                            from skimage.metrics import structural_similarity as ssim
-                            import numpy as np
-                            
-                            # Resize for faster SSIM
-                            target_size = (320, 240)
-                            current_small = cv2.resize(frame, target_size)
-                            prev_small = cv2.resize(prev_frame_for_ssim, target_size)
-                            
-                            current_gray = cv2.cvtColor(current_small, cv2.COLOR_BGR2GRAY)
-                            prev_gray = cv2.cvtColor(prev_small, cv2.COLOR_BGR2GRAY)
-                            
-                            similarity = ssim(prev_gray, current_gray, data_range=255)
-                            
-                            if similarity < 0.80:  # Scene changed
-                                should_process = True
-                                reason = f"scene_change (SSIM={similarity:.3f})"
-                            else:
-                                should_process = False
-                                reason = f"scene_similar (SSIM={similarity:.3f})"
-                        except Exception as e:
-                            print(f"SSIM check failed: {e}")
+                if not success:
+                    self.last_error = "Failed to encode frame"
+                    time.sleep(0.2)
+                    continue
+
+                image_data = buffer.tobytes()
+
+                # Store latest frame for web display
+                self.last_frame = {
+                    'image_b64': base64.b64encode(image_data).decode('utf-8'),
+                    'timestamp': datetime.now().isoformat(),
+                    'frame_number': frame_count
+                }
+
+                # Emit frame update to web clients
+                socketio.emit('frame_update', {
+                    'frame': self.last_frame,
+                    'stats': self._serialize_stats()
+                })
+
+                # Determine if frame should be analysed based on change detection
+                should_process = True
+                reason = "periodic_check"
+                similarity = None
+
+                if prev_frame_for_ssim is not None:
+                    try:
+                        from skimage.metrics import structural_similarity as ssim
+
+                        # Resize for faster SSIM
+                        target_size = (320, 240)
+                        current_small = cv2.resize(frame, target_size)
+                        prev_small = cv2.resize(prev_frame_for_ssim, target_size)
+
+                        current_gray = cv2.cvtColor(current_small, cv2.COLOR_BGR2GRAY)
+                        prev_gray = cv2.cvtColor(prev_small, cv2.COLOR_BGR2GRAY)
+
+                        similarity = ssim(prev_gray, current_gray, data_range=255)
+
+                        if similarity < self.ssim_threshold:
                             should_process = True
-                            reason = "ssim_fallback"
-                    
-                    if should_process:
-                        self.stats['processed_frames'] += 1
-                        prev_frame_for_ssim = frame.copy()
-                        
-                        # Create metadata
+                            reason = f"scene_change (SSIM={similarity:.3f})"
+                        else:
+                            should_process = False
+                            reason = f"scene_similar (SSIM={similarity:.3f})"
+                    except Exception as exc:
+                        print(f"SSIM check failed: {exc}")
+                        should_process = True
+                        reason = "ssim_fallback"
+                else:
+                    reason = "initial_frame"
+
+                if should_process:
+                    effective_interval, burst_active = self._effective_capture_interval(similarity, current_time)
+                    time_since_last = current_time - self.last_processed_time
+
+                    if time_since_last >= effective_interval:
                         frame_metadata = {
                             'frame_number': frame_count,
                             'timestamp': current_time,
-                            'reason': reason,
-                            'processed_count': self.stats['processed_frames']
+                            'reason': reason
                         }
-                        
-                        print(f"🔍 Sending frame {frame_count} to agent for analysis: {reason}")
-                        
-                        # Send to agent for LLM analysis
-                        event = self.agent.analyze_frame(image_data, frame_metadata)
+                        if similarity is not None:
+                            frame_metadata['similarity_score'] = similarity
 
-                        if not event:
-                            print(f"⚠️  Analysis failed for frame {frame_count}")
-                            continue
+                        submitted, pending = self._submit_frame_for_analysis(image_data, frame_metadata, current_time)
 
-                        # Persist the outcome for UI visibility
-                        self._record_detection(event, frame_metadata)
-
-                        if event.detected:
-                            self.stats['detections'] += 1
-                            print(f"🔔 Detection! Confidence: {event.confidence:.2f}")
-
-                            if self.agent.process_detection(event):
-                                self.stats['alerts_sent'] += 1
-
-                            socketio.emit('detection_event', {
-                                'event': {
-                                    'timestamp': event.timestamp,
-                                    'confidence': event.confidence,
-                                    'response': event.full_response[:200] + '...' if len(event.full_response) > 200 else event.full_response
-                                },
-                                'stats': self._serialize_stats()
-                            })
+                        if submitted:
+                            self.last_processed_time = current_time
+                            self.stats['processed_frames'] += 1
+                            frame_metadata['processed_count'] = self.stats['processed_frames']
+                            print(f"🔍 Sending frame {frame_count} to agent for analysis: {reason}")
                         else:
-                            classification = event.decision_trace.get('classification') if event.decision_trace else None
-                            classification_display = classification or 'NO_DETECTION'
-                            print(f"   No detection in frame {frame_count} (Decision: {classification_display})")
+                            self._record_backpressure(current_time, frame_count, pending)
+                    elif burst_active and effective_interval > 0:
+                        remaining = max(effective_interval - time_since_last, 0.0)
+                        if remaining > 0.01 and current_time - self._last_backpressure_log >= 1.0:
+                            print(f"⏱ Waiting {remaining:.2f}s before next burst submission")
+                            self._last_backpressure_log = current_time
+
+                prev_frame_for_ssim = frame.copy()
                 
                 # Small delay to control frame rate
                 time.sleep(0.1)
@@ -254,12 +395,114 @@ class WebCameraAgent:
                 self.last_error = str(e)
                 time.sleep(2)
 
+        # Flush any remaining analysis results when stopping
+        self._drain_analysis_results(flush=True)
+
+    def _submit_frame_for_analysis(self, image_data, frame_metadata, enqueue_time):
+        if not self._analysis_executor:
+            return False, 0
+
+        pending = sum(1 for future in self._analysis_futures if not future.done())
+        if pending >= self.max_pending_analyses:
+            return False, pending
+
+        frame_metadata['queued_at'] = enqueue_time
+        frame_metadata['submitted_at'] = enqueue_time
+
+        future = self._analysis_executor.submit(self._analyze_frame_task, image_data, frame_metadata)
+        future.frame_metadata = frame_metadata  # type: ignore[attr-defined]
+        self._analysis_futures.append(future)
+        return True, pending
+
+    def _analyze_frame_task(self, image_data, frame_metadata):
+        return self.agent.analyze_frame(image_data, frame_metadata)
+
+    def _drain_analysis_results(self, flush=False):
+        if not self._analysis_futures:
+            return
+
+        still_pending = deque()
+        while self._analysis_futures:
+            future = self._analysis_futures.popleft()
+
+            if not future.done():
+                if flush:
+                    future.cancel()
+                else:
+                    still_pending.append(future)
+                continue
+
+            frame_metadata = getattr(future, 'frame_metadata', {})
+
+            if future.cancelled():
+                continue
+
+            try:
+                event = future.result()
+            except Exception as exc:
+                frame_number = frame_metadata.get('frame_number', 'unknown') if isinstance(frame_metadata, dict) else 'unknown'
+                print(f"Analysis task failed for frame {frame_number}: {exc}")
+                continue
+
+            self._handle_analysis_result(event, frame_metadata if isinstance(frame_metadata, dict) else {})
+
+        self._analysis_futures.extend(still_pending)
+
+    def _handle_analysis_result(self, event, frame_metadata):
+        frame_number = frame_metadata.get('frame_number', 'unknown')
+
+        latency_ms = None
+        queued_at = frame_metadata.get('queued_at')
+        if isinstance(queued_at, (int, float)):
+            latency_ms = (time.time() - queued_at) * 1000.0
+        elif isinstance(queued_at, str):
+            try:
+                latency_ms = (time.time() - float(queued_at)) * 1000.0
+            except ValueError:
+                latency_ms = None
+
+        if latency_ms is not None:
+            frame_metadata['analysis_latency_ms'] = latency_ms
+            self._update_latency_stats(latency_ms)
+
+        if not event:
+            print(f"⚠️  Analysis failed for frame {frame_number}")
+            return
+
+        if latency_ms is not None and isinstance(event.decision_trace, dict):
+            event.decision_trace['analysis_latency_ms'] = latency_ms
+
+        self._record_detection(event, frame_metadata)
+
+        if event.detected:
+            self.stats['detections'] += 1
+            print(f"🔔 Detection! Confidence: {event.confidence:.2f}")
+
+            if self.agent.process_detection(event):
+                self.stats['alerts_sent'] += 1
+
+            socketio.emit('detection_event', {
+                'event': {
+                    'timestamp': event.timestamp,
+                    'confidence': event.confidence,
+                    'response': event.full_response[:200] + '...' if len(event.full_response) > 200 else event.full_response
+                },
+                'stats': self._serialize_stats()
+            })
+        else:
+            classification = event.decision_trace.get('classification') if event.decision_trace else None
+            classification_display = classification or 'NO_DETECTION'
+            print(f"   No detection in frame {frame_number} (Decision: {classification_display})")
+
     def _serialize_stats(self):
         """Return stats dict with JSON-serializable values"""
         stats_copy = self.stats.copy()
         uptime_start = stats_copy.get('uptime_start')
         if isinstance(uptime_start, datetime):
             stats_copy['uptime_start'] = uptime_start.isoformat()
+        avg_latency = stats_copy.get('analysis_avg_ms')
+        if isinstance(avg_latency, (int, float)):
+            stats_copy['analysis_avg_ms'] = round(avg_latency, 2)
         stats_copy['last_update'] = datetime.now().isoformat()
         return stats_copy
 

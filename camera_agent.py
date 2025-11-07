@@ -514,6 +514,22 @@ class MonitorDetectionAgent:
     def _default_config(self) -> Dict[str, Any]:
         """Return default configuration."""
         return {
+            "advanced": {
+                "cleanup_interval": 3600,
+                "health_check_interval": 300,
+                "image_format": "jpg",
+                "image_quality": 85,
+                "max_concurrent_analyses": 1,
+                "max_pending_analyses": 4,
+                "max_consecutive_failures": 5,
+                "max_stored_images": 100,
+                "motion_burst_interval": 1.0,
+                "motion_burst_window": 10.0,
+                "motion_burst_ssim": 0.75,
+                "retry_attempts": 3,
+                "retry_delay": 2,
+                "stats_log_interval": 600
+            },
             "camera": {
                 "device_index": 0,
                 "capture_interval": 5,
