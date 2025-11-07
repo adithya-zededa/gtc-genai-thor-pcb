@@ -207,14 +207,14 @@
             
             <div class="pt-4 border-t border-gray-200">
                 <div class="grid grid-cols-2 gap-3">
-                    <button id="backup-db" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium shadow-sm hover:shadow-md">
+                    <button id="backup-db" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium">
                         <i class="fas fa-download mr-2"></i>Backup
                     </button>
-                    <button id="optimize-db" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium shadow-sm hover:shadow-md">
+                    <button id="optimize-db" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium">
                         <i class="fas fa-cogs mr-2"></i>Optimize
                     </button>
                 </div>
-                <button id="reset-db" class="w-full mt-3 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all font-medium shadow-sm hover:shadow-md">
+                <button id="reset-db" class="w-full mt-3 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all font-medium">
                     <i class="fas fa-trash mr-2"></i>Reset Database
                 </button>
             </div>
@@ -289,10 +289,10 @@
 
 <!-- Action Buttons -->
 <div class="mt-8 flex justify-end space-x-4">
-    <button id="restart-services" class="px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-all font-medium shadow-sm hover:shadow-md">
+    <button id="restart-services" class="px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-all font-medium">
         <i class="fas fa-redo mr-2"></i>Restart Services
     </button>
-    <button id="save-all-settings" class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium shadow-sm hover:shadow-md">
+    <button id="save-all-settings" class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium">
         <i class="fas fa-save mr-2"></i>Save All Settings
     </button>
 </div>
@@ -317,9 +317,16 @@
             email: document.getElementById('email-status')
         };
         
+        // Map the status response to our elements
+        const serviceStatus = {
+            agent: status.status?.camera_available || false,
+            ollama: status.status?.ollama_available || false,
+            email: status.status?.email_available || false
+        };
+        
         Object.keys(statuses).forEach(service => {
             const element = statuses[service];
-            const isRunning = status[service]?.running || false;
+            const isRunning = serviceStatus[service];
             
             element.className = `px-2 py-1 text-xs font-semibold rounded-full ${
                 isRunning ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
@@ -330,11 +337,11 @@
     
     // Update system metrics
     function updateSystemMetrics(metrics) {
-        if (metrics.system) {
-            document.getElementById('system-uptime').textContent = formatUptime(metrics.system.uptime);
-            document.getElementById('cpu-usage').textContent = metrics.system.cpu + '%';
-            document.getElementById('memory-usage').textContent = metrics.system.memory + '%';
-            document.getElementById('disk-usage').textContent = metrics.system.disk + '%';
+        if (metrics.status) {
+            // System metrics
+            document.getElementById('cpu-usage').textContent = Math.round(metrics.status.cpu_percent || 0) + '%';
+            document.getElementById('memory-usage').textContent = Math.round(metrics.status.memory_percent || 0) + '%';
+            document.getElementById('disk-usage').textContent = Math.round(metrics.status.disk_percent || 0) + '%';
         }
         
         if (metrics.database) {
