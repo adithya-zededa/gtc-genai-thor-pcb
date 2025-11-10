@@ -59,6 +59,9 @@ class WebCameraAgent:
         self.motion_burst_interval = 0.2
         self.motion_burst_window = 12.0
         self.motion_burst_ssim = 0.75
+        self.pending_similarity_threshold = 0.92
+        self._pending_reference_frames = deque()
+        self._last_dedupe_log = 0.0
         self.last_motion_time = 0.0
         self._last_backpressure_log = 0.0
         self.stats = {
@@ -67,6 +70,7 @@ class WebCameraAgent:
             'detections': 0,
             'alerts_sent': 0,
             'dropped_frames': 0,
+            'deduped_frames': 0,
             'analysis_avg_ms': 0.0,
             'analysis_samples': 0,
             'uptime_start': datetime.now().isoformat()
@@ -102,6 +106,15 @@ class WebCameraAgent:
         except (TypeError, ValueError):
             return default
         return max(minimum, min(maximum, val))
+
+    @staticmethod
+    def _make_reference_frame(frame):
+        try:
+            target_size = (320, 240)
+            resized = cv2.resize(frame, target_size)
+            return cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+        except Exception:
+            return None
 
     def initialize(self):
         """Initialize the camera agent (without camera - web app handles that)"""
@@ -152,6 +165,17 @@ class WebCameraAgent:
                 burst_ssim_source = advanced_cfg.get("motion_burst_ssim")
             if burst_ssim_source is not None:
                 self.motion_burst_ssim = self._clamp(burst_ssim_source, 0.0, 1.0, self.motion_burst_ssim)
+
+            dedupe_ssim_source = os.getenv("PENDING_DEDUPE_SSIM")
+            if dedupe_ssim_source is None:
+                dedupe_ssim_source = advanced_cfg.get("pending_dedupe_ssim")
+            if dedupe_ssim_source is not None:
+                self.pending_similarity_threshold = self._clamp(
+                    dedupe_ssim_source,
+                    0.0,
+                    1.0,
+                    self.pending_similarity_threshold
+                )
 
             self.last_motion_time = 0.0
 
@@ -206,6 +230,8 @@ class WebCameraAgent:
         now = time.time()
         self.last_processed_time = now - self.capture_interval
         self.last_motion_time = now - (self.motion_burst_interval if self.motion_burst_interval > 0 else 0.0)
+        self._pending_reference_frames.clear()
+        self._last_dedupe_log = 0.0
 
         self.is_monitoring = True
         thread = threading.Thread(target=self._monitoring_loop)
@@ -227,6 +253,7 @@ class WebCameraAgent:
             self._analysis_executor.shutdown(wait=False, cancel_futures=True)
             self._analysis_executor = None
         self._analysis_futures.clear()
+        self._pending_reference_frames.clear()
     
     def _ensure_analysis_executor(self):
         if self._analysis_executor:
@@ -245,6 +272,53 @@ class WebCameraAgent:
 
     def _count_pending_futures(self):
         return sum(1 for future in self._analysis_futures if not future.done())
+
+    def _is_duplicate_pending(self, reference_frame):
+        if reference_frame is None or not self._pending_reference_frames:
+            return False, 0.0
+        try:
+            from skimage.metrics import structural_similarity as ssim
+        except Exception:
+            return False, 0.0
+
+        max_similarity = 0.0
+        for future, pending_frame in list(self._pending_reference_frames):
+            if future.cancelled():
+                continue
+            if pending_frame is None:
+                continue
+            try:
+                similarity = ssim(pending_frame, reference_frame, data_range=255)
+            except Exception:
+                continue
+
+            if similarity > max_similarity:
+                max_similarity = similarity
+
+            if similarity >= self.pending_similarity_threshold:
+                return True, similarity
+
+        return False, max_similarity
+
+    def _prune_pending_reference(self, future):
+        if not self._pending_reference_frames:
+            return
+        cleaned = deque()
+        for existing_future, ref_frame in self._pending_reference_frames:
+            if existing_future is future or existing_future.cancelled():
+                continue
+            cleaned.append((existing_future, ref_frame))
+        self._pending_reference_frames = cleaned
+
+    def _cleanup_pending_references(self):
+        if not self._pending_reference_frames:
+            return
+        cleaned = deque()
+        for future, ref_frame in self._pending_reference_frames:
+            if future.cancelled() or future.done():
+                continue
+            cleaned.append((future, ref_frame))
+        self._pending_reference_frames = cleaned
 
     def _record_backpressure(self, current_time, frame_number, pending):
         self.stats['dropped_frames'] += 1
@@ -315,6 +389,7 @@ class WebCameraAgent:
                 similarity = None
                 motion_detected = True
                 reason = "initial_frame"
+                reference_frame = None
 
                 if prev_frame_for_ssim is not None:
                     try:
@@ -329,6 +404,7 @@ class WebCameraAgent:
 
                         similarity = ssim(prev_gray, current_gray, data_range=255)
                         motion_detected = similarity < self.ssim_threshold
+                        reference_frame = current_gray
                         if motion_detected:
                             reason = f"scene_change (SSIM={similarity:.3f})"
                         else:
@@ -337,6 +413,9 @@ class WebCameraAgent:
                         print(f"SSIM check failed: {exc}")
                         motion_detected = True
                         reason = "ssim_fallback"
+
+                if reference_frame is None:
+                    reference_frame = self._make_reference_frame(frame)
 
                 min_interval = self.motion_burst_interval if motion_detected else self.capture_interval
                 min_interval = max(min_interval, 0.0)
@@ -355,11 +434,12 @@ class WebCameraAgent:
                     if similarity is not None:
                         frame_metadata['similarity_score'] = similarity
 
-                    submitted, pending = self._submit_frame_for_analysis(
+                    submitted, pending, deduped = self._submit_frame_for_analysis(
                         image_data,
                         frame_metadata,
                         current_time,
-                        allow_wait=allow_wait
+                        allow_wait=allow_wait,
+                        reference_frame=reference_frame
                     )
 
                     if submitted:
@@ -371,7 +451,7 @@ class WebCameraAgent:
                         self.stats['processed_frames'] += 1
                         frame_metadata['processed_count'] = self.stats['processed_frames']
                         print(f"🔍 Sending frame {frame_count} to agent for analysis: {reason}")
-                    else:
+                    elif not deduped:
                         self._record_backpressure(current_time, frame_count, pending)
                 elif motion_detected and current_time - self._last_backpressure_log >= 1.0:
                     remaining = max(min_interval - (current_time - last_time), 0.0)
@@ -391,25 +471,41 @@ class WebCameraAgent:
         # Flush any remaining analysis results when stopping
         self._drain_analysis_results(flush=True)
 
-    def _submit_frame_for_analysis(self, image_data, frame_metadata, enqueue_time, allow_wait=False):
+    def _submit_frame_for_analysis(self, image_data, frame_metadata, enqueue_time, allow_wait=False, reference_frame=None):
         if not self._analysis_executor:
-            return False, 0
+            return False, 0, False
+
+        is_duplicate = False
+        duplicate_similarity = 0.0
+        if reference_frame is not None:
+            is_duplicate, duplicate_similarity = self._is_duplicate_pending(reference_frame)
+
+        if is_duplicate:
+            self.stats['deduped_frames'] += 1
+            if enqueue_time - self._last_dedupe_log >= 1.0:
+                print(f"🗑️ Dropping similar frame (SSIM={duplicate_similarity:.3f}) already pending")
+                self._last_dedupe_log = enqueue_time
+            return False, self._count_pending_futures(), True
 
         pending = self._count_pending_futures()
         if self.max_pending_analyses > 0:
             while pending >= self.max_pending_analyses:
                 if not allow_wait:
-                    return False, pending
+                    return False, pending, False
                 self._drain_analysis_results(wait=True)
                 pending = self._count_pending_futures()
 
         frame_metadata['queued_at'] = enqueue_time
         frame_metadata['submitted_at'] = enqueue_time
-
         future = self._analysis_executor.submit(self._analyze_frame_task, image_data, frame_metadata)
         future.frame_metadata = frame_metadata  # type: ignore[attr-defined]
+        if reference_frame is not None:
+            future.reference_frame = reference_frame  # type: ignore[attr-defined]
+            self._pending_reference_frames.append((future, reference_frame))
+        else:
+            self._pending_reference_frames.append((future, None))
         self._analysis_futures.append(future)
-        return True, pending
+        return True, pending, False
 
     def _analyze_frame_task(self, image_data, frame_metadata):
         return self.agent.analyze_frame(image_data, frame_metadata)
@@ -437,6 +533,7 @@ class WebCameraAgent:
             frame_metadata = getattr(future, 'frame_metadata', {})
 
             if future.cancelled():
+                self._prune_pending_reference(future)
                 continue
 
             try:
@@ -444,11 +541,14 @@ class WebCameraAgent:
             except Exception as exc:
                 frame_number = frame_metadata.get('frame_number', 'unknown') if isinstance(frame_metadata, dict) else 'unknown'
                 print(f"Analysis task failed for frame {frame_number}: {exc}")
+                self._prune_pending_reference(future)
                 continue
 
+            self._prune_pending_reference(future)
             self._handle_analysis_result(event, frame_metadata if isinstance(frame_metadata, dict) else {})
 
         self._analysis_futures.extend(still_pending)
+        self._cleanup_pending_references()
 
         if wait and not processed_any and still_pending:
             futures_list = list(still_pending)

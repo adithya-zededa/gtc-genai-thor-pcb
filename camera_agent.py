@@ -526,6 +526,7 @@ class MonitorDetectionAgent:
                 "motion_burst_interval": 0.2,
                 "motion_burst_window": 12.0,
                 "motion_burst_ssim": 0.75,
+n                "pending_dedupe_ssim": 0.92,
                 "retry_attempts": 3,
                 "retry_delay": 2,
                 "stats_log_interval": 600
