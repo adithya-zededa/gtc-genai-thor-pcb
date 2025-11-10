@@ -167,23 +167,23 @@
         </table>
     </div>
     
-    <!-- Pagination -->
-    <div class="bg-gray-50 px-6 py-3 border-t border-gray-200">
-        <div class="flex items-center justify-between">
-            <div class="text-sm text-gray-700">
-                Showing <span id="showing-from">0</span> to <span id="showing-to">0</span> of <span id="total-entries">0</span> entries
+    <!-- Pagination Island -->
+    <div class="mt-4 flex flex-col sm:flex-row items-center justify-between gap-4 rounded-full bg-white/95 backdrop-blur-md border border-white/80 px-6 py-5 shadow-[0_12px_40px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.4)]">
+        <div class="text-sm text-slate-600 font-medium whitespace-nowrap">
+            Showing <span id="showing-from" class="font-bold text-slate-900">0</span> to <span id="showing-to" class="font-bold text-slate-900">0</span> of <span id="total-entries" class="font-bold text-slate-900">0</span> entries
+        </div>
+        <div class="flex items-center gap-2 flex-wrap justify-center">
+            <button id="prev-page" class="pagination-btn inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-b from-white/90 to-slate-50/90 backdrop-blur-sm px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-[inset_0_1px_2px_rgba(255,255,255,0.5),inset_0_-1px_2px_rgba(0,0,0,0.05),0_4px_6px_-1px_rgba(0,0,0,0.1)] border border-slate-200/60 transition-all duration-300 hover:scale-[0.97] hover:shadow-[inset_0_1px_2px_rgba(255,255,255,0.5),inset_0_-1px_2px_rgba(0,0,0,0.05),0_2px_4px_-1px_rgba(0,0,0,0.15)] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100" disabled>
+                <i class="fas fa-chevron-left text-xs"></i>
+                <span>Previous</span>
+            </button>
+            <div id="page-numbers" class="flex items-center gap-1.5 flex-wrap justify-center">
+                <!-- Page numbers will be populated here -->
             </div>
-            <div class="flex space-x-2">
-                <button id="prev-page" class="px-3 py-1 border border-gray-300 rounded text-sm hover:bg-gray-100 disabled:opacity-50" disabled>
-                    Previous
-                </button>
-                <div id="page-numbers" class="flex space-x-1">
-                    <!-- Page numbers will be populated here -->
-                </div>
-                <button id="next-page" class="px-3 py-1 border border-gray-300 rounded text-sm hover:bg-gray-100 disabled:opacity-50" disabled>
-                    Next
-                </button>
-            </div>
+            <button id="next-page" class="pagination-btn inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-b from-white/90 to-slate-50/90 backdrop-blur-sm px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-[inset_0_1px_2px_rgba(255,255,255,0.5),inset_0_-1px_2px_rgba(0,0,0,0.05),0_4px_6px_-1px_rgba(0,0,0,0.1)] border border-slate-200/60 transition-all duration-300 hover:scale-[0.97] hover:shadow-[inset_0_1px_2px_rgba(255,255,255,0.5),inset_0_-1px_2px_rgba(0,0,0,0.05),0_2px_4px_-1px_rgba(0,0,0,0.15)] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100" disabled>
+                <span>Next</span>
+                <i class="fas fa-chevron-right text-xs"></i>
+            </button>
         </div>
     </div>
 </div>
@@ -579,29 +579,81 @@
         const startIndex = (currentPage - 1) * itemsPerPage + 1;
         const endIndex = Math.min(currentPage * itemsPerPage, filteredLogs.length);
         
-        document.getElementById('showing-from').textContent = startIndex;
+        document.getElementById('showing-from').textContent = filteredLogs.length > 0 ? startIndex : 0;
         document.getElementById('showing-to').textContent = endIndex;
         document.getElementById('total-entries').textContent = filteredLogs.length;
         
         // Update navigation buttons
         document.getElementById('prev-page').disabled = currentPage === 1;
-        document.getElementById('next-page').disabled = currentPage === totalPages;
+        document.getElementById('next-page').disabled = currentPage === totalPages || totalPages === 0;
         
-        // Update page numbers
+        // Update page numbers with modern island style
         const pageNumbers = document.getElementById('page-numbers');
         pageNumbers.innerHTML = '';
         
-        for (let i = Math.max(1, currentPage - 2); i <= Math.min(totalPages, currentPage + 2); i++) {
-            const button = document.createElement('button');
-            button.textContent = i;
-            button.className = `px-3 py-1 border border-gray-300 rounded text-sm hover:bg-gray-100 ${i === currentPage ? 'bg-blue-500 text-white' : ''}`;
-            button.onclick = () => {
-                currentPage = i;
-                renderTable();
-                updatePagination();
-            };
+        // Calculate page range to show
+        const maxButtons = 5;
+        let startPage = Math.max(1, currentPage - Math.floor(maxButtons / 2));
+        let endPage = Math.min(totalPages, startPage + maxButtons - 1);
+        
+        // Adjust start if we're near the end
+        if (endPage - startPage < maxButtons - 1) {
+            startPage = Math.max(1, endPage - maxButtons + 1);
+        }
+        
+        // Add first page and ellipsis if needed
+        if (startPage > 1) {
+            const firstButton = createPageButton(1);
+            pageNumbers.appendChild(firstButton);
+            
+            if (startPage > 2) {
+                const ellipsis = document.createElement('span');
+                ellipsis.className = 'flex items-center justify-center min-w-[44px] h-[44px] text-sm font-semibold text-slate-400';
+                ellipsis.textContent = '...';
+                pageNumbers.appendChild(ellipsis);
+            }
+        }
+        
+        // Add page number buttons
+        for (let i = startPage; i <= endPage; i++) {
+            const button = createPageButton(i);
             pageNumbers.appendChild(button);
         }
+        
+        // Add last page and ellipsis if needed
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                const ellipsis = document.createElement('span');
+                ellipsis.className = 'flex items-center justify-center min-w-[44px] h-[44px] text-sm font-semibold text-slate-400';
+                ellipsis.textContent = '...';
+                pageNumbers.appendChild(ellipsis);
+            }
+            
+            const lastButton = createPageButton(totalPages);
+            pageNumbers.appendChild(lastButton);
+        }
+    }
+    
+    // Create a page button with modern glassmorphic styling
+    function createPageButton(pageNum) {
+        const button = document.createElement('button');
+        button.textContent = pageNum;
+        
+        if (pageNum === currentPage) {
+            // Active page button with gradient
+            button.className = 'min-w-[44px] h-[44px] rounded-full bg-gradient-to-b from-blue-500 to-blue-600 text-sm font-bold text-white shadow-[inset_0_1px_2px_rgba(255,255,255,0.3),inset_0_-1px_2px_rgba(0,0,0,0.1),0_4px_12px_rgba(59,130,246,0.4)] border border-blue-400/50 transition-all duration-300 hover:scale-[0.95] hover:shadow-[inset_0_1px_2px_rgba(255,255,255,0.3),inset_0_-1px_2px_rgba(0,0,0,0.1),0_2px_8px_rgba(59,130,246,0.5)]';
+        } else {
+            // Inactive page button with clean white glassmorphic effect
+            button.className = 'min-w-[44px] h-[44px] rounded-full bg-gradient-to-b from-white to-slate-50 backdrop-blur-sm text-sm font-semibold text-slate-700 shadow-[inset_0_1px_2px_rgba(255,255,255,0.5),inset_0_-1px_2px_rgba(0,0,0,0.05),0_4px_6px_-1px_rgba(0,0,0,0.1)] border border-slate-200/60 transition-all duration-300 hover:scale-[0.95] hover:bg-gradient-to-b hover:from-blue-50 hover:to-blue-100 hover:text-blue-600 hover:border-blue-200/60 hover:shadow-[inset_0_1px_2px_rgba(255,255,255,0.5),inset_0_-1px_2px_rgba(0,0,0,0.05),0_2px_4px_-1px_rgba(0,0,0,0.15)]';
+        }
+        
+        button.onclick = () => {
+            currentPage = pageNum;
+            renderTable();
+            updatePagination();
+        };
+        
+        return button;
     }
     
     // Export logs

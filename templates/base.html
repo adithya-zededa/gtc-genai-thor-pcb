@@ -40,10 +40,11 @@
         }
 
         header {
-            background: rgba(255, 255, 255, 0.85);
-            backdrop-filter: blur(18px);
-            -webkit-backdrop-filter: blur(18px);
-            border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
         }
 
         .surface {
@@ -58,10 +59,6 @@
             border-color: rgba(37, 99, 235, 0.16);
             box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
             transform: translateY(-2px);
-        }
-
-        .sidebar-transition {
-            transition: all 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
         }
 
         section.surface {
@@ -228,27 +225,168 @@
             opacity: 0.5;
         }
         
-        /* macOS-style sidebar */
-        #sidebar {
-            background: rgba(255, 255, 255, 0.8);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border-right: 1px solid rgba(0, 0, 0, 0.05);
+        /* Floating bottom navigation */
+        .nav-shell {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100%;
+            max-width: 650px;
+            padding: 0 1.5rem;
+            z-index: 40;
+            pointer-events: none;
         }
-        
-        #sidebar nav a {
+
+        .nav-island {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1.75rem;
+            padding: 1rem 1.5rem;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.62), rgba(236, 239, 255, 0.58));
+            border: 1px solid rgba(255, 255, 255, 0.55);
+            border-radius: 9999px;
+            backdrop-filter: blur(26px) saturate(180%);
+            -webkit-backdrop-filter: blur(26px) saturate(180%);
+            box-shadow: 0 28px 50px rgba(15, 23, 42, 0.18);
+            pointer-events: auto;
+            overflow: visible;
+        }
+
+        .nav-links {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 1.75rem;
+        }
+
+        .nav-item {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.35rem 0.9rem 0.65rem;
+            font-size: 0.85rem;
             font-weight: 500;
-            transition: all 0.2s cubic-bezier(0.4, 0.0, 0.2, 1);
+            color: #64748b;
+            transition: color 0.2s ease;
+            z-index: 1;
+            line-height: 1.1;
+            cursor: pointer;
         }
-        
-        #sidebar nav a:hover {
-            background: rgba(0, 122, 255, 0.05);
-            color: #007aff;
+
+        .nav-item i {
+            font-size: 1.1rem;
         }
-        
-        #sidebar nav a.active {
-            background: rgba(0, 122, 255, 0.1);
-            color: #007aff;
+
+        .nav-item:hover {
+            color: #1f2937;
+        }
+
+        .nav-item[data-active="true"] {
+            color: #1f2937;
+        }
+
+        .nav-item[data-active="true"] .nav-label {
+            font-weight: 600;
+        }
+
+        .nav-badge {
+            position: absolute;
+            top: -8px;
+            right: 4px;
+            min-width: 22px;
+            height: 22px;
+            padding: 0 6px;
+            border-radius: 9999px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            background: #f97316;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(249, 115, 22, 0.4);
+        }
+
+        .nav-live {
+            position: absolute;
+            top: -10px;
+            right: 0;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            font-size: 0.6rem;
+            letter-spacing: 0.08em;
+            font-weight: 700;
+            background: #34c759;
+            color: white;
+            box-shadow: 0 6px 18px rgba(52, 199, 89, 0.35);
+            text-transform: uppercase;
+        }
+
+        #nav-highlight {
+            position: absolute;
+            top: 50%;
+            width: 76px;
+            height: 52px;
+            border-radius: 9999px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(3px) saturate(1.165) contrast(1.12);
+            -webkit-backdrop-filter: blur(3px) saturate(1.165) contrast(1.12);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.1),
+                inset 0 1px 0 rgba(255, 255, 255, 0.3);
+            transition: transform 0.35s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.25s ease, width 0.25s ease;
+            transform: translate(-9999px, -50%);
+            opacity: 0;
+            pointer-events: none;
+            z-index: 0;
+            overflow: hidden;
+        }
+
+        /* Liquid glass refraction layer */
+        #nav-highlight::before {
+            content: '';
+            position: absolute;
+            inset: -20%;
+            background: radial-gradient(
+                ellipse 150% 150% at 50% 50%,
+                rgba(59, 130, 246, 0.3) 0%,
+                transparent 70%
+            );
+            filter: blur(6px);
+            animation: liquidRefract 8s ease-in-out infinite;
+        }
+
+        @keyframes liquidRefract {
+            0%, 100% { transform: rotate(0deg) scale(1); }
+            50% { transform: rotate(180deg) scale(1.15); }
+        }
+
+        @media (max-width: 768px) {
+            .nav-island {
+                justify-content: center;
+                gap: 1rem;
+                padding: 0.85rem 1rem;
+            }
+
+            .nav-links {
+                gap: 1rem;
+            }
+
+            #nav-highlight {
+                width: 64px;
+                height: 50px;
+            }
+
+            .nav-item {
+                font-size: 0.75rem;
+                padding: 0.25rem 0.6rem 0.6rem;
+            }
         }
         
         /* macOS-style inputs */
@@ -317,93 +455,46 @@
     {% block extra_head %}{% endblock %}
 </head>
 <body class="min-h-screen">
-    <!-- Sidebar -->
-    <div id="sidebar" class="fixed inset-y-0 left-0 z-50 w-64 bg-white/80 border-r border-gray-200 sidebar-transition transform -translate-x-full lg:translate-x-0">
-        <div class="flex items-center justify-center h-20 px-4 bg-white/90 border-b border-gray-200">
-            <img src="{{ url_for('static', filename='zededa-logo.png') }}" alt="Logo" class="h-10 w-auto max-w-full object-contain">
-        </div>
-        
-        <nav class="mt-8">
-            <div class="px-4 space-y-2">
-                <a href="{{ url_for('dashboard') }}" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-gray-100 {% if request.endpoint == 'dashboard' %}bg-blue-50 text-blue-700 border-r-4 border-blue-500{% endif %}">
-                    <i class="fas fa-tachometer-alt mr-3"></i>
-                    Dashboard
-                </a>
-                
-                <a href="{{ url_for('monitoring') }}" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-gray-100 {% if request.endpoint == 'monitoring' %}bg-blue-50 text-blue-700 border-r-4 border-blue-500{% endif %}">
-                    <i class="fas fa-eye mr-3"></i>
-                    Live Monitoring
-                    <span id="monitoring-badge" class="ml-auto px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full hidden">LIVE</span>
-                </a>
-                
-                <a href="{{ url_for('users') }}" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-gray-100 {% if request.endpoint == 'users' %}bg-blue-50 text-blue-700 border-r-4 border-blue-500{% endif %}">
-                    <i class="fas fa-users mr-3"></i>
-                    User Management
-                </a>
-                
-                <a href="{{ url_for('logs') }}" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-gray-100 {% if request.endpoint == 'logs' %}bg-blue-50 text-blue-700 border-r-4 border-blue-500{% endif %}">
-                    <i class="fas fa-list-alt mr-3"></i>
-                    Detection Logs
-                    <div class="relative ml-auto">
-                        <i class="fas fa-bell text-gray-400"></i>
-                        <span id="logs-badge" class="notification-badge hidden">0</span>
-                    </div>
-                </a>
-                
-                <a href="{{ url_for('settings') }}" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-gray-100 {% if request.endpoint == 'settings' %}bg-blue-50 text-blue-700 border-r-4 border-blue-500{% endif %}">
-                    <i class="fas fa-wrench mr-3"></i>
-                    Settings
-                </a>
-            </div>
-        </nav>
-        
-        <!-- System Status -->
-        <div class="absolute bottom-0 w-full p-4 border-t">
-            <div class="space-y-2 text-sm">
-                <div class="flex items-center">
-                    <span class="status-indicator" id="camera-status"></span>
-                    <span>Camera</span>
-                </div>
-                <div class="flex items-center">
-                    <span class="status-indicator" id="ollama-status"></span>
-                    <span>Ollama</span>
-                </div>
-                <div class="flex items-center">
-                    <span class="status-indicator" id="monitoring-status"></span>
-                    <span>Monitoring</span>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Mobile sidebar backdrop -->
-    <div id="sidebar-backdrop" class="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden hidden"></div>
-    
-    <!-- Main content -->
-    <div class="lg:ml-64 flex flex-col min-h-screen">
-        <!-- Top bar -->
-        <header class="border-b border-gray-200/80">
+    <div class="flex min-h-screen flex-col">
+        <header class="sticky top-0 z-50">
             <div class="flex items-center justify-between px-6 py-4">
-                <div class="flex items-center">
-                    <button id="sidebar-toggle" class="lg:hidden p-2 rounded-md text-gray-600 hover:bg-gray-100">
-                        <i class="fas fa-bars"></i>
-                    </button>
-                    <h2 class="ml-4 text-xl font-semibold text-gray-800">
+                <div class="flex items-center gap-5">
+                    <img src="{{ url_for('static', filename='zededa-logo.png') }}" alt="ZEDEDA" class="hidden h-8 w-auto sm:block">
+                    <div class="h-8 w-px bg-slate-200 hidden sm:block"></div>
+                    <h2 class="text-xl font-semibold text-slate-800 tracking-tight">
                         {% block page_title %}Dashboard{% endblock %}
                     </h2>
                 </div>
-                
-                <div class="flex items-center space-x-4">
+
+                <div class="flex items-center gap-4">
+                    <!-- System Status Indicators -->
+                    <div class="hidden md:flex items-center gap-3 px-4 py-2 rounded-full bg-slate-50/80 border border-slate-200/60">
+                        <div class="flex items-center gap-2 text-xs font-medium text-slate-600">
+                            <span class="status-indicator" id="camera-status"></span>
+                            <span>Camera</span>
+                        </div>
+                        <div class="w-px h-4 bg-slate-300"></div>
+                        <div class="flex items-center gap-2 text-xs font-medium text-slate-600">
+                            <span class="status-indicator" id="ollama-status"></span>
+                            <span>Ollama</span>
+                        </div>
+                        <div class="w-px h-4 bg-slate-300"></div>
+                        <div class="flex items-center gap-2 text-xs font-medium text-slate-600">
+                            <span class="status-indicator" id="monitoring-status"></span>
+                            <span>Monitor</span>
+                        </div>
+                    </div>
+
                     <!-- Connection status -->
-                    <div id="connection-status" class="flex items-center px-3 py-1 rounded-full bg-green-100 text-green-800 text-sm">
-                        <i class="fas fa-wifi mr-2"></i>
+                    <div id="connection-status" class="flex items-center px-3 py-2 rounded-full bg-green-50 border border-green-200/60 text-green-700 text-xs font-medium">
+                        <i class="fas fa-wifi mr-2 text-xs"></i>
                         Connected
                     </div>
-                    
+
                     <!-- Monitoring control -->
-                    <div class="flex items-center space-x-3">
-                        <span id="monitoring-label" class="text-sm font-medium text-gray-600">Monitoring</span>
-                        <label class="toggle-switch">
+                    <div class="flex items-center gap-3 px-4 py-2 rounded-full bg-white border border-slate-200/60 shadow-sm">
+                        <span id="monitoring-label" class="text-xs font-semibold text-slate-600">Monitoring</span>
+                        <label class="toggle-switch scale-90">
                             <input type="checkbox" id="monitoring-toggle">
                             <span class="toggle-slider"></span>
                         </label>
@@ -411,15 +502,15 @@
                 </div>
             </div>
         </header>
-        
+
         <!-- Page content -->
-        <main class="flex-1 px-6 py-10">
-            <div class="max-w-6xl mx-auto w-full space-y-8">
+        <main class="flex-1 px-6 py-10 pb-32">
+            <div class="mx-auto w-full max-w-6xl space-y-8">
                 {% with messages = get_flashed_messages() %}
                     {% if messages %}
                         <div class="space-y-3">
                             {% for message in messages %}
-                                <div class="surface px-4 py-3 flex items-center text-sm text-blue-700">
+                                <div class="surface flex items-center px-4 py-3 text-sm text-blue-700">
                                     <i class="fas fa-info-circle mr-3 text-blue-500"></i>
                                     <span>{{ message }}</span>
                                 </div>
@@ -432,7 +523,37 @@
             </div>
         </main>
     </div>
-    
+
+    <div class="nav-shell">
+        <div class="nav-island">
+            <div class="nav-links">
+                <div id="nav-highlight"></div>
+                <a href="{{ url_for('dashboard') }}" class="nav-item" data-active="{{ 'true' if request.endpoint == 'dashboard' else 'false' }}">
+                    <i class="fas fa-tachometer-alt"></i>
+                    <span class="nav-label">Dashboard</span>
+                </a>
+                <a href="{{ url_for('monitoring') }}" class="nav-item" data-active="{{ 'true' if request.endpoint == 'monitoring' else 'false' }}">
+                    <i class="fas fa-eye"></i>
+                    <span class="nav-label">Monitoring</span>
+                    <span id="monitoring-badge" class="nav-live hidden">LIVE</span>
+                </a>
+                <a href="{{ url_for('users') }}" class="nav-item" data-active="{{ 'true' if request.endpoint == 'users' else 'false' }}">
+                    <i class="fas fa-users"></i>
+                    <span class="nav-label">Users</span>
+                </a>
+                <a href="{{ url_for('logs') }}" class="nav-item" data-active="{{ 'true' if request.endpoint == 'logs' else 'false' }}">
+                    <i class="fas fa-list-alt"></i>
+                    <span class="nav-label">Logs</span>
+                    <span id="logs-badge" class="nav-badge hidden">0</span>
+                </a>
+                <a href="{{ url_for('settings') }}" class="nav-item" data-active="{{ 'true' if request.endpoint == 'settings' else 'false' }}">
+                    <i class="fas fa-wrench"></i>
+                    <span class="nav-label">Settings</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast notifications -->
     <div id="toast-container" class="fixed top-4 right-4 space-y-2 z-50"></div>
     
@@ -482,11 +603,11 @@
         function updateConnectionStatus(connected) {
             const statusEl = document.getElementById('connection-status');
             if (connected) {
-                statusEl.className = 'flex items-center px-3 py-1 rounded-full bg-green-100 text-green-800 text-sm';
-                statusEl.innerHTML = '<i class="fas fa-wifi mr-2"></i>Connected';
+                statusEl.className = 'flex items-center px-3 py-2 rounded-full bg-green-50 border border-green-200/60 text-green-700 text-xs font-medium';
+                statusEl.innerHTML = '<i class="fas fa-wifi mr-2 text-xs"></i>Connected';
             } else {
-                statusEl.className = 'flex items-center px-3 py-1 rounded-full bg-red-100 text-red-800 text-sm';
-                statusEl.innerHTML = '<i class="fas fa-wifi-slash mr-2"></i>Disconnected';
+                statusEl.className = 'flex items-center px-3 py-2 rounded-full bg-red-50 border border-red-200/60 text-red-700 text-xs font-medium';
+                statusEl.innerHTML = '<i class="fas fa-wifi-slash mr-2 text-xs"></i>Disconnected';
             }
         }
         
@@ -589,7 +710,7 @@
             // Update label text
             if (label) {
                 label.textContent = active ? 'Monitoring' : 'Monitoring';
-                label.className = active ? 'text-sm font-medium text-green-600' : 'text-sm font-medium text-gray-600';
+                label.className = active ? 'text-xs font-semibold text-green-600' : 'text-xs font-semibold text-slate-600';
             }
             
             // Update badge
@@ -617,21 +738,48 @@
             }
         }
         
-        // Sidebar toggle
-        function initSidebar() {
-            const sidebar = document.getElementById('sidebar');
-            const backdrop = document.getElementById('sidebar-backdrop');
-            const toggle = document.getElementById('sidebar-toggle');
+        // Floating navigation highlight
+        function initBottomNav() {
+            const links = document.querySelector('.nav-links');
+            const highlight = document.getElementById('nav-highlight');
+
+            if (!links || !highlight) {
+                return;
+            }
+
+            const positionHighlight = (immediate = false) => {
+                const activeItem = links.querySelector('.nav-item[data-active="true"]');
+                if (!activeItem) {
+                    highlight.style.opacity = 0;
+                    return;
+                }
+
+                const highlightWidth = activeItem.offsetWidth + 32;
+                const offset = activeItem.offsetLeft + (activeItem.offsetWidth / 2) - (highlightWidth / 2);
+                
+                if (immediate) {
+                    // Disable transition temporarily for immediate positioning
+                    highlight.style.transition = 'none';
+                    highlight.style.width = `${highlightWidth}px`;
+                    highlight.style.transform = `translate(${offset}px, -50%)`;
+                    highlight.style.opacity = 1;
+                    
+                    // Re-enable transition after a frame
+                    requestAnimationFrame(() => {
+                        highlight.style.transition = 'transform 0.35s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.25s ease, width 0.25s ease';
+                    });
+                } else {
+                    highlight.style.width = `${highlightWidth}px`;
+                    highlight.style.transform = `translate(${offset}px, -50%)`;
+                    highlight.style.opacity = 1;
+                }
+            };
+
+            // Position immediately on load (no transition), then enable transitions
+            positionHighlight(true);
             
-            toggle.addEventListener('click', () => {
-                sidebar.classList.toggle('-translate-x-full');
-                backdrop.classList.toggle('hidden');
-            });
-            
-            backdrop.addEventListener('click', () => {
-                sidebar.classList.add('-translate-x-full');
-                backdrop.classList.add('hidden');
-            });
+            // Reposition on resize with transition
+            window.addEventListener('resize', () => positionHighlight(false));
         }
         
         // Update system status
@@ -661,7 +809,7 @@
         // Initialize everything when page loads
         document.addEventListener('DOMContentLoaded', function() {
             initSocket();
-            initSidebar();
+            initBottomNav();
             updateSystemStatus();
             
             // Set up monitoring toggle
