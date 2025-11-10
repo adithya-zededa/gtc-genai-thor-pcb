@@ -42,6 +42,16 @@ PROCESSED_FRAMES_DIR = DATA_DIR / 'processed_frames'
 CONFIG_PATH = Path(os.getenv('CAMERA_AGENT_CONFIG', DEFAULT_CONFIG_PATH)).expanduser()
 CONFIG_LOCK = threading.RLock()
 
+DEFAULT_LOG_SETTINGS = {
+    'log_level': 'INFO',
+    'log_retention': 30,
+    'max_log_size': 100,
+    'log_to_file': True,
+    'log_to_console': True,
+    'log_database': False
+}
+HANDLER_DISABLE_LEVEL = logging.CRITICAL + 10
+
 
 def _coerce_bool_config(value, default: bool = False) -> bool:
     """Convert string/number representations to boolean values."""
@@ -852,6 +862,8 @@ def init_db():
             user_email TEXT
         )
     ''')
+
+    ensure_log_settings_seed(conn)
     
     conn.commit()
     conn.close()
@@ -861,6 +873,139 @@ def get_db_connection():
     conn = sqlite3.connect('camera_agent.db')
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def ensure_log_settings_seed(conn: sqlite3.Connection) -> None:
+    """Guarantee the log_settings table exists with a canonical row."""
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS log_settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            log_level TEXT NOT NULL DEFAULT 'INFO',
+            log_retention INTEGER NOT NULL DEFAULT 30,
+            max_log_size INTEGER NOT NULL DEFAULT 100,
+            log_to_file INTEGER NOT NULL DEFAULT 1,
+            log_to_console INTEGER NOT NULL DEFAULT 1,
+            log_database INTEGER NOT NULL DEFAULT 0,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.execute('''
+        INSERT INTO log_settings (id, log_level, log_retention, max_log_size, log_to_file, log_to_console, log_database)
+        SELECT 1, ?, ?, ?, ?, ?, ?
+        WHERE NOT EXISTS (SELECT 1 FROM log_settings WHERE id = 1)
+    ''', (
+        DEFAULT_LOG_SETTINGS['log_level'],
+        DEFAULT_LOG_SETTINGS['log_retention'],
+        DEFAULT_LOG_SETTINGS['max_log_size'],
+        int(DEFAULT_LOG_SETTINGS['log_to_file']),
+        int(DEFAULT_LOG_SETTINGS['log_to_console']),
+        int(DEFAULT_LOG_SETTINGS['log_database'])
+    ))
+
+
+def get_log_settings() -> Dict[str, object]:
+    """Fetch persisted logging preferences or fall back to defaults."""
+    conn = get_db_connection()
+    ensure_log_settings_seed(conn)
+    row = conn.execute('''
+        SELECT log_level, log_retention, max_log_size, log_to_file, log_to_console, log_database
+        FROM log_settings
+        WHERE id = 1
+    ''').fetchone()
+    conn.commit()
+    conn.close()
+
+    if not row:
+        return DEFAULT_LOG_SETTINGS.copy()
+
+    return {
+        'log_level': (row['log_level'] or DEFAULT_LOG_SETTINGS['log_level']).upper(),
+        'log_retention': int(row['log_retention'] if row['log_retention'] is not None else DEFAULT_LOG_SETTINGS['log_retention']),
+        'max_log_size': int(row['max_log_size'] if row['max_log_size'] is not None else DEFAULT_LOG_SETTINGS['max_log_size']),
+        'log_to_file': bool(row['log_to_file']),
+        'log_to_console': bool(row['log_to_console']),
+        'log_database': bool(row['log_database'])
+    }
+
+
+def _apply_log_preferences(settings: Dict[str, object]) -> None:
+    """Apply log level and handler preferences at runtime."""
+    level_name = str(settings.get('log_level', DEFAULT_LOG_SETTINGS['log_level'])).upper()
+    level = getattr(logging, level_name, logging.INFO)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+    logger.setLevel(level)
+    logging.getLogger('camera_agent').setLevel(level)
+    logging.getLogger('email_agent').setLevel(level)
+
+    log_to_console = bool(settings.get('log_to_console', True))
+    log_to_file = bool(settings.get('log_to_file', True))
+
+    for handler in root_logger.handlers:
+        if isinstance(handler, logging.FileHandler):
+            handler.setLevel(level if log_to_file else HANDLER_DISABLE_LEVEL)
+        elif isinstance(handler, logging.StreamHandler):
+            handler.setLevel(level if log_to_console else HANDLER_DISABLE_LEVEL)
+
+
+def persist_log_settings(payload: Dict[str, object]) -> Dict[str, object]:
+    """Validate and persist logging preferences."""
+    sanitized = DEFAULT_LOG_SETTINGS.copy()
+
+    level_candidate = str(payload.get('log_level', sanitized['log_level'])).upper()
+    if level_candidate in {'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'}:
+        sanitized['log_level'] = level_candidate
+
+    try:
+        retention = int(payload.get('log_retention', sanitized['log_retention']))
+        if retention > 0:
+            sanitized['log_retention'] = retention
+    except (ValueError, TypeError):
+        pass
+
+    try:
+        max_size = int(payload.get('max_log_size', sanitized['max_log_size']))
+        if max_size > 0:
+            sanitized['max_log_size'] = max_size
+    except (ValueError, TypeError):
+        pass
+
+    sanitized['log_to_file'] = bool(payload.get('log_to_file', sanitized['log_to_file']))
+    sanitized['log_to_console'] = bool(payload.get('log_to_console', sanitized['log_to_console']))
+    sanitized['log_database'] = bool(payload.get('log_database', sanitized['log_database']))
+
+    conn = get_db_connection()
+    ensure_log_settings_seed(conn)
+    conn.execute('''
+        UPDATE log_settings
+        SET log_level = ?,
+            log_retention = ?,
+            max_log_size = ?,
+            log_to_file = ?,
+            log_to_console = ?,
+            log_database = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1
+    ''', (
+        sanitized['log_level'],
+        sanitized['log_retention'],
+        sanitized['max_log_size'],
+        int(sanitized['log_to_file']),
+        int(sanitized['log_to_console']),
+        int(sanitized['log_database'])
+    ))
+    conn.commit()
+    conn.close()
+
+    _apply_log_preferences(sanitized)
+    return sanitized
+
+
+try:
+    _apply_log_preferences(get_log_settings())
+except Exception as exc:  # pragma: no cover - defensive path
+    logger.warning("Unable to apply persisted logging preferences: %s", exc)
 
 # Routes
 @app.route('/')
@@ -875,24 +1020,8 @@ def monitoring():
 
 @app.route('/configuration')
 def configuration():
-    """Configuration management"""
-    # Load current configuration
-    config = load_camera_config()
-    config_view = copy.deepcopy(config)
-    notifications = config_view.get('notifications', {}) if isinstance(config_view, dict) else {}
-    if isinstance(notifications, dict):
-        email_cfg = notifications.get('email')
-        if isinstance(email_cfg, dict):
-            email_cfg.pop('sender_password', None)
-    else:
-        config_view['notifications'] = {}
-    
-    # Load users
-    conn = get_db_connection()
-    users = conn.execute('SELECT * FROM users WHERE active = 1').fetchall()
-    conn.close()
-    
-    return render_template('configuration.html', config=config_view, users=users)
+    """Legacy configuration route kept for compatibility."""
+    return redirect(url_for('settings'))
 
 @app.route('/users')
 def users():
@@ -1089,6 +1218,11 @@ def api_config():
                     camera_agent.refresh_configuration(persisted)
                 except Exception as exc:
                     logger.error(f"Failed to apply updated configuration to agent: {exc}")
+
+            notifications_cfg = (persisted or {}).get('notifications', {})
+            email_cfg = notifications_cfg.get('email', {}) if isinstance(notifications_cfg, dict) else {}
+            if _coerce_bool_config((email_cfg or {}).get('auto_sync_users'), True):
+                update_email_recipients()
             
             return jsonify({'success': True, 'message': 'Configuration updated', 'config': persisted})
         except Exception as e:
@@ -1401,6 +1535,26 @@ def api_system_environment():
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)})
 
+
+@app.route('/api/system/logging', methods=['GET', 'POST'])
+def api_system_logging():
+    """Retrieve or update logging preferences."""
+    if request.method == 'GET':
+        try:
+            settings = get_log_settings()
+            return jsonify({'success': True, 'settings': settings})
+        except Exception as exc:
+            logger.error("Failed to fetch log settings: %s", exc, exc_info=True)
+            return jsonify({'success': False, 'error': 'Unable to load log settings'}), 500
+
+    data = request.get_json(silent=True) or {}
+    try:
+        settings = persist_log_settings(data)
+        return jsonify({'success': True, 'settings': settings})
+    except Exception as exc:
+        logger.error("Failed to update log settings: %s", exc, exc_info=True)
+        return jsonify({'success': False, 'error': 'Failed to save log settings'}), 500
+
 @app.route('/api/video_feed')
 def video_feed():
     """Stream live video frames from camera"""
@@ -1463,23 +1617,36 @@ def check_ollama_availability():
 def update_email_recipients():
     """Update email recipients in configuration based on active users"""
     try:
-        # Get active users with valid emails
-        conn = get_db_connection()
-        users = conn.execute('SELECT email FROM users WHERE active = 1 AND email IS NOT NULL AND email != ""').fetchall()
-        conn.close()
-        
-        emails = [user['email'] for user in users]
-        
-        if not emails:
-            logger.warning("No active users found to update email recipients")
+        config = load_camera_config() or {}
+        notifications = config.get('notifications', {}) if isinstance(config, dict) else {}
+        email_cfg = notifications.get('email', {}) if isinstance(notifications, dict) else {}
+        auto_sync_enabled = _coerce_bool_config((email_cfg or {}).get('auto_sync_users'), True)
+        if not auto_sync_enabled:
+            logger.debug("Email auto-sync disabled in configuration; skipping recipient sync")
             return
 
-        config = load_camera_config()
-        notifications = (config or {}).get('notifications', {})
-        email_cfg = notifications.get('email', {}) if isinstance(notifications, dict) else {}
+        # Get active users with valid emails
+        conn = get_db_connection()
+        users = conn.execute(
+            'SELECT email FROM users WHERE active = 1 AND email IS NOT NULL AND email != ""'
+        ).fetchall()
+        conn.close()
+        
+        seen = set()
+        emails: List[str] = []
+        for row in users:
+            candidate = (row['email'] or '').strip()
+            lower = candidate.lower()
+            if not candidate or lower in seen:
+                continue
+            seen.add(lower)
+            emails.append(candidate)
 
-        if not _coerce_bool_config((email_cfg or {}).get('auto_sync_users'), False):
-            logger.debug("Email auto-sync disabled in configuration; skipping recipient sync")
+        emails.sort(key=lambda value: value.lower())
+
+        current_recipients = extract_recipients(config)
+        if emails == current_recipients:
+            logger.debug("Email recipients already up to date; no sync needed")
             return
 
         apply_recipients(config, emails)
@@ -1493,7 +1660,10 @@ def update_email_recipients():
             except Exception as exc:
                 logger.error(f"Failed to apply synced recipients to agent: {exc}")
         
-        logger.info(f"Email recipients updated successfully via user sync. Recipients: {', '.join(emails)}")
+        logger.info(
+            "Email recipients updated successfully via user sync. Recipients: %s",
+            ', '.join(emails) if emails else 'none'
+        )
             
     except Exception as e:
         logger.error(f"Failed to update email recipients: {e}", exc_info=True)

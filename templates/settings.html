@@ -4,696 +4,1204 @@
 {% block page_title %}System Settings{% endblock %}
 
 {% block content %}
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-    <!-- System Status -->
-    <div class="bg-white rounded-lg shadow-md p-6">
-        <h3 class="text-lg font-semibold text-gray-800 mb-4">System Status</h3>
-        
-        <div class="space-y-4">
-            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div class="flex items-center">
-                    <i class="fas fa-server text-gray-600 mr-3"></i>
-                    <span class="text-sm font-medium">Web Server</span>
+<div class="max-w-5xl mx-auto px-6 py-8 space-y-4">
+    <!-- System Overview -->
+    <section class="bg-white border border-gray-200/60 rounded-xl shadow-sm overflow-hidden">
+        <div class="px-6 py-5 border-b border-gray-100">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-base font-semibold text-gray-900 tracking-tight">System Overview</h3>
+                    <p class="text-xs text-gray-500 mt-0.5">Monitor system status and resource usage</p>
                 </div>
-                <span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800" id="web-status">
-                    <i class="fas fa-circle mr-1"></i>Running
-                </span>
-            </div>
-            
-            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div class="flex items-center">
-                    <i class="fas fa-video text-gray-600 mr-3"></i>
-                    <span class="text-sm font-medium">Camera Agent</span>
-                </div>
-                <span class="px-2 py-1 text-xs font-semibold rounded-full" id="settings-agent-status">
-                    <i class="fas fa-circle mr-1"></i>Checking...
-                </span>
-            </div>
-            
-            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div class="flex items-center">
-                    <i class="fas fa-brain text-gray-600 mr-3"></i>
-                    <span class="text-sm font-medium">Ollama Service</span>
-                </div>
-                <span class="px-2 py-1 text-xs font-semibold rounded-full" id="settings-ollama-status">
-                    <i class="fas fa-circle mr-1"></i>Checking...
-                </span>
-            </div>
-            
-            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div class="flex items-center">
-                    <i class="fas fa-envelope text-gray-600 mr-3"></i>
-                    <span class="text-sm font-medium">Email Service</span>
-                </div>
-                <span class="px-2 py-1 text-xs font-semibold rounded-full" id="settings-email-status">
-                    <i class="fas fa-circle mr-1"></i>Checking...
-                </span>
-            </div>
-        </div>
-        
-        <div class="mt-6 pt-6 border-t border-gray-200">
-            <div class="text-sm text-gray-600 space-y-2">
-                <div class="flex justify-between">
-                    <span>Uptime:</span>
-                    <span id="system-uptime">Loading...</span>
-                </div>
-                <div class="flex justify-between">
-                    <span>CPU Usage:</span>
-                    <span id="cpu-usage">Loading...</span>
-                </div>
-                <div class="flex justify-between">
-                    <span>Memory Usage:</span>
-                    <span id="memory-usage">Loading...</span>
-                </div>
-                <div class="flex justify-between">
-                    <span>Disk Usage:</span>
-                    <span id="disk-usage">Loading...</span>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Environment Variables -->
-    <div class="bg-white rounded-lg shadow-md p-6">
-        <h3 class="text-lg font-semibold text-gray-800 mb-4">Environment Configuration</h3>
-        <p class="text-sm text-gray-600 mb-4">Configure system environment variables (requires restart)</p>
-        
-        <form id="env-form" class="space-y-4">
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Gmail Email</label>
-                <input type="email" id="gmail-email" placeholder="your-email@gmail.com"
-                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-            </div>
-            
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Gmail App Password</label>
-                <div class="relative">
-                    <input type="password" id="gmail-password" placeholder="16-character app password"
-                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 pr-10">
-                    <button type="button" onclick="togglePassword('gmail-password')" 
-                            class="absolute inset-y-0 right-0 pr-3 flex items-center">
-                        <i class="fas fa-eye text-gray-400"></i>
+                <div class="flex gap-2">
+                    <button id="refresh-system-status" class="px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 transition-colors">
+                        <i class="fas fa-rotate mr-1.5"></i>Refresh
+                    </button>
+                    <button id="restart-services" class="px-3 py-1.5 text-xs font-medium bg-orange-500 text-white rounded-md hover:bg-orange-600 transition-colors">
+                        <i class="fas fa-power-off mr-1.5"></i>Restart
                     </button>
                 </div>
-                <p class="text-xs text-gray-500 mt-1">
-                    <a href="https://support.google.com/accounts/answer/185833" target="_blank" 
-                       class="text-blue-600 hover:text-blue-800">How to generate Gmail App Password</a>
-                </p>
             </div>
-            
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Ollama Base URL</label>
-                <input type="url" id="ollama-url" value="http://localhost:11434"
-                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-            </div>
-            
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Debug Mode</label>
-                <label class="flex items-center space-x-2">
-                    <span class="text-sm">Enable verbose logging</span>
-                    <label class="toggle-switch">
-                        <input type="checkbox" id="debug-mode">
-                        <span class="toggle-slider"></span>
-                    </label>
-                </label>
-            </div>
-        </form>
-        
-        <div class="mt-6 flex space-x-3">
-            <button id="test-email" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium shadow-sm hover:shadow-md">
-                <i class="fas fa-envelope mr-2"></i>Test Email
-            </button>
-            <button id="save-env" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium shadow-sm hover:shadow-md">
-                <i class="fas fa-save mr-2"></i>Save Environment
-            </button>
         </div>
-    </div>
-
-    <!-- Alert Recipients -->
-    <div class="bg-white rounded-lg shadow-md p-6">
-        <h3 class="text-lg font-semibold text-gray-800 mb-4">Alert Recipients</h3>
-        <p class="text-sm text-gray-600 mb-4">Manage who receives camera detection email alerts. Changes apply immediately.</p>
-
-        <div id="recipient-list" class="flex flex-wrap gap-2 mb-4"></div>
-
-        <div class="flex flex-col sm:flex-row sm:items-center sm:space-x-3 space-y-3 sm:space-y-0">
-            <input type="email" id="new-recipient" placeholder="recipient@example.com"
-                   class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-            <button id="add-recipient" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium shadow-sm hover:shadow-md">
-                <i class="fas fa-user-plus mr-2"></i>Add Recipient
-            </button>
-        </div>
-
-        <div class="mt-4 flex space-x-3">
-            <button id="save-recipients" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium shadow-sm hover:shadow-md">
-                <i class="fas fa-save mr-2"></i>Save Recipients
-            </button>
-            <button id="reset-recipients" class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-100 transition-all font-medium">
-                <i class="fas fa-undo mr-2"></i>Reload
-            </button>
-        </div>
-    </div>
-    
-    <!-- Log Settings -->
-    <div class="bg-white rounded-lg shadow-md p-6">
-        <h3 class="text-lg font-semibold text-gray-800 mb-4">Logging Configuration</h3>
-        
-        <form id="log-settings-form" class="space-y-4">
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Log Level</label>
-                <select id="log-level" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                    <option value="DEBUG">DEBUG - All messages</option>
-                    <option value="INFO" selected>INFO - General information</option>
-                    <option value="WARNING">WARNING - Warning messages only</option>
-                    <option value="ERROR">ERROR - Error messages only</option>
-                </select>
-            </div>
-            
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Log Retention (days)</label>
-                <input type="number" id="log-retention" min="1" max="365" value="30"
-                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-            </div>
-            
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Max Log File Size (MB)</label>
-                <input type="number" id="max-log-size" min="1" max="1000" value="100"
-                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-            </div>
-            
-            <div class="space-y-3">
-                <label class="flex items-center">
-                    <input type="checkbox" id="log-to-file" checked class="mr-2">
-                    <span class="text-sm">Log to file</span>
-                </label>
-                <label class="flex items-center">
-                    <input type="checkbox" id="log-to-console" checked class="mr-2">
-                    <span class="text-sm">Log to console</span>
-                </label>
-                <label class="flex items-center">
-                    <input type="checkbox" id="log-database" checked class="mr-2">
-                    <span class="text-sm">Log to database</span>
-                </label>
-            </div>
-        </form>
-    </div>
-    
-    <!-- Database Management -->
-    <div class="bg-white rounded-lg shadow-md p-6">
-        <h3 class="text-lg font-semibold text-gray-800 mb-4">Database Management</h3>
-        
-        <div class="space-y-4">
-            <div class="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <div class="flex items-center">
-                    <i class="fas fa-database text-blue-600 mr-3"></i>
+        <div class="p-6">
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-4">
+                <div class="flex items-center justify-between px-4 py-3 bg-gray-50/50 rounded-lg border border-gray-100/80">
                     <div>
-                        <p class="text-sm font-medium text-blue-800">Database Information</p>
-                        <p class="text-xs text-blue-600">SQLite database storing users, logs, and configuration</p>
+                        <p class="text-xs text-gray-500 font-medium">Web Server</p>
+                        <p id="web-status" class="text-sm font-semibold text-green-600 mt-0.5">Running</p>
                     </div>
+                    <i class="fas fa-server text-gray-300 text-lg"></i>
+                </div>
+                <div class="flex items-center justify-between px-4 py-3 bg-gray-50/50 rounded-lg border border-gray-100/80">
+                    <div>
+                        <p class="text-xs text-gray-500 font-medium">Camera Agent</p>
+                        <p id="settings-agent-status" class="text-sm font-semibold text-gray-600 mt-0.5">Checking...</p>
+                    </div>
+                    <i class="fas fa-video text-gray-300 text-lg"></i>
+                </div>
+                <div class="flex items-center justify-between px-4 py-3 bg-gray-50/50 rounded-lg border border-gray-100/80">
+                    <div>
+                        <p class="text-xs text-gray-500 font-medium">Ollama Service</p>
+                        <p id="settings-ollama-status" class="text-sm font-semibold text-gray-600 mt-0.5">Checking...</p>
+                    </div>
+                    <i class="fas fa-brain text-gray-300 text-lg"></i>
+                </div>
+                <div class="flex items-center justify-between px-4 py-3 bg-gray-50/50 rounded-lg border border-gray-100/80">
+                    <div>
+                        <p class="text-xs text-gray-500 font-medium">Email Service</p>
+                        <p id="settings-email-status" class="text-sm font-semibold text-gray-600 mt-0.5">Checking...</p>
+                    </div>
+                    <i class="fas fa-envelope text-gray-300 text-lg"></i>
                 </div>
             </div>
-            
-            <div class="grid grid-cols-2 gap-4 text-sm">
-                <div class="text-gray-600">
-                    <div class="flex justify-between mb-2">
-                        <span>Database Size:</span>
-                        <span id="db-size">Loading...</span>
-                    </div>
-                    <div class="flex justify-between mb-2">
-                        <span>Total Users:</span>
-                        <span id="db-users">Loading...</span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span>Total Logs:</span>
-                        <span id="db-logs">Loading...</span>
-                    </div>
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div class="px-4 py-3 bg-white border border-gray-100/80 rounded-lg">
+                    <p class="text-xs text-gray-500 font-medium">Uptime</p>
+                    <p id="system-uptime" class="text-sm font-semibold text-gray-800 mt-0.5">Loading...</p>
                 </div>
-            </div>
-            
-            <div class="pt-4 border-t border-gray-200">
-                <div class="grid grid-cols-2 gap-3">
-                    <button id="backup-db" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium">
-                        <i class="fas fa-download mr-2"></i>Backup
-                    </button>
-                    <button id="optimize-db" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium">
-                        <i class="fas fa-cogs mr-2"></i>Optimize
-                    </button>
+                <div class="px-4 py-3 bg-white border border-gray-100/80 rounded-lg">
+                    <p class="text-xs text-gray-500 font-medium">CPU Usage</p>
+                    <p id="cpu-usage" class="text-sm font-semibold text-gray-800 mt-0.5">--</p>
                 </div>
-                <button id="reset-db" class="w-full mt-3 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all font-medium">
-                    <i class="fas fa-trash mr-2"></i>Reset Database
-                </button>
+                <div class="px-4 py-3 bg-white border border-gray-100/80 rounded-lg">
+                    <p class="text-xs text-gray-500 font-medium">Memory Usage</p>
+                    <p id="memory-usage" class="text-sm font-semibold text-gray-800 mt-0.5">--</p>
+                </div>
+                <div class="px-4 py-3 bg-white border border-gray-100/80 rounded-lg">
+                    <p class="text-xs text-gray-500 font-medium">Disk Usage</p>
+                    <p id="disk-usage" class="text-sm font-semibold text-gray-800 mt-0.5">--</p>
+                </div>
             </div>
         </div>
-    </div>
-    
-    <!-- Security Settings -->
-    <div class="lg:col-span-2 bg-white rounded-lg shadow-md p-6">
-        <h3 class="text-lg font-semibold text-gray-800 mb-4">Security Settings</h3>
-        
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-                <h4 class="text-md font-medium text-gray-700 mb-3">Access Control</h4>
-                <form class="space-y-4">
-                    <label class="flex items-center">
-                        <input type="checkbox" id="require-auth" checked class="mr-2">
-                        <span class="text-sm">Require authentication</span>
-                    </label>
-                    
-                    <label class="flex items-center">
-                        <input type="checkbox" id="session-timeout" checked class="mr-2">
-                        <span class="text-sm">Enable session timeout</span>
-                    </label>
-                    
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Session Timeout (minutes)</label>
-                        <input type="number" id="timeout-minutes" min="5" max="1440" value="60"
-                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                    </div>
-                    
-                    <label class="flex items-center">
-                        <input type="checkbox" id="rate-limiting" checked class="mr-2">
-                        <span class="text-sm">Enable rate limiting</span>
-                    </label>
-                </form>
-            </div>
-            
-            <div>
-                <h4 class="text-md font-medium text-gray-700 mb-3">API Security</h4>
+    </section>
+
+    <!-- Environment & Integrations -->
+    <section class="bg-white border border-gray-200/60 rounded-xl shadow-sm overflow-hidden">
+        <div class="px-6 py-5 border-b border-gray-100">
+            <h3 class="text-base font-semibold text-gray-900 tracking-tight">Environment & Integrations</h3>
+            <p class="text-xs text-gray-500 mt-0.5">Configure email notifications and Ollama backend</p>
+        </div>
+        <div class="p-6">
+            <div class="grid gap-6 md:grid-cols-2">
                 <div class="space-y-4">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">API Key</label>
-                        <div class="flex">
-                            <input type="text" id="api-key" readonly 
-                                   class="flex-1 px-3 py-2 border border-gray-300 rounded-l-lg bg-gray-50">
-                            <button id="regenerate-key" class="px-4 py-2 bg-blue-500 text-white rounded-r-lg hover:bg-blue-600 transition-all font-medium">
-                                <i class="fas fa-refresh"></i>
+                        <label for="gmail-email" class="block text-xs font-medium text-gray-700 mb-1.5">Gmail Address</label>
+                        <input id="gmail-email" type="email" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500" placeholder="alerts@example.com">
+                    </div>
+                    <div>
+                        <label for="gmail-password" class="block text-xs font-medium text-gray-700 mb-1.5">App Password</label>
+                        <div class="flex rounded-md border border-gray-300 focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500">
+                            <input id="gmail-password" type="password" class="flex-1 rounded-l-md border-0 focus:ring-0 px-3 py-2 text-sm" placeholder="16 character app password">
+                            <button type="button" class="px-3 text-gray-400 hover:text-gray-600" onclick="togglePassword('gmail-password')">
+                                <i class="fas fa-eye text-sm"></i>
                             </button>
                         </div>
                     </div>
-                    
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Allowed IPs (one per line)</label>
-                        <textarea id="allowed-ips" rows="4" placeholder="127.0.0.1&#10;192.168.1.0/24"
-                                  class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+                        <label for="ollama-url" class="block text-xs font-medium text-gray-700 mb-1.5">Ollama URL</label>
+                        <input id="ollama-url" type="url" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500" placeholder="http://localhost:11434">
+                    </div>
+                    <div class="flex items-center justify-between text-xs text-gray-700">
+                        <span>Enable debug logging</span>
+                        <label class="toggle-switch">
+                            <input id="debug-mode" type="checkbox">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="space-y-4">
+                    <div class="bg-gray-50/70 border border-gray-200/80 rounded-lg p-4">
+                        <h4 class="text-sm font-semibold text-gray-800 mb-1">Email Tools</h4>
+                        <p class="text-xs text-gray-600 mb-3">Test delivery before enabling notifications</p>
+                        <button id="test-email" class="w-full px-3 py-2 text-xs font-medium bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                            <i class="fas fa-paper-plane mr-1.5"></i>Send Test Email
+                        </button>
+                    </div>
+                    <div class="flex gap-2">
+                        <button id="save-env" class="flex-1 px-3 py-2 text-xs font-medium bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                            <i class="fas fa-save mr-1.5"></i>Save
+                        </button>
+                        <button id="load-env" class="flex-1 px-3 py-2 text-xs font-medium border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 transition-colors">
+                            <i class="fas fa-sync-alt mr-1.5"></i>Reload
+                        </button>
                     </div>
                 </div>
             </div>
         </div>
-        
-        <div class="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <div class="flex">
-                <i class="fas fa-exclamation-triangle text-yellow-400 mr-3 mt-0.5"></i>
-                <div class="text-sm text-yellow-700">
-                    <p class="font-medium mb-1">Security Notice</p>
-                    <p>Changing security settings may require you to re-authenticate. Make sure you have access to your credentials before applying changes.</p>
+    </section>
+
+    <!-- Camera Settings -->
+    <section class="bg-white border border-gray-200/60 rounded-xl shadow-sm overflow-hidden">
+        <div class="px-6 py-5 border-b border-gray-100">
+            <h3 class="text-base font-semibold text-gray-900 tracking-tight">Camera Settings</h3>
+            <p class="text-xs text-gray-500 mt-0.5">Configure capture interval and resolution</p>
+        </div>
+        <div class="p-6">
+            <div class="grid gap-4 md:grid-cols-2 mb-4">
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Device Index</label>
+                    <select id="device-index" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="0">/dev/video0</option>
+                        <option value="1">/dev/video1</option>
+                        <option value="2">/dev/video2</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Capture Interval (seconds)</label>
+                    <input id="capture-interval" type="number" min="0.1" step="0.1" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Resolution Width</label>
+                    <input id="resolution-width" type="number" min="1" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Resolution Height</label>
+                    <input id="resolution-height" type="number" min="1" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+            </div>
+            <div class="space-y-3 text-xs text-gray-700">
+                <div class="flex items-center justify-between">
+                    <span>Store detection crops</span>
+                    <label class="toggle-switch">
+                        <input id="save-detection-images" type="checkbox">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span>Store processed frames</span>
+                    <label class="toggle-switch">
+                        <input id="save-processed-frames" type="checkbox">
+                        <span class="toggle-slider"></span>
+                    </label>
                 </div>
             </div>
         </div>
-    </div>
-</div>
+    </section>
 
-<!-- Action Buttons -->
-<div class="mt-8 flex justify-end space-x-4">
-    <button id="restart-services" class="px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-all font-medium">
-        <i class="fas fa-redo mr-2"></i>Restart Services
-    </button>
-    <button id="save-all-settings" class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium">
-        <i class="fas fa-save mr-2"></i>Save All Settings
-    </button>
+    <!-- Detection Model & Prompt -->
+    <section class="bg-white border border-gray-200/60 rounded-xl shadow-sm overflow-hidden">
+        <div class="px-6 py-5 border-b border-gray-100">
+            <h3 class="text-base font-semibold text-gray-900 tracking-tight">Detection Model & Prompt</h3>
+            <p class="text-xs text-gray-500 mt-0.5">Configure Ollama model and vision prompt</p>
+        </div>
+        <div class="p-6">
+            <div class="grid gap-4 md:grid-cols-2 mb-4">
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Vision Model</label>
+                    <select id="vision-model" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="gemma3:4b">gemma3:4b (Recommended)</option>
+                        <option value="llava:7b">llava:7b</option>
+                        <option value="llava:13b">llava:13b</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1.5">SSIM Threshold</label>
+                    <input id="ssim-threshold-config" type="range" min="0.5" max="1.0" step="0.05" class="w-full mt-2">
+                    <div class="flex justify-between text-xs text-gray-500 mt-1">
+                        <span>0.5 (sensitive)</span>
+                        <span id="ssim-threshold-value" class="font-medium text-gray-700">0.80</span>
+                        <span>1.0 (strict)</span>
+                    </div>
+                </div>
+            </div>
+            <div class="space-y-3">
+                <label class="block text-xs font-medium text-gray-700">Detection Prompt</label>
+                <textarea id="detection-prompt" rows="5" class="w-full px-3 py-2 text-sm rounded-md border border-gray-300 font-mono focus:ring-blue-500 focus:border-blue-500" placeholder="Describe the detection criteria"></textarea>
+                <div class="flex items-center justify-between">
+                    <div class="flex gap-2">
+                        <button id="reset-prompt" class="px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 transition-colors">
+                            <i class="fas fa-undo mr-1.5"></i>Reset
+                        </button>
+                        <button id="test-prompt" class="px-3 py-1.5 text-xs font-medium bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                            <i class="fas fa-flask mr-1.5"></i>Test
+                        </button>
+                    </div>
+                    <span class="text-xs text-gray-500">Characters: <span id="prompt-length" class="font-medium text-gray-700">0</span></span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Advanced Processing -->
+    <section class="bg-white border border-gray-200/60 rounded-xl shadow-sm overflow-hidden">
+        <div class="px-6 py-5 border-b border-gray-100">
+            <h3 class="text-base font-semibold text-gray-900 tracking-tight">Advanced Processing</h3>
+            <p class="text-xs text-gray-500 mt-0.5">Fine-tune concurrency and motion detection settings</p>
+        </div>
+        <div class="p-6">
+            <div class="grid gap-4 md:grid-cols-3">
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Max Concurrent Analyses</label>
+                    <input id="max-concurrent-analyses" type="number" min="1" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Max Pending Analyses</label>
+                    <input id="max-pending-analyses" type="number" min="1" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Motion Burst Interval (s)</label>
+                    <input id="motion-burst-interval" type="number" min="0" step="0.1" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Motion Burst Window (s)</label>
+                    <input id="motion-burst-window" type="number" min="0" step="0.5" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Motion Burst SSIM</label>
+                    <input id="motion-burst-ssim" type="number" min="0" max="1" step="0.01" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Queued Frame SSIM Filter</label>
+                    <input id="pending-dedupe-ssim" type="number" min="0" max="1" step="0.01" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Email Notifications -->
+    <section class="bg-white border border-gray-200/60 rounded-xl shadow-sm overflow-hidden">
+        <div class="px-6 py-5 border-b border-gray-100">
+            <h3 class="text-base font-semibold text-gray-900 tracking-tight">Email Notifications</h3>
+            <p class="text-xs text-gray-500 mt-0.5">Configure SMTP settings and email templates</p>
+        </div>
+        <div class="p-6 space-y-6">
+            <div class="grid gap-4 md:grid-cols-2">
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1.5">SMTP Server</label>
+                    <input id="smtp-server" type="text" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500" value="smtp.gmail.com">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1.5">SMTP Port</label>
+                    <input id="smtp-port" type="number" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500" value="587">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1.5">From Email</label>
+                    <input id="from-email" type="email" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500" placeholder="agent@example.com">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Subject Template</label>
+                    <input id="email-subject" type="text" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500" value="Computer Monitor Detected - Camera Alert">
+                </div>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1.5">Email Body Template</label>
+                <textarea id="email-body" rows="5" class="w-full px-3 py-2 text-sm rounded-md border border-gray-300 font-mono focus:ring-blue-500 focus:border-blue-500">ZEDEDA Camera Security Alert
+
+A computer monitor/screen has been detected in the camera feed.
+
+Details:
+- Timestamp: {{timestamp}}
+- Device: {{device}}
+- Detection Response: {{full_response}}
+
+This alert was generated by the ZEDEDA Camera Monitoring Agent.</textarea>
+                <p class="mt-2 text-xs text-gray-500">Variables: {{timestamp}}, {{device}}, {{confidence}}, {{full_response}}</p>
+            </div>
+            
+            <div class="border-t border-gray-100 pt-6">
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                        <h4 class="text-sm font-semibold text-gray-800">Recipients</h4>
+                        <p class="text-xs text-gray-500">Manage destination addresses for alert delivery</p>
+                    </div>
+                    <div class="flex items-center justify-end gap-3 text-xs font-medium text-gray-700">
+                        <span>Sync from User Management</span>
+                        <label class="toggle-switch">
+                            <input id="auto-sync-users" type="checkbox">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                <p id="recipient-sync-hint" class="mt-2 text-xs text-gray-500 hidden">
+                    Recipients are kept in sync with the <a href="/users" class="text-blue-600 hover:text-blue-700 underline">User Management</a> page.
+                </p>
+                <div class="flex gap-2 mt-4">
+                    <input id="new-recipient" type="email" class="flex-1 px-3 py-2 text-sm rounded-md border border-gray-300 focus:ring-blue-500 focus:border-blue-500" placeholder="recipient@example.com">
+                    <button id="add-recipient" class="px-3 py-2 text-xs font-medium bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                        <i class="fas fa-plus mr-1.5"></i>Add
+                    </button>
+                </div>
+                <div id="recipient-list" class="flex flex-wrap gap-2 mt-3 mb-3"></div>
+                <div class="flex gap-2">
+                    <button id="save-recipients" class="px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 transition-colors">
+                        <i class="fas fa-save mr-1.5"></i>Save
+                    </button>
+                    <button id="reset-recipients" class="px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 transition-colors">
+                        <i class="fas fa-sync-alt mr-1.5"></i>Reload
+                    </button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Logging -->
+    <section class="bg-white border border-gray-200/60 rounded-xl shadow-sm overflow-hidden">
+        <div class="px-6 py-5 border-b border-gray-100">
+            <h3 class="text-base font-semibold text-gray-900 tracking-tight">Logging</h3>
+            <p class="text-xs text-gray-500 mt-0.5">Configure log retention and output destinations</p>
+        </div>
+        <div class="p-6">
+            <div class="grid gap-4 md:grid-cols-3 mb-4">
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Log Level</label>
+                    <select id="log-level" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="DEBUG">Debug</option>
+                        <option value="INFO" selected>Info</option>
+                        <option value="WARNING">Warning</option>
+                        <option value="ERROR">Error</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Retention (days)</label>
+                    <input id="log-retention" type="number" min="1" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500" value="30">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Max File Size (MB)</label>
+                    <input id="max-log-size" type="number" min="1" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500" value="100">
+                </div>
+            </div>
+            <div class="space-y-3 text-xs text-gray-700 mb-4">
+                <div class="flex items-center justify-between">
+                    <span>Log to file</span>
+                    <label class="toggle-switch">
+                        <input id="log-to-file" type="checkbox">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span>Log to console</span>
+                    <label class="toggle-switch">
+                        <input id="log-to-console" type="checkbox">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span>Log to database</span>
+                    <label class="toggle-switch">
+                        <input id="log-database" type="checkbox">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+            <button id="save-log-settings" class="px-4 py-2 text-xs font-medium bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                <i class="fas fa-save mr-1.5"></i>Save Log Settings
+            </button>
+        </div>
+    </section>
+
+    <!-- Database Maintenance -->
+    <section class="bg-white border border-gray-200/60 rounded-xl shadow-sm overflow-hidden">
+        <div class="px-6 py-5 border-b border-gray-100">
+            <h3 class="text-base font-semibold text-gray-900 tracking-tight">Database Maintenance</h3>
+            <p class="text-xs text-gray-500 mt-0.5">Manage database health and backups</p>
+        </div>
+        <div class="p-6">
+            <div class="grid gap-2 md:grid-cols-3 mb-4">
+                <button id="backup-db" class="px-3 py-2 text-xs font-medium bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                    <i class="fas fa-download mr-1.5"></i>Backup
+                </button>
+                <button id="optimize-db" class="px-3 py-2 text-xs font-medium border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 transition-colors">
+                    <i class="fas fa-broom mr-1.5"></i>Optimize
+                </button>
+                <button id="reset-db" class="px-3 py-2 text-xs font-medium bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors">
+                    <i class="fas fa-trash mr-1.5"></i>Reset
+                </button>
+            </div>
+            <div class="grid gap-3 sm:grid-cols-3">
+                <div class="px-4 py-3 bg-gray-50/50 rounded-lg border border-gray-100/80">
+                    <p class="text-xs text-gray-500 font-medium">Database Size</p>
+                    <p id="db-size" class="text-sm font-semibold text-gray-800 mt-0.5">--</p>
+                </div>
+                <div class="px-4 py-3 bg-gray-50/50 rounded-lg border border-gray-100/80">
+                    <p class="text-xs text-gray-500 font-medium">Users</p>
+                    <p id="db-users" class="text-sm font-semibold text-gray-800 mt-0.5">--</p>
+                </div>
+                <div class="px-4 py-3 bg-gray-50/50 rounded-lg border border-gray-100/80">
+                    <p class="text-xs text-gray-500 font-medium">Log Entries</p>
+                    <p id="db-logs" class="text-sm font-semibold text-gray-800 mt-0.5">--</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- API Key & Configuration Management -->
+    <section class="bg-white border border-gray-200/60 rounded-xl shadow-sm overflow-hidden">
+        <div class="px-6 py-5 border-b border-gray-100">
+            <h3 class="text-base font-semibold text-gray-900 tracking-tight">Security & Configuration</h3>
+            <p class="text-xs text-gray-500 mt-0.5">API authentication and configuration management</p>
+        </div>
+        <div class="p-6">
+            <div class="grid gap-6 md:grid-cols-2">
+                <div>
+                    <h4 class="text-sm font-semibold text-gray-800 mb-2">API Key</h4>
+                    <p class="text-xs text-gray-500 mb-3">Use this key to authenticate external tooling</p>
+                    <div class="flex gap-2">
+                        <input id="api-key" type="text" readonly class="flex-1 px-3 py-2 text-xs rounded-md border border-gray-300 bg-gray-50 font-mono">
+                        <button id="regenerate-key" class="px-3 py-2 text-xs font-medium bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                            <i class="fas fa-redo mr-1.5"></i>Regenerate
+                        </button>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="text-sm font-semibold text-gray-800 mb-2">Configuration Actions</h4>
+                    <p class="text-xs text-gray-500 mb-3">Save, reload, or reset all settings</p>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="save-config" class="px-3 py-2 text-xs font-medium bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                            <i class="fas fa-save mr-1.5"></i>Save Config
+                        </button>
+                        <button id="load-config" class="px-3 py-2 text-xs font-medium border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 transition-colors">
+                            <i class="fas fa-sync mr-1.5"></i>Reload
+                        </button>
+                        <button id="reset-default-config" class="px-3 py-2 text-xs font-medium border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 transition-colors">
+                            <i class="fas fa-history mr-1.5"></i>Defaults
+                        </button>
+                        <button id="save-all-settings" class="px-3 py-2 text-xs font-medium bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors">
+                            <i class="fas fa-check mr-1.5"></i>Save All
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-    // Load system status
-    async function loadSystemStatus() {
-        const result = await apiCall('/api/system/status');
-        if (result) {
-            updateStatusIndicators(result);
-            updateSystemMetrics(result);
+let currentConfig = {};
+let recipientEmails = [];
+let autoSyncEnabled = false;
+
+function getIntValue(id, fallback) {
+    const el = document.getElementById(id);
+    if (!el) return fallback;
+    const value = parseInt(el.value, 10);
+    return Number.isNaN(value) ? fallback : value;
+}
+
+function getFloatValue(id, fallback) {
+    const el = document.getElementById(id);
+    if (!el) return fallback;
+    const value = parseFloat(el.value);
+    return Number.isNaN(value) ? fallback : value;
+}
+
+function setNumberInput(id, value) {
+    const el = document.getElementById(id);
+    if (el !== null && value !== undefined && value !== null) {
+        el.value = value;
+    }
+}
+
+function setDisabledState(element, disabled) {
+    if (!element) return;
+    element.disabled = Boolean(disabled);
+    element.classList.toggle('opacity-60', disabled);
+    element.classList.toggle('cursor-not-allowed', disabled);
+}
+
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+}
+
+function formatUptime(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return 'Unavailable';
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return `${days}d ${hours}h ${minutes}m`;
+}
+
+function formatBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes < 0) return '--';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let size = bytes;
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+        size /= 1024;
+        unitIndex += 1;
+    }
+    return `${size.toFixed(1)} ${units[unitIndex]}`;
+}
+
+function updateAutoSyncUI() {
+    const toggle = document.getElementById('auto-sync-users');
+    autoSyncEnabled = Boolean(toggle && toggle.checked);
+
+    const input = document.getElementById('new-recipient');
+    if (input) {
+        input.disabled = autoSyncEnabled;
+        input.classList.toggle('bg-gray-50', autoSyncEnabled);
+        input.classList.toggle('text-gray-400', autoSyncEnabled);
+    }
+
+    setDisabledState(document.getElementById('add-recipient'), autoSyncEnabled);
+    setDisabledState(document.getElementById('save-recipients'), autoSyncEnabled);
+
+    const hint = document.getElementById('recipient-sync-hint');
+    if (hint) {
+        if (autoSyncEnabled) {
+            hint.classList.remove('hidden');
+        } else {
+            hint.classList.add('hidden');
         }
     }
 
-    let recipientEmails = [];
+    renderRecipientList();
+}
 
-    function renderRecipientList() {
-        const container = document.getElementById('recipient-list');
-        if (!container) {
-            return;
-        }
-        container.innerHTML = '';
+async function syncRecipientsFromUsers() {
+    const result = await apiCall('/api/users');
+    if (!Array.isArray(result)) {
+        recipientEmails = [];
+        renderRecipientList();
+        return [];
+    }
 
-        if (!recipientEmails.length) {
-            const emptyState = document.createElement('div');
-            emptyState.className = 'text-sm text-gray-500';
-            emptyState.textContent = 'No recipients configured yet.';
-            container.appendChild(emptyState);
-            return;
-        }
+    const seen = new Set();
+    const emails = [];
+    result.forEach(user => {
+        if (!user || (user.active === 0 || user.active === false)) return;
+        const email = typeof user.email === 'string' ? user.email.trim() : '';
+        if (!email || !email.includes('@')) return;
+        const normalized = email.toLowerCase();
+        if (seen.has(normalized)) return;
+        seen.add(normalized);
+        emails.push(email);
+    });
 
-        recipientEmails.forEach((email, index) => {
-            const pill = document.createElement('span');
-            pill.className = 'inline-flex items-center bg-blue-50 text-blue-700 text-sm font-medium px-3 py-1 rounded-full';
-            pill.innerHTML = `
-                <i class="fas fa-envelope mr-2"></i>
-                <span>${email}</span>
-                <button type="button" class="ml-2 text-blue-500 hover:text-blue-700" data-index="${index}" aria-label="Remove ${email}">
-                    <i class="fas fa-times"></i>
-                </button>
-            `;
-            container.appendChild(pill);
+    recipientEmails = emails.sort((a, b) => a.localeCompare(b));
+    renderRecipientList();
+    return recipientEmails;
+}
+
+async function loadSystemStatus() {
+    const result = await apiCall('/api/system/status');
+    if (!result) {
+        showToast('Unable to fetch system status.', 'error');
+        return;
+    }
+    if (!result.success) {
+        showToast(result.error || 'System status error.', 'error');
+        return;
+    }
+
+    const status = result.status || {};
+    const serviceFlags = [
+        ['web-status', status.web_available !== false],
+        ['settings-agent-status', Boolean(status.camera_available)],
+        ['settings-ollama-status', Boolean(status.ollama_available)],
+        ['settings-email-status', Boolean(status.email_available)]
+    ];
+    serviceFlags.forEach(([id, flag]) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = flag ? 'Running' : 'Stopped';
+        el.className = flag ? 'text-sm font-semibold text-green-700' : 'text-sm font-semibold text-red-600';
+    });
+
+    const uptimeEl = document.getElementById('system-uptime');
+    if (uptimeEl) uptimeEl.textContent = formatUptime(status.uptime);
+    const cpuEl = document.getElementById('cpu-usage');
+    if (cpuEl) cpuEl.textContent = Number.isFinite(status.cpu_percent) ? `${Math.round(status.cpu_percent)}%` : '--';
+    const memEl = document.getElementById('memory-usage');
+    if (memEl) memEl.textContent = Number.isFinite(status.memory_percent) ? `${Math.round(status.memory_percent)}%` : '--';
+    const diskEl = document.getElementById('disk-usage');
+    if (diskEl) diskEl.textContent = Number.isFinite(status.disk_percent) ? `${Math.round(status.disk_percent)}%` : '--';
+
+    if (result.database) {
+        const db = result.database;
+        const sizeEl = document.getElementById('db-size');
+        if (sizeEl) sizeEl.textContent = formatBytes(db.size);
+        const usersEl = document.getElementById('db-users');
+        if (usersEl) usersEl.textContent = db.users;
+        const logsEl = document.getElementById('db-logs');
+        if (logsEl) logsEl.textContent = db.logs;
+    }
+}
+
+async function loadEnvironmentSettings() {
+    const result = await apiCall('/api/system/environment');
+    if (!result || !result.success) return;
+    const env = result.environment || {};
+    const emailEl = document.getElementById('gmail-email');
+    if (emailEl) emailEl.value = env.GMAIL_EMAIL || env.gmail_email || '';
+    const passEl = document.getElementById('gmail-password');
+    if (passEl) passEl.value = env.GMAIL_APP_PASSWORD || env.gmail_app_password || '';
+    const ollamaEl = document.getElementById('ollama-url');
+    if (ollamaEl) ollamaEl.value = env.OLLAMA_URL || env.ollama_url || 'http://localhost:11434';
+    const debugEl = document.getElementById('debug-mode');
+    if (debugEl) {
+        const value = env.DEBUG_MODE ?? env.debug_mode;
+        debugEl.checked = value === true || value === 'true' || value === '1';
+    }
+}
+
+async function saveEnvironmentSettings() {
+    const payload = {
+        GMAIL_EMAIL: (document.getElementById('gmail-email') || { value: '' }).value,
+        GMAIL_APP_PASSWORD: (document.getElementById('gmail-password') || { value: '' }).value,
+        OLLAMA_URL: (document.getElementById('ollama-url') || { value: '' }).value || 'http://localhost:11434',
+        DEBUG_MODE: (document.getElementById('debug-mode') || { checked: false }).checked ? '1' : '0'
+    };
+    const result = await apiCall('/api/system/environment', { method: 'POST', body: JSON.stringify(payload) });
+    if (result && result.success) {
+        showToast('Environment settings saved. Some changes require restart.', 'success');
+        return true;
+    }
+    showToast(result ? result.error : 'Failed to save environment settings.', 'error');
+    return false;
+}
+
+async function testEmail() {
+    const email = (document.getElementById('gmail-email') || { value: '' }).value;
+    const password = (document.getElementById('gmail-password') || { value: '' }).value;
+    if (!email || !password) {
+        showToast('Provide email and app password before testing.', 'warning');
+        return;
+    }
+    showToast('Sending test email...', 'info');
+    const result = await apiCall('/api/system/test-email', { method: 'POST', body: JSON.stringify({ email, password }) });
+    if (result && result.success) {
+        showToast('Test email sent successfully.', 'success');
+    } else {
+        showToast(result ? result.error : 'Email test failed.', 'error');
+    }
+}
+
+function togglePassword(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+function extractRecipientsFromRules(rules) {
+    if (!Array.isArray(rules)) return [];
+    const emails = new Set();
+    rules.forEach(rule => {
+        const containers = [rule ? rule.email : null, rule && rule.actions ? rule.actions.email : null];
+        containers.forEach(container => {
+            if (container && Array.isArray(container.to)) {
+                container.to.forEach(address => {
+                    if (typeof address === 'string' && address.includes('@')) {
+                        emails.add(address);
+                    }
+                });
+            }
         });
+    });
+    return Array.from(emails);
+}
 
-        container.querySelectorAll('button[data-index]').forEach(button => {
-            button.addEventListener('click', (event) => {
-                const idx = parseInt(event.currentTarget.getAttribute('data-index'), 10);
-                if (!Number.isNaN(idx)) {
-                    recipientEmails.splice(idx, 1);
-                    renderRecipientList();
-                }
+function populateForm(config) {
+    if (!config || typeof config !== 'object') return;
+
+    const camera = config.camera || {};
+    const resolution = camera.resolution || {};
+    const preprocessing = camera.preprocessing || {};
+    const deviceIndexEl = document.getElementById('device-index');
+    if (deviceIndexEl) deviceIndexEl.value = camera.device_index ?? 0;
+    const captureEl = document.getElementById('capture-interval');
+    if (captureEl) captureEl.value = camera.capture_interval ?? 5;
+    setNumberInput('resolution-width', resolution.width ?? 640);
+    setNumberInput('resolution-height', resolution.height ?? 480);
+    const detectEl = document.getElementById('save-detection-images');
+    if (detectEl) detectEl.checked = Boolean(camera.save_detection_images);
+    const processedEl = document.getElementById('save-processed-frames');
+    if (processedEl) processedEl.checked = Boolean(camera.save_processed_frames);
+
+    const threshold = clamp(preprocessing.diff_threshold ?? 0.8, 0, 1);
+    const slider = document.getElementById('ssim-threshold-config');
+    if (slider) slider.value = threshold;
+    const sliderValue = document.getElementById('ssim-threshold-value');
+    if (sliderValue) sliderValue.textContent = threshold.toFixed(2);
+
+    const detection = config.detection || {};
+    const promptEl = document.getElementById('detection-prompt');
+    if (promptEl) promptEl.value = detection.prompt || '';
+    updatePromptLength();
+
+    const advanced = config.advanced || {};
+    setNumberInput('max-concurrent-analyses', advanced.max_concurrent_analyses ?? 1);
+    setNumberInput('max-pending-analyses', advanced.max_pending_analyses ?? Math.max((advanced.max_concurrent_analyses ?? 1) * 2, 1));
+    setNumberInput('motion-burst-interval', advanced.motion_burst_interval ?? 1);
+    setNumberInput('motion-burst-window', advanced.motion_burst_window ?? 10);
+    setNumberInput('motion-burst-ssim', clamp(advanced.motion_burst_ssim ?? threshold, 0, 1));
+    setNumberInput('pending-dedupe-ssim', clamp(advanced.pending_dedupe_ssim ?? 0.92, 0, 1));
+
+    const ollama = config.ollama || {};
+    const modelEl = document.getElementById('vision-model');
+    if (modelEl) modelEl.value = ollama.model || 'gemma3:4b';
+
+    const notifications = config.notifications && typeof config.notifications === 'object' ? config.notifications.email || {} : {};
+    const smtpEl = document.getElementById('smtp-server');
+    if (smtpEl) smtpEl.value = notifications.smtp_server || 'smtp.gmail.com';
+    setNumberInput('smtp-port', notifications.smtp_port ?? 587);
+    const senderEl = document.getElementById('from-email');
+    if (senderEl) senderEl.value = notifications.sender_email || '';
+
+    const autoSyncEl = document.getElementById('auto-sync-users');
+    if (autoSyncEl) {
+        const autoSyncValue = notifications.auto_sync_users ?? notifications.autoSyncUsers;
+        autoSyncEl.checked = autoSyncValue === true || autoSyncValue === 'true' || autoSyncValue === 1 || autoSyncValue === '1';
+    }
+
+    const rules = Array.isArray(config.rules) ? config.rules : [];
+    if (rules.length) {
+        const primaryRule = rules[0] || {};
+        const ruleEmail = primaryRule.email || {};
+        const actionEmail = primaryRule.actions && primaryRule.actions.email ? primaryRule.actions.email : {};
+        const subjectEl = document.getElementById('email-subject');
+        if (subjectEl) subjectEl.value = actionEmail.subject || ruleEmail.subject || '';
+        const bodyEl = document.getElementById('email-body');
+        if (bodyEl) bodyEl.value = actionEmail.body || ruleEmail.body || bodyEl.value;
+    }
+
+    const recipients = Array.isArray(notifications.recipients) && notifications.recipients.length
+        ? notifications.recipients
+        : extractRecipientsFromRules(rules);
+    recipientEmails = recipients.slice().sort((a, b) => a.localeCompare(b));
+    updateAutoSyncUI();
+    if (autoSyncEl && autoSyncEl.checked) {
+        syncRecipientsFromUsers();
+    }
+}
+
+function buildConfigFromForm() {
+    const cameraDefaults = currentConfig.camera || {};
+    const resolutionDefaults = cameraDefaults.resolution || {};
+    const preprocessingDefaults = cameraDefaults.preprocessing || {};
+    const advancedDefaults = currentConfig.advanced || {};
+    const previousOllama = currentConfig.ollama || {};
+    const notificationsRoot = currentConfig.notifications && typeof currentConfig.notifications === 'object' ? currentConfig.notifications : {};
+    const previousNotifications = notificationsRoot.email || {};
+
+    const deviceIndex = Math.max(getIntValue('device-index', cameraDefaults.device_index ?? 0), 0);
+    const captureInterval = Math.max(getFloatValue('capture-interval', cameraDefaults.capture_interval ?? 5), 0.1);
+    const resolutionWidth = Math.max(getIntValue('resolution-width', resolutionDefaults.width ?? 640), 1);
+    const resolutionHeight = Math.max(getIntValue('resolution-height', resolutionDefaults.height ?? 480), 1);
+    const diffThreshold = clamp(getFloatValue('ssim-threshold-config', preprocessingDefaults.diff_threshold ?? 0.8), 0, 1);
+
+    const maxConcurrent = Math.max(getIntValue('max-concurrent-analyses', advancedDefaults.max_concurrent_analyses ?? 1), 1);
+    const maxPending = Math.max(getIntValue('max-pending-analyses', advancedDefaults.max_pending_analyses ?? Math.max(maxConcurrent * 2, 1)), 1);
+    const motionInterval = Math.max(getFloatValue('motion-burst-interval', advancedDefaults.motion_burst_interval ?? 1), 0);
+    const motionWindow = Math.max(getFloatValue('motion-burst-window', advancedDefaults.motion_burst_window ?? 10), 0);
+    const motionSsim = clamp(getFloatValue('motion-burst-ssim', advancedDefaults.motion_burst_ssim ?? diffThreshold), 0, 1);
+    const pendingDedupe = clamp(getFloatValue('pending-dedupe-ssim', advancedDefaults.pending_dedupe_ssim ?? 0.92), 0, 1);
+
+    const rulesClone = Array.isArray(currentConfig.rules)
+        ? currentConfig.rules.map(rule => (rule ? JSON.parse(JSON.stringify(rule)) : rule))
+        : [];
+    if (rulesClone.length) {
+        const primaryRule = rulesClone[0] || {};
+        const existingActions = primaryRule.actions && typeof primaryRule.actions === 'object' ? primaryRule.actions : {};
+        const subjectValue = (document.getElementById('email-subject') || {}).value || '';
+        const bodyValue = (document.getElementById('email-body') || {}).value || '';
+        primaryRule.email = { ...(primaryRule.email || {}), subject: subjectValue, body: bodyValue, to: recipientEmails.slice() };
+        primaryRule.actions = { ...existingActions, email: { ...(existingActions.email || {}), enabled: true, subject: subjectValue, body: bodyValue, to: recipientEmails.slice() } };
+        rulesClone[0] = primaryRule;
+    }
+
+    const notificationsConfig = {
+        ...notificationsRoot,
+        email: {
+            ...previousNotifications,
+            enabled: previousNotifications.enabled !== undefined ? previousNotifications.enabled : true,
+            smtp_server: (document.getElementById('smtp-server') || {}).value || previousNotifications.smtp_server || 'smtp.gmail.com',
+            smtp_port: Math.max(getIntValue('smtp-port', previousNotifications.smtp_port || 587), 1),
+            sender_email: (document.getElementById('from-email') || {}).value || previousNotifications.sender_email || '',
+            auto_sync_users: (document.getElementById('auto-sync-users') || { checked: false }).checked,
+            recipients: recipientEmails.slice()
+        }
+    };
+
+    return {
+        ...currentConfig,
+        camera: {
+            device_index: deviceIndex,
+            capture_interval: captureInterval,
+            resolution: { width: resolutionWidth, height: resolutionHeight },
+            save_detection_images: (document.getElementById('save-detection-images') || {}).checked || false,
+            save_processed_frames: (document.getElementById('save-processed-frames') || {}).checked || false,
+            preprocessing: { enabled: true, diff_threshold: diffThreshold }
+        },
+        advanced: {
+            ...advancedDefaults,
+            max_concurrent_analyses: maxConcurrent,
+            max_pending_analyses: maxPending,
+            motion_burst_interval: motionInterval,
+            motion_burst_window: motionWindow,
+            motion_burst_ssim: motionSsim,
+            pending_dedupe_ssim: pendingDedupe
+        },
+        ollama: {
+            base_url: previousOllama.base_url || 'http://localhost:11434',
+            model: (document.getElementById('vision-model') || {}).value || previousOllama.model || 'gemma3:4b',
+            timeout: previousOllama.timeout || 60
+        },
+        detection: {
+            prompt: (document.getElementById('detection-prompt') || { value: '' }).value || ''
+        },
+        rules: rulesClone.length ? rulesClone : currentConfig.rules || [],
+        notifications: notificationsConfig
+    };
+}
+
+async function loadConfiguration() {
+    showLoading(true);
+    const result = await apiCall('/api/config');
+    showLoading(false);
+    if (!result) {
+        showToast('Unable to load configuration.', 'error');
+        return;
+    }
+    currentConfig = result;
+    populateForm(result);
+}
+
+async function loadDefaultConfiguration() {
+    showLoading(true);
+    const result = await apiCall('/api/config/defaults');
+    showLoading(false);
+    if (result && result.success) {
+        currentConfig = result.config || {};
+        populateForm(currentConfig);
+        showToast('Defaults loaded. Save to persist.', 'info');
+    } else {
+        showToast(result ? result.error : 'Failed to load defaults.', 'error');
+    }
+}
+
+async function saveConfiguration() {
+    const config = buildConfigFromForm();
+    showLoading(true);
+    const result = await apiCall('/api/config', { method: 'POST', body: JSON.stringify(config) });
+    showLoading(false);
+    if (result && result.success) {
+        currentConfig = result.config || config;
+        showToast('Configuration saved.', 'success');
+        return true;
+    }
+    showToast(result ? result.error : 'Failed to save configuration.', 'error');
+    return false;
+}
+
+function resetPrompt() {
+    const defaultPrompt = 'Describe what you see in this image in 2-3 concise sentences. Focus on identifying objects, furniture, electronics, and the general setting. Be specific about any computer equipment, screens, displays, or technology you observe.';
+    const el = document.getElementById('detection-prompt');
+    if (el) el.value = defaultPrompt;
+    updatePromptLength();
+}
+
+function updatePromptLength() {
+    const prompt = (document.getElementById('detection-prompt') || { value: '' }).value;
+    const lengthEl = document.getElementById('prompt-length');
+    if (lengthEl) lengthEl.textContent = prompt.length;
+}
+
+async function testPrompt() {
+    const prompt = (document.getElementById('detection-prompt') || { value: '' }).value;
+    if (!prompt.trim()) {
+        showToast('Enter a prompt before testing.', 'warning');
+        return;
+    }
+    showToast('Testing prompt with latest image (mock).', 'info');
+    setTimeout(() => showToast('Prompt test completed.', 'success'), 1500);
+}
+
+function updateThresholdDisplay() {
+    const slider = document.getElementById('ssim-threshold-config');
+    const valueEl = document.getElementById('ssim-threshold-value');
+    if (!slider || !valueEl) return;
+    slider.addEventListener('input', () => {
+        valueEl.textContent = parseFloat(slider.value).toFixed(2);
+    });
+}
+
+function renderRecipientList() {
+    const container = document.getElementById('recipient-list');
+    if (!container) return;
+    container.innerHTML = '';
+    const allowEdit = !autoSyncEnabled;
+    if (!recipientEmails.length) {
+        const empty = document.createElement('div');
+        empty.className = 'text-xs text-gray-500';
+        empty.textContent = autoSyncEnabled
+            ? 'No active user recipients. Add recipients from the User Management page.'
+            : 'No recipients configured yet.';
+        container.appendChild(empty);
+        return;
+    }
+    recipientEmails.forEach((email, index) => {
+        const pill = document.createElement('span');
+        pill.className = 'inline-flex items-center bg-blue-50/70 text-blue-700 text-xs font-medium px-3 py-1.5 rounded-full border border-blue-100';
+        pill.innerHTML = `<i class="fas fa-envelope text-blue-500 mr-2 text-[10px]"></i>${email}`;
+        if (allowEdit) {
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'ml-2 text-blue-500 hover:text-blue-700 transition-colors';
+            remove.setAttribute('aria-label', `Remove ${email}`);
+            remove.innerHTML = '<i class="fas fa-times text-[10px]"></i>';
+            remove.addEventListener('click', () => {
+                recipientEmails.splice(index, 1);
+                renderRecipientList();
             });
-        });
+            pill.appendChild(remove);
+        }
+        container.appendChild(pill);
+    });
+}
+
+async function loadRecipients() {
+    const toggle = document.getElementById('auto-sync-users');
+    const shouldSync = Boolean(toggle && toggle.checked);
+    if (shouldSync) {
+        await syncRecipientsFromUsers();
+        return;
     }
 
-    async function loadRecipients() {
-        const result = await apiCall('/api/notifications/recipients');
-        if (result && result.success) {
-            recipientEmails = Array.isArray(result.recipients) ? result.recipients.slice() : [];
-            recipientEmails.sort((a, b) => a.localeCompare(b));
-            renderRecipientList();
-        }
-    }
-
-    function addRecipientFromInput() {
-        const input = document.getElementById('new-recipient');
-        if (!input) {
-            return;
-        }
-        const value = (input.value || '').trim();
-        if (!value) {
-            showToast('Enter a valid email address before adding.', 'warning');
-            return;
-        }
-        if (!value.includes('@')) {
-            showToast('Email address must contain @.', 'warning');
-            return;
-        }
-        if (recipientEmails.some(email => email.toLowerCase() === value.toLowerCase())) {
-            showToast('Recipient already exists.', 'info');
-            input.value = '';
-            return;
-        }
-        recipientEmails.push(value);
+    const result = await apiCall('/api/notifications/recipients');
+    if (result && result.success) {
+        recipientEmails = Array.isArray(result.recipients) ? result.recipients.slice() : [];
         recipientEmails.sort((a, b) => a.localeCompare(b));
         renderRecipientList();
+    }
+}
+
+function addRecipientFromInput() {
+    if (autoSyncEnabled) {
+        showToast('Recipients are synced with User Management. Add recipients there instead.', 'info');
+        return;
+    }
+    const input = document.getElementById('new-recipient');
+    if (!input) return;
+    const value = (input.value || '').trim();
+    if (!value) {
+        showToast('Enter an email address before adding.', 'warning');
+        return;
+    }
+    if (!value.includes('@')) {
+        showToast('Email address must contain @.', 'warning');
+        return;
+    }
+    if (recipientEmails.some(email => email.toLowerCase() === value.toLowerCase())) {
+        showToast('Recipient already exists.', 'info');
         input.value = '';
+        return;
     }
+    recipientEmails.push(value);
+    recipientEmails.sort((a, b) => a.localeCompare(b));
+    renderRecipientList();
+    input.value = '';
+}
 
-    async function saveRecipients() {
-        const payload = { recipients: recipientEmails };
-        const result = await apiCall('/api/notifications/recipients', {
-            method: 'PUT',
-            body: JSON.stringify(payload)
-        });
-        if (result && result.success) {
-            recipientEmails = Array.isArray(result.recipients) ? result.recipients : [];
-            renderRecipientList();
-            showToast('Recipients updated successfully.', 'success');
-        } else {
-            showToast(result ? result.error : 'Failed to update recipients.', 'error');
-        }
+async function saveRecipients() {
+    if (autoSyncEnabled) {
+        showToast('Recipients are controlled by User Management when sync is enabled.', 'info');
+        return true;
     }
+    const payload = { recipients: recipientEmails };
+    const result = await apiCall('/api/notifications/recipients', { method: 'PUT', body: JSON.stringify(payload) });
+    if (result && result.success) {
+        recipientEmails = Array.isArray(result.recipients) ? result.recipients.slice() : recipientEmails;
+        renderRecipientList();
+        showToast('Recipients saved.', 'success');
+        return true;
+    }
+    showToast(result ? result.error : 'Failed to save recipients.', 'error');
+    return false;
+}
 
-    function resetRecipientsToSaved() {
-        loadRecipients();
-        showToast('Reloaded recipients from current configuration.', 'info');
-    }
-    
-    // Update status indicators
-    function updateStatusIndicators(status) {
-        const statuses = {
-            agent: document.getElementById('settings-agent-status'),
-            ollama: document.getElementById('settings-ollama-status'),
-            email: document.getElementById('settings-email-status')
-        };
-        
-        // Map the status response to our elements
-        const serviceStatus = {
-            agent: status.status?.camera_available || false,
-            ollama: status.status?.ollama_available || false,
-            email: status.status?.email_available || false
-        };
-        
-        Object.keys(statuses).forEach(service => {
-            const element = statuses[service];
-            if (!element) {
-                return;
-            }
+function resetRecipientsToSaved() {
+    loadRecipients();
+    showToast(autoSyncEnabled ? 'Recipients refreshed from User Management.' : 'Recipients reloaded.', 'info');
+}
 
-            const isRunning = serviceStatus[service];
-            element.className = `px-2 py-1 text-xs font-semibold rounded-full ${
-                isRunning ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-            }`;
-            element.innerHTML = `<i class="fas fa-circle mr-1"></i>${isRunning ? 'Running' : 'Stopped'}`;
-        });
+function applyLogSettingsToForm(settings) {
+    if (!settings || typeof settings !== 'object') return;
+
+    const levelEl = document.getElementById('log-level');
+    if (levelEl && settings.log_level) levelEl.value = settings.log_level;
+    setNumberInput('log-retention', settings.log_retention ?? 30);
+    setNumberInput('max-log-size', settings.max_log_size ?? 100);
+
+    const fileEl = document.getElementById('log-to-file');
+    if (fileEl) fileEl.checked = Boolean(settings.log_to_file);
+    const consoleEl = document.getElementById('log-to-console');
+    if (consoleEl) consoleEl.checked = Boolean(settings.log_to_console);
+    const dbEl = document.getElementById('log-database');
+    if (dbEl) dbEl.checked = Boolean(settings.log_database);
+}
+
+async function saveLogSettings() {
+    const payload = {
+        log_level: (document.getElementById('log-level') || { value: 'INFO' }).value,
+        log_retention: getIntValue('log-retention', 30),
+        max_log_size: getIntValue('max-log-size', 100),
+        log_to_file: (document.getElementById('log-to-file') || { checked: false }).checked,
+        log_to_console: (document.getElementById('log-to-console') || { checked: false }).checked,
+        log_database: (document.getElementById('log-database') || { checked: false }).checked
+    };
+    const result = await apiCall('/api/system/logging', { method: 'POST', body: JSON.stringify(payload) });
+    if (result && result.success) {
+        if (result.settings) applyLogSettingsToForm(result.settings);
+        showToast('Log settings saved.', 'success');
+        return true;
     }
-    
-    // Update system metrics
-    function updateSystemMetrics(metrics) {
-        if (metrics.status) {
-            // System metrics
-            document.getElementById('cpu-usage').textContent = Math.round(metrics.status.cpu_percent || 0) + '%';
-            document.getElementById('memory-usage').textContent = Math.round(metrics.status.memory_percent || 0) + '%';
-            document.getElementById('disk-usage').textContent = Math.round(metrics.status.disk_percent || 0) + '%';
-        }
-        
-        if (metrics.database) {
-            document.getElementById('db-size').textContent = formatBytes(metrics.database.size);
-            document.getElementById('db-users').textContent = metrics.database.users;
-            document.getElementById('db-logs').textContent = metrics.database.logs;
-        }
+    showToast(result ? result.error : 'Failed to save log settings.', 'error');
+    return false;
+}
+
+async function loadLogSettings() {
+    const result = await apiCall('/api/system/logging');
+    if (result && result.success && result.settings) {
+        applyLogSettingsToForm(result.settings);
+    } else if (result && !result.success && result.error) {
+        showToast(result.error, 'error');
     }
-    
-    // Format uptime
-    function formatUptime(seconds) {
-        const days = Math.floor(seconds / 86400);
-        const hours = Math.floor((seconds % 86400) / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
-        return `${days}d ${hours}h ${minutes}m`;
+}
+
+async function backupDatabase() {
+    const result = await apiCall('/api/system/database/backup', { method: 'POST' });
+    if (result && result.download_url) {
+        window.open(result.download_url, '_blank');
+        showToast('Database backup started.', 'success');
+    } else {
+        showToast(result ? result.error : 'Failed to create backup.', 'error');
     }
-    
-    // Format bytes
-    function formatBytes(bytes) {
-        const sizes = ['B', 'KB', 'MB', 'GB'];
-        let size = bytes;
-        let unit = 0;
-        while (size >= 1024 && unit < sizes.length - 1) {
-            size /= 1024;
-            unit++;
-        }
-        return `${size.toFixed(1)} ${sizes[unit]}`;
-    }
-    
-    // Load environment settings
-    async function loadEnvironmentSettings() {
-        const result = await apiCall('/api/system/environment');
-        if (result && result.success) {
-            const env = result.environment || {};
-            document.getElementById('gmail-email').value = env.gmail_email || '';
-            document.getElementById('ollama-url').value = env.ollama_url || 'http://localhost:11434';
-            document.getElementById('debug-mode').checked = Boolean(env.debug_mode);
-        }
-    }
-    
-    // Save environment settings
-    async function saveEnvironmentSettings() {
-        const settings = {
-            gmail_email: document.getElementById('gmail-email').value,
-            gmail_password: document.getElementById('gmail-password').value,
-            ollama_url: document.getElementById('ollama-url').value,
-            debug_mode: document.getElementById('debug-mode').checked
-        };
-        
-        const result = await apiCall('/api/system/environment', {
-            method: 'POST',
-            body: JSON.stringify(settings)
-        });
-        
-        if (result && result.success) {
-            showToast('Environment settings saved. Restart required to take effect.', 'success');
-        } else {
-            showToast(result ? result.error : 'Failed to save environment settings', 'error');
-        }
-    }
-    
-    // Test email configuration
-    async function testEmail() {
-        const email = document.getElementById('gmail-email').value;
-        const password = document.getElementById('gmail-password').value;
-        
-        if (!email || !password) {
-            showToast('Please enter email and password first', 'warning');
-            return;
-        }
-        
-        showToast('Testing email configuration...', 'info');
-        
-        const result = await apiCall('/api/system/test-email', {
-            method: 'POST',
-            body: JSON.stringify({ email, password })
-        });
-        
-        if (result && result.success) {
-            showToast('Email test successful!', 'success');
-        } else {
-            showToast(result ? result.error : 'Email test failed', 'error');
-        }
-    }
-    
-    // Toggle password visibility
-    function togglePassword(inputId) {
-        const input = document.getElementById(inputId);
-        const icon = input.nextElementSibling.querySelector('i');
-        
-        if (input.type === 'password') {
-            input.type = 'text';
-            icon.className = 'fas fa-eye-slash text-gray-400';
-        } else {
-            input.type = 'password';
-            icon.className = 'fas fa-eye text-gray-400';
-        }
-    }
-    
-    // Save log settings
-    async function saveLogSettings() {
-        const settings = {
-            log_level: document.getElementById('log-level').value,
-            log_retention: parseInt(document.getElementById('log-retention').value),
-            max_log_size: parseInt(document.getElementById('max-log-size').value),
-            log_to_file: document.getElementById('log-to-file').checked,
-            log_to_console: document.getElementById('log-to-console').checked,
-            log_database: document.getElementById('log-database').checked
-        };
-        
-        const result = await apiCall('/api/system/logging', {
-            method: 'POST',
-            body: JSON.stringify(settings)
-        });
-        
-        if (result && result.success) {
-            showToast('Log settings saved successfully', 'success');
-        }
-    }
-    
-    // Database operations
-    async function backupDatabase() {
-        const result = await apiCall('/api/system/database/backup', { method: 'POST' });
-        if (result && result.download_url) {
-            window.open(result.download_url);
-            showToast('Database backup created successfully', 'success');
-        }
-    }
-    
-    async function optimizeDatabase() {
-        const result = await apiCall('/api/system/database/optimize', { method: 'POST' });
-        if (result && result.success) {
-            showToast('Database optimized successfully', 'success');
-            loadSystemStatus(); // Refresh stats
-        }
-    }
-    
-    async function resetDatabase() {
-        if (!confirm('Are you sure you want to reset the database? This will delete ALL data including users, logs, and configuration. This action cannot be undone.')) {
-            return;
-        }
-        
-        if (!confirm('This is your final warning. Reset database and lose ALL data?')) {
-            return;
-        }
-        
-        const result = await apiCall('/api/system/database/reset', { method: 'POST' });
-        if (result && result.success) {
-            showToast('Database reset successfully. Please restart the application.', 'success');
-            setTimeout(() => window.location.reload(), 3000);
-        }
-    }
-    
-    // Generate new API key
-    async function regenerateApiKey() {
-        const result = await apiCall('/api/system/api-key/regenerate', { method: 'POST' });
-        if (result && result.api_key) {
-            document.getElementById('api-key').value = result.api_key;
-            showToast('New API key generated', 'success');
-        }
-    }
-    
-    // Restart services
-    async function restartServices() {
-        if (!confirm('Are you sure you want to restart all services? This may cause a brief interruption.')) {
-            return;
-        }
-        
-        showToast('Restarting services...', 'info');
-        
-        const result = await apiCall('/api/system/restart', { method: 'POST' });
-        if (result && result.success) {
-            showToast('Services restarted successfully', 'success');
-            setTimeout(() => window.location.reload(), 2000);
-        }
-    }
-    
-    // Save all settings
-    async function saveAllSettings() {
-        await saveEnvironmentSettings();
-        await saveLogSettings();
-        showToast('All settings saved successfully', 'success');
-    }
-    
-    // Initialize page
-    document.addEventListener('DOMContentLoaded', function() {
+}
+
+async function optimizeDatabase() {
+    const result = await apiCall('/api/system/database/optimize', { method: 'POST' });
+    if (result && result.success) {
+        showToast('Database optimized.', 'success');
         loadSystemStatus();
-        loadEnvironmentSettings();
-        loadRecipients();
-        
-        // Periodically refresh status
-        setInterval(loadSystemStatus, 30000);
-        
-        // Set up event listeners
-        document.getElementById('test-email').addEventListener('click', testEmail);
-        document.getElementById('save-env').addEventListener('click', saveEnvironmentSettings);
-        document.getElementById('backup-db').addEventListener('click', backupDatabase);
-        document.getElementById('optimize-db').addEventListener('click', optimizeDatabase);
-        document.getElementById('reset-db').addEventListener('click', resetDatabase);
-        document.getElementById('regenerate-key').addEventListener('click', regenerateApiKey);
-        document.getElementById('restart-services').addEventListener('click', restartServices);
-        document.getElementById('save-all-settings').addEventListener('click', saveAllSettings);
+    } else {
+        showToast(result ? result.error : 'Failed to optimize database.', 'error');
+    }
+}
 
-        const addRecipientButton = document.getElementById('add-recipient');
-        if (addRecipientButton) {
-            addRecipientButton.addEventListener('click', addRecipientFromInput);
-        }
+async function resetDatabase() {
+    if (!confirm('Resetting the database deletes all data. Continue?')) return;
+    if (!confirm('This action cannot be undone. Confirm database reset.')) return;
+    const result = await apiCall('/api/system/database/reset', { method: 'POST' });
+    if (result && result.success) {
+        showToast('Database reset successfully. Restart recommended.', 'success');
+        setTimeout(() => window.location.reload(), 3000);
+    } else {
+        showToast(result ? result.error : 'Failed to reset database.', 'error');
+    }
+}
 
-        const saveRecipientsButton = document.getElementById('save-recipients');
-        if (saveRecipientsButton) {
-            saveRecipientsButton.addEventListener('click', saveRecipients);
-        }
+async function regenerateApiKey() {
+    const result = await apiCall('/api/system/api-key/regenerate', { method: 'POST' });
+    if (result && result.api_key) {
+        const input = document.getElementById('api-key');
+        if (input) input.value = result.api_key;
+        showToast('New API key generated.', 'success');
+    } else {
+        showToast(result ? result.error : 'Failed to regenerate API key.', 'error');
+    }
+}
 
-        const resetRecipientsButton = document.getElementById('reset-recipients');
-        if (resetRecipientsButton) {
-            resetRecipientsButton.addEventListener('click', resetRecipientsToSaved);
-        }
+async function restartServices() {
+    if (!confirm('Restart all services now?')) return;
+    showToast('Restarting services...', 'info');
+    const result = await apiCall('/api/system/restart', { method: 'POST' });
+    if (result && result.success) {
+        showToast('Services restarted.', 'success');
+        setTimeout(() => window.location.reload(), 2000);
+    } else {
+        showToast(result ? result.error : 'Failed to restart services.', 'error');
+    }
+}
 
-        const recipientInput = document.getElementById('new-recipient');
-        if (recipientInput) {
-            recipientInput.addEventListener('keyup', (event) => {
-                if (event.key === 'Enter') {
-                    addRecipientFromInput();
-                }
-            });
-        }
-        
-        // Generate initial API key display
-        document.getElementById('api-key').value = 'sk-' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-    });
+async function saveAllSettings() {
+    showToast('Saving all settings...', 'info');
+    const envSaved = await saveEnvironmentSettings();
+    const logSaved = await saveLogSettings();
+    const configSaved = await saveConfiguration();
+    const recipientsSaved = await saveRecipients();
+
+    if (envSaved && logSaved && configSaved && recipientsSaved) {
+        showToast('All settings saved successfully.', 'success');
+    } else {
+        showToast('Some settings may need attention. Check messages above.', 'warning');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadSystemStatus();
+    setInterval(loadSystemStatus, 30000);
+
+    loadEnvironmentSettings();
+    loadConfiguration();
+    loadLogSettings();
+    loadRecipients();
+    updateThresholdDisplay();
+    updatePromptLength();
+
+    const refreshBtn = document.getElementById('refresh-system-status');
+    if (refreshBtn) refreshBtn.addEventListener('click', loadSystemStatus);
+
+    const reloadEnvBtn = document.getElementById('load-env');
+    if (reloadEnvBtn) reloadEnvBtn.addEventListener('click', loadEnvironmentSettings);
+    const saveEnvBtn = document.getElementById('save-env');
+    if (saveEnvBtn) saveEnvBtn.addEventListener('click', saveEnvironmentSettings);
+    const testEmailBtn = document.getElementById('test-email');
+    if (testEmailBtn) testEmailBtn.addEventListener('click', testEmail);
+
+    const addRecipientBtn = document.getElementById('add-recipient');
+    if (addRecipientBtn) addRecipientBtn.addEventListener('click', addRecipientFromInput);
+    const saveRecipientsBtn = document.getElementById('save-recipients');
+    if (saveRecipientsBtn) saveRecipientsBtn.addEventListener('click', saveRecipients);
+    const resetRecipientsBtn = document.getElementById('reset-recipients');
+    if (resetRecipientsBtn) resetRecipientsBtn.addEventListener('click', resetRecipientsToSaved);
+    const autoSyncToggle = document.getElementById('auto-sync-users');
+    if (autoSyncToggle) {
+        autoSyncToggle.addEventListener('change', async () => {
+            updateAutoSyncUI();
+            if (autoSyncEnabled) {
+                await syncRecipientsFromUsers();
+                showToast('Recipients now follow User Management.', 'info');
+            } else {
+                showToast('Recipients can now be edited manually in Settings.', 'info');
+                loadRecipients();
+            }
+        });
+    }
+
+    const saveConfigBtn = document.getElementById('save-config');
+    if (saveConfigBtn) saveConfigBtn.addEventListener('click', saveConfiguration);
+    const loadConfigBtn = document.getElementById('load-config');
+    if (loadConfigBtn) loadConfigBtn.addEventListener('click', loadConfiguration);
+    const loadDefaultsBtn = document.getElementById('reset-default-config');
+    if (loadDefaultsBtn) loadDefaultsBtn.addEventListener('click', loadDefaultConfiguration);
+
+    const resetPromptBtn = document.getElementById('reset-prompt');
+    if (resetPromptBtn) resetPromptBtn.addEventListener('click', resetPrompt);
+    const promptInput = document.getElementById('detection-prompt');
+    if (promptInput) promptInput.addEventListener('input', updatePromptLength);
+    const testPromptBtn = document.getElementById('test-prompt');
+    if (testPromptBtn) testPromptBtn.addEventListener('click', testPrompt);
+
+    const saveLogBtn = document.getElementById('save-log-settings');
+    if (saveLogBtn) saveLogBtn.addEventListener('click', saveLogSettings);
+
+    const backupBtn = document.getElementById('backup-db');
+    if (backupBtn) backupBtn.addEventListener('click', backupDatabase);
+    const optimizeBtn = document.getElementById('optimize-db');
+    if (optimizeBtn) optimizeBtn.addEventListener('click', optimizeDatabase);
+    const resetDbBtn = document.getElementById('reset-db');
+    if (resetDbBtn) resetDbBtn.addEventListener('click', resetDatabase);
+
+    const regenKeyBtn = document.getElementById('regenerate-key');
+    if (regenKeyBtn) regenKeyBtn.addEventListener('click', regenerateApiKey);
+    const restartBtn = document.getElementById('restart-services');
+    if (restartBtn) restartBtn.addEventListener('click', restartServices);
+
+    const saveAllBtn = document.getElementById('save-all-settings');
+    if (saveAllBtn) saveAllBtn.addEventListener('click', saveAllSettings);
+});
 </script>
 {% endblock %}

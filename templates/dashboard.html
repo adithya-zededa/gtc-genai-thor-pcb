@@ -4,148 +4,155 @@
 {% block page_title %}Dashboard{% endblock %}
 
 {% block content %}
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-    <!-- Stats Cards -->
-    <div class="bg-white rounded-lg shadow-md p-6 card-hover">
-        <div class="flex items-center">
-            <div class="p-3 bg-blue-100 rounded-full">
-                <i class="fas fa-camera text-blue-600 text-xl"></i>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+    <div class="surface p-5">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Frames</p>
+                <p class="mt-3 text-3xl font-semibold text-slate-900" id="total-frames">0</p>
             </div>
-            <div class="ml-4">
-                <h3 class="text-sm font-medium text-gray-600">Total Frames</h3>
-                <p class="text-2xl font-bold text-gray-900" id="total-frames">0</p>
-            </div>
+            <span class="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-500">
+                <i class="fas fa-camera"></i>
+            </span>
         </div>
     </div>
-    
-    <div class="bg-white rounded-lg shadow-md p-6 card-hover">
-        <div class="flex items-center">
-            <div class="p-3 bg-green-100 rounded-full">
-                <i class="fas fa-eye text-green-600 text-xl"></i>
+
+    <div class="surface p-5">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Processed</p>
+                <p class="mt-3 text-3xl font-semibold text-slate-900" id="processed-frames">0</p>
             </div>
-            <div class="ml-4">
-                <h3 class="text-sm font-medium text-gray-600">Processed</h3>
-                <p class="text-2xl font-bold text-gray-900" id="processed-frames">0</p>
-            </div>
+            <span class="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-500">
+                <i class="fas fa-eye"></i>
+            </span>
         </div>
     </div>
-    
-    <div class="bg-white rounded-lg shadow-md p-6 card-hover">
-        <div class="flex items-center">
-            <div class="p-3 bg-yellow-100 rounded-full">
-                <i class="fas fa-exclamation-triangle text-yellow-600 text-xl"></i>
+
+    <div class="surface p-5">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Detections</p>
+                <p class="mt-3 text-3xl font-semibold text-slate-900" id="detections">0</p>
             </div>
-            <div class="ml-4">
-                <h3 class="text-sm font-medium text-gray-600">Detections</h3>
-                <p class="text-2xl font-bold text-gray-900" id="detections">0</p>
-            </div>
+            <span class="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-amber-50 text-amber-500">
+                <i class="fas fa-exclamation-triangle"></i>
+            </span>
         </div>
     </div>
-    
-    <div class="bg-white rounded-lg shadow-md p-6 card-hover">
-        <div class="flex items-center">
-            <div class="p-3 bg-red-100 rounded-full">
-                <i class="fas fa-envelope text-red-600 text-xl"></i>
+
+    <div class="surface p-5">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Alerts Sent</p>
+                <p class="mt-3 text-3xl font-semibold text-slate-900" id="alerts-sent">0</p>
             </div>
-            <div class="ml-4">
-                <h3 class="text-sm font-medium text-gray-600">Alerts Sent</h3>
-                <p class="text-2xl font-bold text-gray-900" id="alerts-sent">0</p>
-            </div>
+            <span class="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-rose-50 text-rose-500">
+                <i class="fas fa-envelope"></i>
+            </span>
         </div>
     </div>
 </div>
 
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-    <!-- System Status -->
-    <div class="bg-white rounded-lg shadow-md p-6">
-        <h3 class="text-lg font-semibold text-gray-800 mb-4">System Status</h3>
-        <div class="space-y-4">
-            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div class="flex items-center">
-                    <i class="fas fa-video text-blue-600 mr-3"></i>
-                    <span class="font-medium">Camera</span>
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-8">
+    <section class="surface p-6">
+        <div class="flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-slate-900">System Status</h3>
+            <button id="refresh-activity" class="text-sm font-medium text-blue-600 transition hover:text-blue-800">Refresh</button>
+        </div>
+        <div class="mt-6 space-y-5 text-sm">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <span class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-500"><i class="fas fa-video"></i></span>
+                    <span class="font-medium text-slate-700">Camera</span>
                 </div>
-                <span id="camera-status-text" class="px-3 py-1 rounded-full text-sm bg-gray-200 text-gray-600">Checking...</span>
+                <span id="camera-status-text" class="px-3 py-1 rounded-full bg-slate-100 text-slate-600">Checking...</span>
             </div>
-            
-            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div class="flex items-center">
-                    <i class="fas fa-robot text-blue-600 mr-3"></i>
-                    <span class="font-medium">Ollama AI</span>
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <span class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-500"><i class="fas fa-robot"></i></span>
+                    <span class="font-medium text-slate-700">Ollama AI</span>
                 </div>
-                <span id="ollama-status-text" class="px-3 py-1 rounded-full text-sm bg-gray-200 text-gray-600">Checking...</span>
+                <span id="ollama-status-text" class="px-3 py-1 rounded-full bg-slate-100 text-slate-600">Checking...</span>
             </div>
-            
-            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div class="flex items-center">
-                    <i class="fas fa-eye text-green-600 mr-3"></i>
-                    <span class="font-medium">Monitoring</span>
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <span class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-500"><i class="fas fa-eye"></i></span>
+                    <span class="font-medium text-slate-700">Monitoring</span>
                 </div>
-                <span id="monitoring-status-text" class="px-3 py-1 rounded-full text-sm bg-gray-200 text-gray-600">Stopped</span>
+                <span id="monitoring-status-text" class="px-3 py-1 rounded-full bg-slate-100 text-slate-600">Stopped</span>
             </div>
         </div>
-        
-        <div class="mt-6 flex space-x-3">
-            <button id="test-camera" class="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium">
-                <i class="fas fa-camera mr-2"></i>Test Camera
+        <div class="mt-7 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <button id="test-camera" class="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-blue-200 hover:text-blue-600">
+                <i class="fas fa-camera"></i>
+                Test Camera
             </button>
-            <button id="test-ollama" class="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium">
-                <i class="fas fa-robot mr-2"></i>Test Ollama
+            <button id="test-ollama" class="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-blue-200 hover:text-blue-600">
+                <i class="fas fa-robot"></i>
+                Test Ollama
             </button>
         </div>
-    </div>
-    
-    <!-- Performance Chart -->
-    <div class="bg-white rounded-lg shadow-md p-6">
-        <h3 class="text-lg font-semibold text-gray-800 mb-4">Performance Metrics</h3>
-        <div class="relative h-64">
+    </section>
+
+    <section class="surface p-6">
+        <div class="flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-slate-900">Performance Metrics</h3>
+            <span class="text-xs font-semibold uppercase tracking-wide text-slate-400">Live</span>
+        </div>
+        <div class="relative mt-6 h-64">
             <canvas id="performance-chart"></canvas>
         </div>
-    </div>
+    </section>
 </div>
 
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-    <!-- Recent Activity -->
-    <div class="bg-white rounded-lg shadow-md p-6">
-        <div class="flex items-center justify-between mb-4">
-            <h3 class="text-lg font-semibold text-gray-800">Recent Activity</h3>
-            <button id="refresh-activity" class="text-blue-600 hover:text-blue-800">
-                <i class="fas fa-sync-alt"></i>
-            </button>
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+    <section class="surface p-6">
+        <div class="flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-slate-900">Recent Activity</h3>
+            <button id="clear-activity" class="text-sm text-slate-500 transition hover:text-slate-700">Clear</button>
         </div>
-        <div id="activity-feed" class="space-y-3 max-h-64 overflow-y-auto">
-            <div class="text-center text-gray-500 py-8">
-                <i class="fas fa-clock text-3xl mb-2"></i>
-                <p>No recent activity</p>
+        <div id="activity-feed" class="mt-6 max-h-64 space-y-3 overflow-y-auto pr-1">
+            <div class="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-10 text-center text-slate-400">
+                <i class="fas fa-clock text-2xl mb-3"></i>
+                <p class="text-sm">No recent activity yet</p>
             </div>
         </div>
-    </div>
-    
-    <!-- Quick Actions -->
-    <div class="bg-white rounded-lg shadow-md p-6">
-        <h3 class="text-lg font-semibold text-gray-800 mb-4">Quick Actions</h3>
-        <div class="grid grid-cols-2 gap-4">
-            <a href="{{ url_for('monitoring') }}" class="p-4 border-2 border-dashed border-gray-300 rounded-lg text-center hover:border-blue-500 hover:bg-blue-50 transition-colors">
-                <i class="fas fa-eye text-2xl text-blue-600 mb-2"></i>
-                <p class="font-medium">Live View</p>
+    </section>
+
+    <section class="surface p-6">
+        <h3 class="text-lg font-semibold text-slate-900">Quick Actions</h3>
+        <div class="mt-6 space-y-3 text-sm font-medium text-slate-700">
+            <a href="{{ url_for('monitoring') }}" class="flex items-center justify-between rounded-lg border border-transparent px-4 py-3 transition hover:border-blue-200 hover:bg-blue-50">
+                <span class="flex items-center space-x-3">
+                    <span class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-500"><i class="fas fa-eye"></i></span>
+                    <span>Open Live Monitoring</span>
+                </span>
+                <i class="fas fa-chevron-right text-slate-400"></i>
             </a>
-            
-            <a href="{{ url_for('configuration') }}" class="p-4 border-2 border-dashed border-gray-300 rounded-lg text-center hover:border-green-500 hover:bg-green-50 transition-colors">
-                <i class="fas fa-cog text-2xl text-green-600 mb-2"></i>
-                <p class="font-medium">Configure</p>
+            <a href="{{ url_for('settings') }}" class="flex items-center justify-between rounded-lg border border-transparent px-4 py-3 transition hover:border-emerald-200 hover:bg-emerald-50">
+                <span class="flex items-center space-x-3">
+                    <span class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-500"><i class="fas fa-wrench"></i></span>
+                    <span>Adjust Settings</span>
+                </span>
+                <i class="fas fa-chevron-right text-slate-400"></i>
             </a>
-            
-            <a href="{{ url_for('users') }}" class="p-4 border-2 border-dashed border-gray-300 rounded-lg text-center hover:border-blue-500 hover:bg-blue-50 transition-colors">
-                <i class="fas fa-users text-2xl text-blue-600 mb-2"></i>
-                <p class="font-medium">Manage Users</p>
+            <a href="{{ url_for('users') }}" class="flex items-center justify-between rounded-lg border border-transparent px-4 py-3 transition hover:border-sky-200 hover:bg-sky-50">
+                <span class="flex items-center space-x-3">
+                    <span class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-sky-50 text-sky-500"><i class="fas fa-users"></i></span>
+                    <span>Manage Users</span>
+                </span>
+                <i class="fas fa-chevron-right text-slate-400"></i>
             </a>
-            
-            <a href="{{ url_for('logs') }}" class="p-4 border-2 border-dashed border-gray-300 rounded-lg text-center hover:border-orange-500 hover:bg-orange-50 transition-colors">
-                <i class="fas fa-list-alt text-2xl text-orange-600 mb-2"></i>
-                <p class="font-medium">View Logs</p>
+            <a href="{{ url_for('logs') }}" class="flex items-center justify-between rounded-lg border border-transparent px-4 py-3 transition hover:border-amber-200 hover:bg-amber-50">
+                <span class="flex items-center space-x-3">
+                    <span class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-amber-50 text-amber-500"><i class="fas fa-list-alt"></i></span>
+                    <span>View Detection Logs</span>
+                </span>
+                <i class="fas fa-chevron-right text-slate-400"></i>
             </a>
         </div>
-    </div>
+    </section>
 </div>
 {% endblock %}
 
@@ -153,6 +160,19 @@
 <script>
     let performanceChart;
     let activityData = [];
+
+    function renderActivityPlaceholder() {
+        const feed = document.getElementById('activity-feed');
+        if (!feed) {
+            return;
+        }
+        feed.innerHTML = `
+            <div class="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-10 text-center text-slate-400">
+                <i class="fas fa-clock text-2xl mb-3"></i>
+                <p class="text-sm">No recent activity yet</p>
+            </div>
+        `;
+    }
     
     // Initialize performance chart
     function initPerformanceChart() {
@@ -265,6 +285,9 @@
     // Add activity item
     function addActivity(message, type = 'info') {
         const feed = document.getElementById('activity-feed');
+        if (!feed) {
+            return;
+        }
         const item = document.createElement('div');
         
         const icons = {
@@ -274,7 +297,7 @@
             'success': 'fas fa-check-circle text-green-500'
         };
         
-        item.className = 'flex items-start space-x-3 p-3 bg-gray-50 rounded-lg';
+        item.className = 'flex items-start space-x-3 rounded-lg border border-slate-100 bg-white/80 p-4';
         item.innerHTML = `
             <i class="${icons[type]}"></i>
             <div class="flex-1">
@@ -290,11 +313,13 @@
         }
         
         feed.insertBefore(item, feed.firstChild);
+        activityData.unshift({ message, type, timestamp: new Date() });
         
         // Keep only last 10 activities
         while (feed.children.length > 10) {
             feed.removeChild(feed.lastChild);
         }
+        activityData = activityData.slice(0, 10);
     }
     
     // Test functions
@@ -347,6 +372,14 @@
         
         // Refresh activity button
         document.getElementById('refresh-activity').addEventListener('click', updateSystemStatusText);
+
+        const clearButton = document.getElementById('clear-activity');
+        if (clearButton) {
+            clearButton.addEventListener('click', () => {
+                activityData = [];
+                renderActivityPlaceholder();
+            });
+        }
         
         // Update status every 10 seconds
         setInterval(updateSystemStatusText, 10000);

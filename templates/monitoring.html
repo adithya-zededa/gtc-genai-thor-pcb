@@ -4,15 +4,18 @@
 {% block page_title %}Live Monitoring{% endblock %}
 
 {% block content %}
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-    <!-- Live Feed -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-8">
     <div class="lg:col-span-2">
-        <div class="bg-white rounded-lg shadow-md p-6">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-semibold text-gray-800">Live Camera Feed</h3>
-                <div class="flex items-center space-x-3">
-                    <div id="feed-status" class="flex items-center px-3 py-1 rounded-full bg-gray-100 text-gray-600 text-sm">
-                        <i class="fas fa-pause mr-2"></i>Stopped
+        <section class="surface h-full p-6">
+            <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                    <h3 class="text-lg font-semibold text-slate-900">Live Camera Feed</h3>
+                    <p class="text-sm text-slate-500">Monitor the stream and inspection events in real time.</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <div id="feed-status" class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-sm text-slate-600">
+                        <i class="fas fa-pause text-slate-400"></i>
+                        Stopped
                     </div>
                     <label class="toggle-switch">
                         <input type="checkbox" id="toggle-feed">
@@ -20,145 +23,135 @@
                     </label>
                 </div>
             </div>
-            
-            <div id="camera-container" class="relative bg-gray-900 rounded-lg overflow-hidden" style="aspect-ratio: 4/3;">
-                <div id="camera-placeholder" class="absolute inset-0 flex items-center justify-center text-white">
-                    <div class="text-center">
-                        <i class="fas fa-camera text-4xl mb-4 opacity-50"></i>
-                        <p class="text-lg opacity-75">Camera feed stopped</p>
-                        <p class="text-sm opacity-50">Click "Start Feed" to begin monitoring</p>
-                    </div>
+
+            <div id="camera-container" class="mt-6 relative overflow-hidden rounded-2xl bg-slate-900" style="aspect-ratio: 4/3;">
+                <div id="camera-placeholder" class="absolute inset-0 flex flex-col items-center justify-center text-white">
+                    <i class="fas fa-camera text-4xl mb-3 opacity-60"></i>
+                    <p class="text-base font-medium opacity-80">Camera feed stopped</p>
+                    <p class="text-sm opacity-50">Enable the feed switch to begin monitoring</p>
                 </div>
-                <img id="camera-feed" class="w-full h-full object-cover hidden" alt="Camera Feed">
-                
-                <!-- Frame info overlay -->
-                <div id="frame-info" class="absolute top-4 left-4 bg-black bg-opacity-75 text-white px-3 py-2 rounded-lg text-sm hidden">
+                <img id="camera-feed" class="hidden h-full w-full object-cover" alt="Camera Feed">
+
+                <div id="frame-info" class="absolute top-4 left-4 hidden rounded-lg bg-black/70 px-3 py-2 text-sm text-white">
                     <div>Frame: <span id="frame-number">0</span></div>
                     <div>SSIM: <span id="frame-ssim">0.000</span></div>
                     <div>Reason: <span id="frame-reason">-</span></div>
                 </div>
-                
-                <!-- Detection overlay -->
-                <div id="detection-overlay" class="absolute inset-0 border-4 border-red-500 hidden"></div>
-                <div id="detection-badge" class="absolute top-4 right-4 bg-red-500 text-white px-3 py-2 rounded-lg font-bold hidden">
-                    MONITOR DETECTED!
+
+                <div id="detection-overlay" class="absolute inset-0 hidden border-4 border-rose-500"></div>
+                <div id="detection-badge" class="absolute top-4 right-4 hidden rounded-full bg-rose-500 px-4 py-2 text-sm font-semibold text-white shadow-lg">
+                    Monitor Detected
                 </div>
             </div>
-            
-            <!-- Frame controls -->
-            <div class="mt-4 flex items-center justify-between">
-                <div class="flex items-center space-x-6">
-                    <label class="flex items-center space-x-2">
-                        <span class="text-sm text-gray-700">Show frame info</span>
+
+            <div class="mt-6 flex flex-col gap-4 border-t border-slate-100 pt-6 md:flex-row md:items-center md:justify-between">
+                <div class="flex flex-wrap items-center gap-6">
+                    <label class="flex items-center gap-3 text-sm text-slate-600">
+                        <span>Show frame info</span>
                         <label class="toggle-switch">
                             <input type="checkbox" id="show-frame-info">
                             <span class="toggle-slider"></span>
                         </label>
                     </label>
-                    <label class="flex items-center space-x-2">
-                        <span class="text-sm text-gray-700">Auto refresh</span>
+                    <label class="flex items-center gap-3 text-sm text-slate-600">
+                        <span>Auto refresh</span>
                         <label class="toggle-switch">
                             <input type="checkbox" id="auto-refresh" checked>
                             <span class="toggle-slider"></span>
                         </label>
                     </label>
                 </div>
-                <div class="text-sm text-gray-500">
+                <div class="text-sm text-slate-500">
                     Last update: <span id="last-update">Never</span>
                 </div>
             </div>
-        </div>
+        </section>
     </div>
-    
-    <!-- Detection Info -->
-    <div class="space-y-6">
-        <!-- Current Status -->
-        <div class="bg-white rounded-lg shadow-md p-6">
-            <h3 class="text-lg font-semibold text-gray-800 mb-4">Detection Status</h3>
-            <div class="space-y-4">
-                <div class="p-3 bg-gray-50 rounded-lg">
-                    <div class="flex items-center justify-between mb-2">
-                        <span class="font-medium">Processing</span>
-                        <span id="processing-status" class="px-2 py-1 bg-gray-200 text-gray-600 rounded text-sm">Idle</span>
+
+    <div class="space-y-5">
+        <section class="surface p-6">
+            <h3 class="text-lg font-semibold text-slate-900">Detection Status</h3>
+            <div class="mt-5 space-y-4 text-sm">
+                <div class="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
+                    <div class="flex items-center justify-between">
+                        <span class="font-medium text-slate-700">Processing</span>
+                        <span id="processing-status" class="rounded-full bg-slate-200 px-3 py-1 text-xs font-medium text-slate-600">Idle</span>
                     </div>
-                    <div class="text-sm text-gray-600">
-                        Efficiency: <span id="efficiency-rate" class="font-medium">0%</span>
-                    </div>
+                    <p class="mt-3 text-slate-500">Efficiency <span id="efficiency-rate" class="font-semibold text-slate-700">0%</span></p>
                 </div>
-                
-                <div class="p-3 bg-gray-50 rounded-lg">
-                    <div class="flex items-center justify-between mb-2">
-                        <span class="font-medium">Latest Analysis</span>
-                    </div>
-                    <div id="latest-analysis" class="text-sm text-gray-600">
+
+                <div class="rounded-xl border border-slate-100 bg-white/70 p-4">
+                    <p class="font-medium text-slate-700">Latest analysis</p>
+                    <div id="latest-analysis" class="mt-2 text-slate-500">
                         No analysis yet
                     </div>
                 </div>
             </div>
-        </div>
-        
-        <!-- Real-time Stats -->
-        <div class="bg-white rounded-lg shadow-md p-6">
-            <h3 class="text-lg font-semibold text-gray-800 mb-4">Real-time Statistics</h3>
-            <div class="space-y-3">
-                <div class="flex justify-between">
-                    <span class="text-gray-600">Frames Captured</span>
-                    <span id="live-total-frames" class="font-semibold">0</span>
+        </section>
+
+        <section class="surface p-6">
+            <h3 class="text-lg font-semibold text-slate-900">Real-time Statistics</h3>
+            <dl class="mt-5 space-y-3 text-sm">
+                <div class="flex items-center justify-between">
+                    <dt class="text-slate-500">Frames captured</dt>
+                    <dd id="live-total-frames" class="font-semibold text-slate-800">0</dd>
                 </div>
-                <div class="flex justify-between">
-                    <span class="text-gray-600">Frames Processed</span>
-                    <span id="live-processed-frames" class="font-semibold">0</span>
+                <div class="flex items-center justify-between">
+                    <dt class="text-slate-500">Frames processed</dt>
+                    <dd id="live-processed-frames" class="font-semibold text-slate-800">0</dd>
                 </div>
-                <div class="flex justify-between">
-                    <span class="text-gray-600">Detections</span>
-                    <span id="live-detections" class="font-semibold text-yellow-600">0</span>
+                <div class="flex items-center justify-between">
+                    <dt class="text-slate-500">Detections</dt>
+                    <dd id="live-detections" class="font-semibold text-amber-600">0</dd>
                 </div>
-                <div class="flex justify-between">
-                    <span class="text-gray-600">Alerts Sent</span>
-                    <span id="live-alerts" class="font-semibold text-red-600">0</span>
+                <div class="flex items-center justify-between">
+                    <dt class="text-slate-500">Alerts sent</dt>
+                    <dd id="live-alerts" class="font-semibold text-rose-600">0</dd>
                 </div>
-            </div>
-        </div>
-        
-        <!-- Quick Settings -->
-        <div class="bg-white rounded-lg shadow-md p-6">
-            <h3 class="text-lg font-semibold text-gray-800 mb-4">Quick Settings</h3>
-            <div class="space-y-4">
+            </dl>
+        </section>
+
+        <section class="surface p-6">
+            <h3 class="text-lg font-semibold text-slate-900">Quick Settings</h3>
+            <div class="mt-5 space-y-4 text-sm">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">SSIM Threshold</label>
-                    <input type="range" id="ssim-threshold" min="0.5" max="1.0" step="0.05" value="0.80" class="w-full">
-                    <div class="flex justify-between text-xs text-gray-500 mt-1">
-                        <span>0.5 (Sensitive)</span>
+                    <label class="block text-sm font-medium text-slate-600">SSIM Threshold</label>
+                    <input type="range" id="ssim-threshold" min="0.5" max="1.0" step="0.05" value="0.80" class="mt-3 w-full">
+                    <div class="mt-2 flex justify-between text-xs text-slate-400">
+                        <span>0.5 sensitive</span>
                         <span id="ssim-value">0.80</span>
-                        <span>1.0 (Conservative)</span>
+                        <span>1.0 conservative</span>
                     </div>
                 </div>
-                
-                <button id="apply-settings" class="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium">
+
+                <button id="apply-settings" class="w-full rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-blue-200 hover:text-blue-600">
                     Apply Settings
                 </button>
             </div>
-        </div>
+        </section>
     </div>
 </div>
 
-<!-- Recent Detections -->
-<div class="bg-white rounded-lg shadow-md p-6">
-    <div class="flex items-center justify-between mb-4">
-        <h3 class="text-lg font-semibold text-gray-800">Recent Detections</h3>
-        <button id="clear-detections" class="text-red-500 hover:text-red-600 text-sm font-medium transition-colors">
-            <i class="fas fa-trash mr-1"></i>Clear
+<section class="surface p-6">
+    <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+            <h3 class="text-lg font-semibold text-slate-900">Recent Detections</h3>
+            <p class="text-sm text-slate-500">Timeline updates when the system flags potential monitors.</p>
+        </div>
+        <button id="clear-detections" class="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-rose-500 transition hover:border-rose-300 hover:text-rose-600">
+            <i class="fas fa-trash"></i>
+            Clear
         </button>
     </div>
-    
-    <div id="detections-timeline" class="space-y-4 max-h-96 overflow-y-auto">
-        <div class="text-center text-gray-500 py-8">
-            <i class="fas fa-search text-3xl mb-2"></i>
-            <p>No detections yet</p>
-            <p class="text-sm">Detections will appear here when monitors are detected</p>
+
+    <div id="detections-timeline" class="mt-6 max-h-96 space-y-4 overflow-y-auto pr-1">
+        <div class="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-10 text-center text-slate-400">
+            <i class="fas fa-search text-2xl mb-3"></i>
+            <p class="text-sm font-medium">No detections yet</p>
+            <p class="text-xs">Detections will appear here when monitors are detected</p>
         </div>
     </div>
-</div>
+</section>
 {% endblock %}
 
 {% block extra_js %}
@@ -183,10 +176,10 @@
         document.getElementById('toggle-feed').checked = true;
         
         // Update UI
-        document.getElementById('feed-status').innerHTML = '<i class="fas fa-play mr-2"></i>Active';
-        document.getElementById('feed-status').className = 'flex items-center px-3 py-1 rounded-full bg-green-100 text-green-800 text-sm';
-        document.getElementById('processing-status').textContent = 'Active';
-        document.getElementById('processing-status').className = 'px-2 py-1 bg-green-100 text-green-800 rounded text-sm';
+    document.getElementById('feed-status').innerHTML = '<i class="fas fa-play text-emerald-600"></i><span>Active</span>';
+    document.getElementById('feed-status').className = 'inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700';
+    document.getElementById('processing-status').textContent = 'Active';
+    document.getElementById('processing-status').className = 'rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600';
         
         // Hide placeholder, show feed
         document.getElementById('camera-placeholder').classList.add('hidden');
@@ -225,10 +218,10 @@
         document.getElementById('toggle-feed').checked = false;
         
         // Update UI
-        document.getElementById('feed-status').innerHTML = '<i class="fas fa-pause mr-2"></i>Stopped';
-        document.getElementById('feed-status').className = 'flex items-center px-3 py-1 rounded-full bg-red-100 text-red-800 text-sm';
-        document.getElementById('processing-status').textContent = 'Stopped';
-        document.getElementById('processing-status').className = 'px-2 py-1 bg-red-100 text-red-800 rounded text-sm';
+    document.getElementById('feed-status').innerHTML = '<i class="fas fa-pause text-rose-500"></i><span>Stopped</span>';
+    document.getElementById('feed-status').className = 'inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-sm font-medium text-rose-600';
+    document.getElementById('processing-status').textContent = 'Stopped';
+    document.getElementById('processing-status').className = 'rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-600';
         
         // Show placeholder, hide feed
         document.getElementById('camera-placeholder').classList.remove('hidden');
@@ -295,20 +288,18 @@
         
         detectionCount++;
         
-        item.className = 'flex items-start space-x-4 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg';
+        item.className = 'flex items-start gap-4 rounded-xl border border-rose-200 bg-rose-50/70 p-4';
         item.innerHTML = `
-            <div class="flex-shrink-0">
-                <div class="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center text-white font-bold">
-                    ${detectionCount}
-                </div>
+            <div class="flex h-10 w-10 items-center justify-center rounded-full bg-rose-500 text-sm font-semibold text-white">
+                ${detectionCount}
             </div>
-            <div class="flex-1">
-                <div class="flex items-center justify-between mb-2">
-                    <h4 class="font-semibold text-red-800">Monitor Detected</h4>
-                    <span class="text-sm text-gray-500">${new Date(event.timestamp).toLocaleTimeString()}</span>
+            <div class="flex-1 space-y-2 text-sm">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <span class="font-semibold text-rose-700">Monitor detected</span>
+                    <span class="text-xs text-slate-500">${new Date(event.timestamp).toLocaleTimeString()}</span>
                 </div>
-                <p class="text-sm text-gray-700 mb-2">Confidence: ${(event.confidence * 100).toFixed(0)}%</p>
-                <p class="text-sm text-gray-600">${event.response}</p>
+                <p class="text-slate-600">Confidence ${Math.round(event.confidence * 100)}%</p>
+                <p class="text-slate-600">${event.response}</p>
             </div>
         `;
         
@@ -364,10 +355,10 @@
     function clearDetections() {
         const timeline = document.getElementById('detections-timeline');
         timeline.innerHTML = `
-            <div class="text-center text-gray-500 py-8">
-                <i class="fas fa-search text-3xl mb-2"></i>
-                <p>No detections yet</p>
-                <p class="text-sm">Detections will appear here when monitors are detected</p>
+            <div class="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-10 text-center text-slate-400">
+                <i class="fas fa-search text-2xl mb-3"></i>
+                <p class="text-sm font-medium">No detections yet</p>
+                <p class="text-xs">Detections will appear here when monitors are detected</p>
             </div>
         `;
         detectionCount = 0;
