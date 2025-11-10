@@ -34,10 +34,13 @@ notifications:
   email:
     enabled: true
     sender_email: ace7esstest@gmail.com
-    sender_password: 990001Lol!
     smtp_port: 587
     smtp_server: smtp.gmail.com
     use_tls: true
+    recipients:
+    - adithya7shankar@gmail.com
+    - adithya@zededa.com
+    auto_sync_users: false
   log:
     enabled: true
     file: camera_detections.log

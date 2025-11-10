@@ -10,16 +10,17 @@ import yaml
 import base64
 import sqlite3
 import logging
+import copy
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, FIRST_COMPLETED, wait
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List, Dict
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session, Response, send_file, abort
 from flask_socketio import SocketIO, emit
 import threading
 import time
-from camera_agent import MonitorDetectionAgent
+from camera_agent import MonitorDetectionAgent, DEFAULT_CONFIG_PATH
 import cv2
 
 # Set up logging
@@ -38,6 +39,144 @@ camera_agent = None
 DATA_DIR = Path('.')
 DETECTED_IMAGES_DIR = DATA_DIR / 'detected_images'
 PROCESSED_FRAMES_DIR = DATA_DIR / 'processed_frames'
+CONFIG_PATH = Path(os.getenv('CAMERA_AGENT_CONFIG', DEFAULT_CONFIG_PATH)).expanduser()
+CONFIG_LOCK = threading.RLock()
+
+
+def _coerce_bool_config(value, default: bool = False) -> bool:
+    """Convert string/number representations to boolean values."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    return default
+
+
+def ensure_config_directory() -> None:
+    """Ensure the configuration directory exists."""
+    try:
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        logger.error(f"Failed to create config directory {CONFIG_PATH.parent}: {exc}")
+
+
+def _sanitize_config_payload(config: Dict) -> Dict:
+    """Return a sanitized copy of the configuration for persistence."""
+    config_copy = copy.deepcopy(config) if isinstance(config, dict) else {}
+    notifications = config_copy.setdefault('notifications', {}) if isinstance(config_copy, dict) else {}
+    if isinstance(notifications, dict):
+        email_cfg = notifications.get('email') or {}
+        if isinstance(email_cfg, dict):
+            email_cfg.pop('sender_password', None)
+    return config_copy
+
+
+def load_camera_config() -> Dict:
+    """Load the camera configuration from disk or fall back to defaults."""
+    with CONFIG_LOCK:
+        if CONFIG_PATH.exists():
+            try:
+                with CONFIG_PATH.open('r', encoding='utf-8') as config_file:
+                    data = yaml.safe_load(config_file) or {}
+                if isinstance(data, dict):
+                    return data
+                logger.warning("Camera configuration root is not a mapping; reverting to defaults")
+            except Exception as exc:
+                logger.error(f"Failed to read configuration file: {exc}")
+        default_config = MonitorDetectionAgent.default_config()
+        return default_config
+
+
+def save_camera_config(config: Dict) -> Dict:
+    """Persist configuration to disk and return the sanitized payload."""
+    canonical = copy.deepcopy(config) if isinstance(config, dict) else {}
+    recipients = extract_recipients(canonical)
+    apply_recipients(canonical, recipients)
+    sanitized = _sanitize_config_payload(canonical)
+    with CONFIG_LOCK:
+        ensure_config_directory()
+        with CONFIG_PATH.open('w', encoding='utf-8') as config_file:
+            yaml.safe_dump(
+                sanitized,
+                config_file,
+                default_flow_style=False,
+                sort_keys=False,
+                allow_unicode=True
+            )
+    return sanitized
+
+
+def reset_camera_config() -> Dict:
+    """Reset the configuration to defaults and persist the change."""
+    defaults = MonitorDetectionAgent.default_config()
+    save_camera_config(defaults)
+    return defaults
+
+
+def extract_recipients(config: Dict) -> List[str]:
+    """Collect the distinct email recipients from configuration payload."""
+    recipients: List[str] = []
+    notifications = (config or {}).get('notifications', {})
+    email_cfg = notifications.get('email', {}) if isinstance(notifications, dict) else {}
+    email_recipients = email_cfg.get('recipients') if isinstance(email_cfg, dict) else None
+
+    if isinstance(email_recipients, list):
+        recipients.extend([addr for addr in email_recipients if isinstance(addr, str)])
+
+    rules = config.get('rules') if isinstance(config, dict) else None
+    if isinstance(rules, list):
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            actions_email = ((rule.get('actions') or {}).get('email')) if isinstance(rule.get('actions'), dict) else None
+            legacy_email = rule.get('email') if isinstance(rule.get('email'), dict) else None
+            for container in (actions_email, legacy_email):
+                if isinstance(container, dict):
+                    recipients.extend([
+                        addr for addr in container.get('to', [])
+                        if isinstance(addr, str)
+                    ])
+
+    # Deduplicate while preserving order
+    seen = set()
+    deduped: List[str] = []
+    for email in recipients:
+        normalized = email.strip()
+        if not normalized or normalized.lower() in seen:
+            continue
+        seen.add(normalized.lower())
+        deduped.append(normalized)
+    return deduped
+
+
+def apply_recipients(config: Dict, recipients: List[str]) -> Dict:
+    """Apply recipient list to notification config and rules."""
+    sanitized_recipients = [email.strip() for email in recipients if isinstance(email, str) and email.strip()]
+    notifications = config.setdefault('notifications', {})
+    email_cfg = notifications.setdefault('email', {})
+    email_cfg['recipients'] = sanitized_recipients
+
+    rules = config.get('rules')
+    if isinstance(rules, list):
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            if 'actions' in rule and isinstance(rule['actions'], dict):
+                email_action = rule['actions'].setdefault('email', {})
+                if isinstance(email_action, dict):
+                    email_action['to'] = sanitized_recipients
+            if 'email' in rule and isinstance(rule['email'], dict):
+                rule['email']['to'] = sanitized_recipients
+
+    return config
 
 class WebCameraAgent:
     """Web-integrated camera agent with real-time updates"""
@@ -75,6 +214,71 @@ class WebCameraAgent:
             'analysis_samples': 0,
             'uptime_start': datetime.now().isoformat()
         }
+
+    def _apply_configuration_settings(self, config: Optional[Dict]) -> None:
+        """Apply configuration values to runtime parameters."""
+        if not isinstance(config, dict):
+            return
+
+        camera_config = config.get("camera")
+        if isinstance(camera_config, dict):
+            interval = camera_config.get("capture_interval")
+            self.capture_interval = self._safe_positive_float(interval, self.capture_interval)
+
+            preprocessing_cfg = camera_config.get("preprocessing")
+            threshold_cfg = preprocessing_cfg.get("diff_threshold") if isinstance(preprocessing_cfg, dict) else None
+            env_threshold = os.getenv("SSIM_DIFF_THRESHOLD")
+            threshold_source = env_threshold if env_threshold is not None else threshold_cfg
+            if threshold_source is not None:
+                self.ssim_threshold = self._clamp(threshold_source, 0.0, 1.0, self.ssim_threshold)
+
+        advanced_cfg = config.get("advanced")
+        if isinstance(advanced_cfg, dict):
+            configured_workers = self._safe_positive_int(advanced_cfg.get("max_concurrent_analyses"), self.analysis_workers)
+            env_workers = os.getenv("MAX_CONCURRENT_ANALYSES")
+            self.analysis_workers = self._safe_positive_int(env_workers, configured_workers)
+
+            default_pending = max(self.analysis_workers * 3, self.max_pending_analyses, 1)
+            configured_pending = self._safe_positive_int(advanced_cfg.get("max_pending_analyses"), default_pending)
+            env_pending = os.getenv("MAX_PENDING_ANALYSES")
+            self.max_pending_analyses = self._safe_positive_int(env_pending, configured_pending)
+
+            motion_interval_source = os.getenv("MOTION_BURST_INTERVAL")
+            if motion_interval_source is None:
+                motion_interval_source = advanced_cfg.get("motion_burst_interval")
+            motion_interval = self._safe_float(motion_interval_source, self.motion_burst_interval)
+            self.motion_burst_interval = motion_interval if motion_interval > 0 else 0.0
+
+            motion_window_source = os.getenv("MOTION_BURST_WINDOW")
+            if motion_window_source is None:
+                motion_window_source = advanced_cfg.get("motion_burst_window")
+            motion_window = self._safe_float(motion_window_source, self.motion_burst_window)
+            self.motion_burst_window = motion_window if motion_window > 0 else 0.0
+
+            burst_ssim_source = os.getenv("MOTION_BURST_SSIM")
+            if burst_ssim_source is None:
+                burst_ssim_source = advanced_cfg.get("motion_burst_ssim")
+            if burst_ssim_source is not None:
+                self.motion_burst_ssim = self._clamp(burst_ssim_source, 0.0, 1.0, self.motion_burst_ssim)
+
+            dedupe_ssim_source = os.getenv("PENDING_DEDUPE_SSIM")
+            if dedupe_ssim_source is None:
+                dedupe_ssim_source = advanced_cfg.get("pending_dedupe_ssim")
+            if dedupe_ssim_source is not None:
+                self.pending_similarity_threshold = self._clamp(
+                    dedupe_ssim_source,
+                    0.0,
+                    1.0,
+                    self.pending_similarity_threshold
+                )
+
+        self.last_motion_time = 0.0
+
+    def refresh_configuration(self, config: Optional[Dict] = None) -> None:
+        """Refresh derived runtime settings when configuration changes."""
+        if config is None and self.agent is not None:
+            config = self.agent.config
+        self._apply_configuration_settings(config)
     
     @staticmethod
     def _safe_positive_int(value, default):
@@ -126,58 +330,7 @@ class WebCameraAgent:
                 self.last_error = f"Failed to connect to Ollama service at {self.agent.ollama_client.base_url}"
                 return False
             
-            camera_config = self.agent.config.get("camera", {})
-            if camera_config:
-                interval = camera_config.get("capture_interval")
-                self.capture_interval = self._safe_positive_float(interval, self.capture_interval)
-
-                preprocessing_cfg = camera_config.get("preprocessing", {})
-                threshold_cfg = preprocessing_cfg.get("diff_threshold")
-                env_threshold = os.getenv("SSIM_DIFF_THRESHOLD")
-                threshold_source = env_threshold if env_threshold is not None else threshold_cfg
-                if threshold_source is not None:
-                    self.ssim_threshold = self._clamp(threshold_source, 0.0, 1.0, self.ssim_threshold)
-
-            advanced_cfg = self.agent.config.get("advanced", {})
-            configured_workers = self._safe_positive_int(advanced_cfg.get("max_concurrent_analyses"), self.analysis_workers)
-            env_workers = os.getenv("MAX_CONCURRENT_ANALYSES")
-            self.analysis_workers = self._safe_positive_int(env_workers, configured_workers)
-
-            default_pending = max(self.analysis_workers * 3, self.max_pending_analyses, 1)
-            configured_pending = self._safe_positive_int(advanced_cfg.get("max_pending_analyses"), default_pending)
-            env_pending = os.getenv("MAX_PENDING_ANALYSES")
-            self.max_pending_analyses = self._safe_positive_int(env_pending, configured_pending)
-
-            motion_interval_source = os.getenv("MOTION_BURST_INTERVAL")
-            if motion_interval_source is None:
-                motion_interval_source = advanced_cfg.get("motion_burst_interval")
-            motion_interval = self._safe_float(motion_interval_source, self.motion_burst_interval)
-            self.motion_burst_interval = motion_interval if motion_interval > 0 else 0.0
-
-            motion_window_source = os.getenv("MOTION_BURST_WINDOW")
-            if motion_window_source is None:
-                motion_window_source = advanced_cfg.get("motion_burst_window")
-            motion_window = self._safe_float(motion_window_source, self.motion_burst_window)
-            self.motion_burst_window = motion_window if motion_window > 0 else 0.0
-
-            burst_ssim_source = os.getenv("MOTION_BURST_SSIM")
-            if burst_ssim_source is None:
-                burst_ssim_source = advanced_cfg.get("motion_burst_ssim")
-            if burst_ssim_source is not None:
-                self.motion_burst_ssim = self._clamp(burst_ssim_source, 0.0, 1.0, self.motion_burst_ssim)
-
-            dedupe_ssim_source = os.getenv("PENDING_DEDUPE_SSIM")
-            if dedupe_ssim_source is None:
-                dedupe_ssim_source = advanced_cfg.get("pending_dedupe_ssim")
-            if dedupe_ssim_source is not None:
-                self.pending_similarity_threshold = self._clamp(
-                    dedupe_ssim_source,
-                    0.0,
-                    1.0,
-                    self.pending_similarity_threshold
-                )
-
-            self.last_motion_time = 0.0
+            self._apply_configuration_settings(self.agent.config)
 
             # Reset executor so configuration updates apply on the next start
             if self._analysis_executor:
@@ -724,18 +877,22 @@ def monitoring():
 def configuration():
     """Configuration management"""
     # Load current configuration
-    try:
-        with open('camera_config.yaml', 'r') as f:
-            config = yaml.safe_load(f)
-    except:
-        config = {}
+    config = load_camera_config()
+    config_view = copy.deepcopy(config)
+    notifications = config_view.get('notifications', {}) if isinstance(config_view, dict) else {}
+    if isinstance(notifications, dict):
+        email_cfg = notifications.get('email')
+        if isinstance(email_cfg, dict):
+            email_cfg.pop('sender_password', None)
+    else:
+        config_view['notifications'] = {}
     
     # Load users
     conn = get_db_connection()
     users = conn.execute('SELECT * FROM users WHERE active = 1').fetchall()
     conn.close()
     
-    return render_template('configuration.html', config=config, users=users)
+    return render_template('configuration.html', config=config_view, users=users)
 
 @app.route('/users')
 def users():
@@ -909,32 +1066,99 @@ def api_delete_user(user_id):
 def api_config():
     """Configuration management API"""
     if request.method == 'POST':
-        data = request.json
+        data = request.get_json(silent=True) or {}
+        if not isinstance(data, dict):
+            return jsonify({'success': False, 'error': 'Invalid configuration payload'}), 400
         try:
-            # Save configuration
-            with open('camera_config.yaml', 'w') as f:
-                yaml.dump(data, f, default_flow_style=False)
+            persisted = save_camera_config(data)
             
             # Log configuration change
             conn = get_db_connection()
             conn.execute('''
                 INSERT INTO config_history (config_type, changes)
                 VALUES (?, ?)
-            ''', ('camera_config', json.dumps(data)))
+            ''', ('camera_config', json.dumps(persisted)))
             conn.commit()
             conn.close()
+
+            # Refresh running agent configuration if active
+            global camera_agent
+            if camera_agent and camera_agent.agent:
+                try:
+                    camera_agent.agent.apply_config(persisted)
+                    camera_agent.refresh_configuration(persisted)
+                except Exception as exc:
+                    logger.error(f"Failed to apply updated configuration to agent: {exc}")
             
-            return jsonify({'success': True, 'message': 'Configuration updated'})
+            return jsonify({'success': True, 'message': 'Configuration updated', 'config': persisted})
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)})
     
     else:
+        config = load_camera_config()
+        sanitized = _sanitize_config_payload(config)
+        return jsonify(sanitized)
+
+
+@app.route('/api/config/defaults', methods=['GET'])
+def api_config_defaults():
+    """Return the default configuration without persisting it."""
+    defaults = MonitorDetectionAgent.default_config()
+    sanitized = _sanitize_config_payload(defaults)
+    return jsonify({'success': True, 'config': sanitized})
+
+
+@app.route('/api/config/reset', methods=['POST'])
+def api_config_reset():
+    """Reset the configuration to defaults and persist the change."""
+    defaults = reset_camera_config()
+
+    global camera_agent
+    if camera_agent and camera_agent.agent:
         try:
-            with open('camera_config.yaml', 'r') as f:
-                config = yaml.safe_load(f)
-            return jsonify(config)
-        except:
-            return jsonify({})
+            camera_agent.agent.apply_config(defaults)
+            camera_agent.refresh_configuration(defaults)
+        except Exception as exc:
+            logger.error(f"Failed to apply default configuration to agent: {exc}")
+
+    return jsonify({'success': True, 'message': 'Configuration reset to defaults', 'config': defaults})
+
+
+@app.route('/api/notifications/recipients', methods=['GET', 'PUT'])
+def api_notification_recipients():
+    """Manage notification email recipients."""
+    if request.method == 'GET':
+        config = load_camera_config()
+        recipients = extract_recipients(config)
+        return jsonify({'success': True, 'recipients': recipients})
+
+    payload = request.get_json(silent=True) or {}
+    recipients = payload.get('recipients', [])
+    if not isinstance(recipients, list):
+        return jsonify({'success': False, 'error': 'Recipients must be provided as a list'}), 400
+
+    sanitized = []
+    for email in recipients:
+        if not isinstance(email, str):
+            continue
+        candidate = email.strip()
+        if not candidate or '@' not in candidate:
+            continue
+        sanitized.append(candidate)
+
+    config = load_camera_config()
+    apply_recipients(config, sanitized)
+    persisted = save_camera_config(config)
+
+    global camera_agent
+    if camera_agent and camera_agent.agent:
+        try:
+            camera_agent.agent.apply_config(persisted)
+            camera_agent.refresh_configuration(persisted)
+        except Exception as exc:
+            logger.error(f"Failed to apply recipient update to agent: {exc}")
+
+    return jsonify({'success': True, 'recipients': extract_recipients(persisted)})
 
 @app.route('/api/test_camera')
 def api_test_camera():
@@ -1249,44 +1473,27 @@ def update_email_recipients():
         if not emails:
             logger.warning("No active users found to update email recipients")
             return
-        
-        # Update configuration
-        config_path = 'camera_config.yaml'
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-        
-        if not config:
-            logger.error("Failed to load camera configuration")
+
+        config = load_camera_config()
+        notifications = (config or {}).get('notifications', {})
+        email_cfg = notifications.get('email', {}) if isinstance(notifications, dict) else {}
+
+        if not _coerce_bool_config((email_cfg or {}).get('auto_sync_users'), False):
+            logger.debug("Email auto-sync disabled in configuration; skipping recipient sync")
             return
+
+        apply_recipients(config, emails)
+        persisted = save_camera_config(config)
+
+        global camera_agent
+        if camera_agent and camera_agent.agent:
+            try:
+                camera_agent.agent.apply_config(persisted)
+                camera_agent.refresh_configuration(persisted)
+            except Exception as exc:
+                logger.error(f"Failed to apply synced recipients to agent: {exc}")
         
-        rules = config.get('rules', [])
-        if not rules:
-            logger.warning("No rules found in configuration to update")
-            return
-        
-        updated = False
-        for rule in rules:
-            # Check for actions.email.to structure
-            if 'actions' in rule and isinstance(rule['actions'], dict):
-                if 'email' in rule['actions'] and isinstance(rule['actions']['email'], dict):
-                    rule['actions']['email']['to'] = emails
-                    updated = True
-                    logger.info(f"Updated rule '{rule.get('id', 'unknown')}' with {len(emails)} recipients")
-            
-            # Check for legacy email.to structure
-            elif 'email' in rule and isinstance(rule['email'], dict):
-                rule['email']['to'] = emails
-                updated = True
-                logger.info(f"Updated legacy rule '{rule.get('id', 'unknown')}' with {len(emails)} recipients")
-        
-        if updated:
-            # Write back to file
-            with open(config_path, 'w') as f:
-                yaml.safe_dump(config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-            
-            logger.info(f"Email recipients updated successfully. Recipients: {', '.join(emails)}")
-        else:
-            logger.warning("No rules were updated with email recipients")
+        logger.info(f"Email recipients updated successfully via user sync. Recipients: {', '.join(emails)}")
             
     except Exception as e:
         logger.error(f"Failed to update email recipients: {e}", exc_info=True)

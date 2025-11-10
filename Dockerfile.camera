@@ -58,7 +58,9 @@ ENV OLLAMA_URL=http://ollama:11434 \
     VISION_MODEL=llava:7b \
     CAMERA_INDEX=0 \
     CAPTURE_INTERVAL=5 \
-    LOG_LEVEL=INFO
+    LOG_LEVEL=INFO \
+    CAMERA_AGENT_CONFIG=/app/camera_config.yaml \
+    CAMERA_AGENT_LOG_FILE=/app/logs/camera_agent.log
 
 # Run the camera agent
-CMD ["python3", "camera_agent.py", "--config", "camera_config.yaml"]
+CMD ["python3", "camera_agent.py"]

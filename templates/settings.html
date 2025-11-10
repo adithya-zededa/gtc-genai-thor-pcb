@@ -128,6 +128,31 @@
             </button>
         </div>
     </div>
+
+    <!-- Alert Recipients -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-lg font-semibold text-gray-800 mb-4">Alert Recipients</h3>
+        <p class="text-sm text-gray-600 mb-4">Manage who receives camera detection email alerts. Changes apply immediately.</p>
+
+        <div id="recipient-list" class="flex flex-wrap gap-2 mb-4"></div>
+
+        <div class="flex flex-col sm:flex-row sm:items-center sm:space-x-3 space-y-3 sm:space-y-0">
+            <input type="email" id="new-recipient" placeholder="recipient@example.com"
+                   class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            <button id="add-recipient" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium shadow-sm hover:shadow-md">
+                <i class="fas fa-user-plus mr-2"></i>Add Recipient
+            </button>
+        </div>
+
+        <div class="mt-4 flex space-x-3">
+            <button id="save-recipients" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium shadow-sm hover:shadow-md">
+                <i class="fas fa-save mr-2"></i>Save Recipients
+            </button>
+            <button id="reset-recipients" class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-100 transition-all font-medium">
+                <i class="fas fa-undo mr-2"></i>Reload
+            </button>
+        </div>
+    </div>
     
     <!-- Log Settings -->
     <div class="bg-white rounded-lg shadow-md p-6">
@@ -308,6 +333,101 @@
             updateSystemMetrics(result);
         }
     }
+
+    let recipientEmails = [];
+
+    function renderRecipientList() {
+        const container = document.getElementById('recipient-list');
+        if (!container) {
+            return;
+        }
+        container.innerHTML = '';
+
+        if (!recipientEmails.length) {
+            const emptyState = document.createElement('div');
+            emptyState.className = 'text-sm text-gray-500';
+            emptyState.textContent = 'No recipients configured yet.';
+            container.appendChild(emptyState);
+            return;
+        }
+
+        recipientEmails.forEach((email, index) => {
+            const pill = document.createElement('span');
+            pill.className = 'inline-flex items-center bg-blue-50 text-blue-700 text-sm font-medium px-3 py-1 rounded-full';
+            pill.innerHTML = `
+                <i class="fas fa-envelope mr-2"></i>
+                <span>${email}</span>
+                <button type="button" class="ml-2 text-blue-500 hover:text-blue-700" data-index="${index}" aria-label="Remove ${email}">
+                    <i class="fas fa-times"></i>
+                </button>
+            `;
+            container.appendChild(pill);
+        });
+
+        container.querySelectorAll('button[data-index]').forEach(button => {
+            button.addEventListener('click', (event) => {
+                const idx = parseInt(event.currentTarget.getAttribute('data-index'), 10);
+                if (!Number.isNaN(idx)) {
+                    recipientEmails.splice(idx, 1);
+                    renderRecipientList();
+                }
+            });
+        });
+    }
+
+    async function loadRecipients() {
+        const result = await apiCall('/api/notifications/recipients');
+        if (result && result.success) {
+            recipientEmails = Array.isArray(result.recipients) ? result.recipients.slice() : [];
+            recipientEmails.sort((a, b) => a.localeCompare(b));
+            renderRecipientList();
+        }
+    }
+
+    function addRecipientFromInput() {
+        const input = document.getElementById('new-recipient');
+        if (!input) {
+            return;
+        }
+        const value = (input.value || '').trim();
+        if (!value) {
+            showToast('Enter a valid email address before adding.', 'warning');
+            return;
+        }
+        if (!value.includes('@')) {
+            showToast('Email address must contain @.', 'warning');
+            return;
+        }
+        if (recipientEmails.some(email => email.toLowerCase() === value.toLowerCase())) {
+            showToast('Recipient already exists.', 'info');
+            input.value = '';
+            return;
+        }
+        recipientEmails.push(value);
+        recipientEmails.sort((a, b) => a.localeCompare(b));
+        renderRecipientList();
+        input.value = '';
+    }
+
+    async function saveRecipients() {
+        const payload = { recipients: recipientEmails };
+        const result = await apiCall('/api/notifications/recipients', {
+            method: 'PUT',
+            body: JSON.stringify(payload)
+        });
+        if (result && result.success) {
+            recipientEmails = Array.isArray(result.recipients) ? result.recipients : [];
+            renderRecipientList();
+            showToast('Recipients updated successfully.', 'success');
+        } else {
+            showToast(result ? result.error : 'Failed to update recipients.', 'error');
+        }
+    }
+
+    function resetRecipientsToSaved() {
+        loadRecipients();
+        showToast('Reloaded recipients from current configuration.', 'info');
+    }
     
     // Update status indicators
     function updateStatusIndicators(status) {
@@ -377,10 +497,11 @@
     // Load environment settings
     async function loadEnvironmentSettings() {
         const result = await apiCall('/api/system/environment');
-        if (result) {
-            document.getElementById('gmail-email').value = result.gmail_email || '';
-            document.getElementById('ollama-url').value = result.ollama_url || 'http://localhost:11434';
-            document.getElementById('debug-mode').checked = result.debug_mode || false;
+        if (result && result.success) {
+            const env = result.environment || {};
+            document.getElementById('gmail-email').value = env.gmail_email || '';
+            document.getElementById('ollama-url').value = env.ollama_url || 'http://localhost:11434';
+            document.getElementById('debug-mode').checked = Boolean(env.debug_mode);
         }
     }
     
@@ -532,6 +653,7 @@
     document.addEventListener('DOMContentLoaded', function() {
         loadSystemStatus();
         loadEnvironmentSettings();
+        loadRecipients();
         
         // Periodically refresh status
         setInterval(loadSystemStatus, 30000);
@@ -545,6 +667,30 @@
         document.getElementById('regenerate-key').addEventListener('click', regenerateApiKey);
         document.getElementById('restart-services').addEventListener('click', restartServices);
         document.getElementById('save-all-settings').addEventListener('click', saveAllSettings);
+
+        const addRecipientButton = document.getElementById('add-recipient');
+        if (addRecipientButton) {
+            addRecipientButton.addEventListener('click', addRecipientFromInput);
+        }
+
+        const saveRecipientsButton = document.getElementById('save-recipients');
+        if (saveRecipientsButton) {
+            saveRecipientsButton.addEventListener('click', saveRecipients);
+        }
+
+        const resetRecipientsButton = document.getElementById('reset-recipients');
+        if (resetRecipientsButton) {
+            resetRecipientsButton.addEventListener('click', resetRecipientsToSaved);
+        }
+
+        const recipientInput = document.getElementById('new-recipient');
+        if (recipientInput) {
+            recipientInput.addEventListener('keyup', (event) => {
+                if (event.key === 'Enter') {
+                    addRecipientFromInput();
+                }
+            });
+        }
         
         // Generate initial API key display
         document.getElementById('api-key').value = 'sk-' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);

@@ -5,6 +5,7 @@ Monitors /dev/video0 and sends alerts when a computer monitor is detected.
 """
 
 import base64
+import copy
 import json
 import logging
 import os
@@ -24,15 +25,44 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configure logging
+DEFAULT_LOG_FILE = os.getenv("CAMERA_AGENT_LOG_FILE", "camera_agent.log")
+log_handlers = [logging.StreamHandler(sys.stdout)]
+
+if DEFAULT_LOG_FILE:
+    log_path = Path(DEFAULT_LOG_FILE).expanduser()
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_handlers.append(logging.FileHandler(log_path, mode='a'))
+    except OSError as exc:  # pragma: no cover - best effort warning path
+        sys.stderr.write(
+            f"Warning: unable to use log file {log_path}: {exc}\n"
+        )
+
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO").upper(),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("camera_agent.log", mode='a')
-    ]
+    handlers=log_handlers
 )
 logger = logging.getLogger(__name__)
+
+DEFAULT_CONFIG_PATH = os.getenv("CAMERA_AGENT_CONFIG", "camera_config.yaml")
+
+
+def _coerce_bool(value: Any, default: bool = False) -> bool:
+    """Convert assorted truthy/falsey representations to bool with a default."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    return default
 
 
 @dataclass
@@ -55,6 +85,9 @@ class OllamaVisionClient:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout
+        self.session = requests.Session()
+        user_agent = os.getenv("CAMERA_AGENT_USER_AGENT", "camera-agent/1.0")
+        self.session.headers.update({"User-Agent": user_agent})
         logger.info(f"Initialized Ollama client: {base_url}, model: {model}")
     
     def analyze_image(self, image_data: bytes, prompt: str) -> Dict[str, Any]:
@@ -71,7 +104,7 @@ class OllamaVisionClient:
             }
             
             logger.debug(f"Sending request to {self.base_url}/api/generate")
-            response = requests.post(
+            response = self.session.post(
                 f"{self.base_url}/api/generate",
                 json=payload,
                 timeout=self.timeout
@@ -92,7 +125,7 @@ class OllamaVisionClient:
     def test_connection(self) -> bool:
         """Test connection to Ollama service."""
         try:
-            response = requests.get(f"{self.base_url}/api/version", timeout=10)
+            response = self.session.get(f"{self.base_url}/api/version", timeout=10)
             response.raise_for_status()
             logger.info("Ollama connection test successful")
             return True
@@ -108,6 +141,9 @@ class DecisionLLM:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout
+        self.session = requests.Session()
+        user_agent = os.getenv("CAMERA_AGENT_USER_AGENT", "camera-agent/1.0")
+        self.session.headers.update({"User-Agent": user_agent})
         self.tools = self._define_tools()
         logger.info(f"Initialized Decision LLM: {base_url}, model: {model}")
     
@@ -169,7 +205,7 @@ class DecisionLLM:
 
             logger.info(f"🤖 Decision LLM classification pass: {vision_description[:100]}...")
 
-            classification_response = requests.post(
+            classification_response = self.session.post(
                 f"{self.base_url}/api/chat",
                 json=classification_payload,
                 timeout=self.timeout
@@ -240,7 +276,7 @@ class DecisionLLM:
 
             logger.info("🤖 Decision LLM requesting structured alert via tool call...")
 
-            tool_response = requests.post(
+            tool_response = self.session.post(
                 f"{self.base_url}/api/chat",
                 json=tool_payload,
                 timeout=self.timeout
@@ -335,7 +371,7 @@ class DecisionLLM:
                 "stream": False
             }
 
-            response = requests.post(
+            response = self.session.post(
                 f"{self.base_url}/api/chat",
                 json=payload,
                 timeout=10
@@ -358,11 +394,18 @@ class AlertManager:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.email_config = config.get("notifications", {}).get("email", {})
+        self.desktop_config = config.get("notifications", {}).get("desktop", {})
         logger.info("Alert manager initialized")
+
+    def refresh_config(self, config: Dict[str, Any]) -> None:
+        """Reload configuration references after an update."""
+        self.config = config
+        self.email_config = config.get("notifications", {}).get("email", {})
+        self.desktop_config = config.get("notifications", {}).get("desktop", {})
     
     def send_email_alert(self, event: DetectionEvent, rule: Dict[str, Any]) -> bool:
         """Send email alert for detection event."""
-        if not self.email_config.get("enabled", False):
+        if not _coerce_bool(self.email_config.get("enabled"), False):
             logger.info("Email alerts disabled")
             return False
         
@@ -379,7 +422,7 @@ class AlertManager:
                 logger.warning(f"Rule {rule.get('id', 'unknown')} missing email configuration; skipping alert")
                 return False
 
-            if not email_action.get("enabled", legacy_email.get("enabled", True)):
+            if not _coerce_bool(email_action.get("enabled"), _coerce_bool(legacy_email.get("enabled"), True)):
                 logger.info(f"Email action disabled for rule {rule.get('id', 'unknown')}")
                 return False
             
@@ -414,12 +457,22 @@ class AlertManager:
             
             # Use environment variables for email credentials
             sender_email = os.getenv("EMAIL_USER") or self.email_config.get("sender_email", "noreply@zededa.com")
-            sender_password = os.getenv("EMAIL_PASS") or self.email_config.get("sender_password", "")
-            
+            env_password = os.getenv("EMAIL_PASS")
+            legacy_password = self.email_config.get("sender_password")
+
+            if legacy_password and not env_password:
+                logger.warning(
+                    "Using sender_password from configuration file; migrate credentials to EMAIL_PASS."
+                )
+
+            sender_password = env_password or legacy_password or ""
+
             msg["From"] = os.getenv("EMAIL_FROM", sender_email)
             
             # Get recipient emails
-            recipients = email_action.get("to") or legacy_email.get("to", [])
+            recipients = email_action.get("to") or legacy_email.get("to") or self.email_config.get("recipients") or []
+            if isinstance(recipients, str):
+                recipients = [recipients]
             if not recipients:
                 logger.error("No email recipients configured in rule")
                 return False
@@ -429,14 +482,27 @@ class AlertManager:
             
             # Send email
             smtp_server = os.getenv("EMAIL_SMTP_SERVER") or self.email_config.get("smtp_server", "smtp.gmail.com")
-            smtp_port = int(os.getenv("EMAIL_SMTP_PORT", self.email_config.get("smtp_port", 587)))
+            try:
+                smtp_port = int(os.getenv("EMAIL_SMTP_PORT", self.email_config.get("smtp_port", 587)))
+            except (TypeError, ValueError):
+                logger.error("Invalid SMTP port configuration")
+                return False
+
+            use_tls_config = _coerce_bool(
+                email_action.get("use_tls"),
+                _coerce_bool(self.email_config.get("use_tls"), True)
+            )
+            use_tls = _coerce_bool(os.getenv("EMAIL_USE_TLS"), use_tls_config)
             
             if not sender_email or not sender_password:
-                logger.error("Email credentials not configured in environment variables")
+                logger.error("Email credentials missing; set EMAIL_USER and EMAIL_PASS environment variables")
                 return False
             
             with smtplib.SMTP(smtp_server, smtp_port) as server:
-                server.starttls()
+                if use_tls:
+                    server.ehlo()
+                    server.starttls()
+                    server.ehlo()
                 server.login(sender_email, sender_password)
                 server.send_message(msg)
             
@@ -449,12 +515,29 @@ class AlertManager:
     
     def send_desktop_notification(self, event: DetectionEvent) -> bool:
         """Send desktop notification (if available)."""
+        if not _coerce_bool(self.desktop_config.get("enabled"), False):
+            logger.debug("Desktop notifications disabled")
+            return False
         try:
             import plyer
+            try:
+                timeout = int(self.desktop_config.get("timeout", 10))
+            except (TypeError, ValueError):
+                timeout = 10
+            title = self.desktop_config.get("title", "ZEDEDA Camera Alert")
+            message_template = self.desktop_config.get(
+                "message",
+                "Computer monitor detected at {timestamp}"
+            )
+            message = message_template.format(
+                timestamp=event.timestamp,
+                confidence=f"{event.confidence:.2f}",
+                label=event.primary_label
+            )
             plyer.notification.notify(
-                title="ZEDEDA Camera Alert",
-                message=f"Computer monitor detected at {event.timestamp}",
-                timeout=10
+                title=title,
+                message=message,
+                timeout=timeout
             )
             logger.info("Desktop notification sent")
             return True
@@ -469,8 +552,8 @@ class AlertManager:
 class MonitorDetectionAgent:
     """Main agent class that orchestrates camera monitoring and alert processing."""
     
-    def __init__(self, config_path: str = "camera_config.yaml"):
-        self.config_path = config_path
+    def __init__(self, config_path: Optional[str] = None):
+        self.config_path = Path(config_path or DEFAULT_CONFIG_PATH).expanduser()
         self.config = self._load_config()
         self.last_error: Optional[str] = None
         
@@ -482,36 +565,38 @@ class MonitorDetectionAgent:
         self.ollama_client = OllamaVisionClient(ollama_url, vision_model)
         self.decision_llm = DecisionLLM(ollama_url, decision_model)
         self.alert_manager = AlertManager(self.config)
-        
-        camera_config = self.config.get("camera", {})
-        self.save_images = camera_config.get("save_detection_images", False)
-        self.save_processed_frames = camera_config.get("save_processed_frames", False)
         self.images_dir = Path("detected_images")
         self.processed_frames_dir = Path("processed_frames")
+        self.save_images = False
+        self.save_processed_frames = False
+        self._apply_runtime_config()
 
-        if self.save_images:
-            self.images_dir.mkdir(exist_ok=True)
-
-        if self.save_processed_frames:
-            self.processed_frames_dir.mkdir(exist_ok=True)
-        
         logger.info("Monitor Detection Agent initialized for web integration")
     
     def _load_config(self) -> Dict[str, Any]:
         """Load configuration from YAML file."""
+        config_path = self.config_path
+
+        if not config_path.exists():
+            logger.warning(f"Config file {config_path} not found, using defaults")
+            return self.default_config()
+
         try:
-            with open(self.config_path, 'r') as f:
-                config = yaml.safe_load(f)
-                logger.info(f"Configuration loaded from {self.config_path}")
-                return config
-        except FileNotFoundError:
-            logger.warning(f"Config file {self.config_path} not found, using defaults")
-            return self._default_config()
-        except Exception as e:
-            logger.error(f"Failed to load config: {e}")
-            return self._default_config()
+            with config_path.open('r', encoding='utf-8') as config_file:
+                config = yaml.safe_load(config_file) or {}
+
+            if not isinstance(config, dict):
+                logger.warning("Config file root is not a mapping; using defaults")
+                return self.default_config()
+
+            logger.info(f"Configuration loaded from {config_path}")
+            return config
+        except Exception as exc:
+            logger.error(f"Failed to load config: {exc}")
+            return self.default_config()
     
-    def _default_config(self) -> Dict[str, Any]:
+    @staticmethod
+    def _default_config() -> Dict[str, Any]:
         """Return default configuration."""
         return {
             "advanced": {
@@ -526,7 +611,7 @@ class MonitorDetectionAgent:
                 "motion_burst_interval": 0.2,
                 "motion_burst_window": 12.0,
                 "motion_burst_ssim": 0.75,
-n                "pending_dedupe_ssim": 0.92,
+                "pending_dedupe_ssim": 0.92,
                 "retry_attempts": 3,
                 "retry_delay": 2,
                 "stats_log_interval": 600
@@ -536,6 +621,8 @@ n                "pending_dedupe_ssim": 0.92,
                 "capture_interval": 5,
                 "save_detection_images": True,
                 "save_processed_frames": True,
+                "detection_image_dir": "detected_images",
+                "processed_frames_dir": "processed_frames",
                 "preprocessing": {
                     "diff_threshold": 0.80
                 }
@@ -577,13 +664,57 @@ This alert was generated by the ZEDEDA Camera Monitoring Agent.
                     "smtp_server": "smtp.gmail.com",
                     "smtp_port": 587,
                     "sender_email": "",
-                    "sender_password": ""
+                    "use_tls": True,
+                    "recipients": ["admin@zededa.com"],
+                    "auto_sync_users": False
                 },
                 "desktop": {
-                    "enabled": True
+                    "enabled": True,
+                    "timeout": 10,
+                    "title": "ZEDEDA Camera Alert",
+                    "message": "Computer monitor detected at {timestamp}"
                 }
             }
         }
+
+    @classmethod
+    def default_config(cls) -> Dict[str, Any]:
+        """Return a deep copy of the default configuration."""
+        return copy.deepcopy(cls._default_config())
+
+    def _apply_runtime_config(self) -> None:
+        """Reapply runtime configuration values after a config update."""
+        camera_config = self.config.get("camera", {}) if isinstance(self.config, dict) else {}
+
+        detection_dir = camera_config.get("detection_image_dir", "detected_images")
+        processed_dir = camera_config.get("processed_frames_dir", "processed_frames")
+
+        self.images_dir = Path(detection_dir).expanduser()
+        self.processed_frames_dir = Path(processed_dir).expanduser()
+
+        self.save_images = _coerce_bool(camera_config.get("save_detection_images"), False)
+        self.save_processed_frames = _coerce_bool(camera_config.get("save_processed_frames"), False)
+
+        if self.save_images:
+            try:
+                self.images_dir.mkdir(parents=True, exist_ok=True)
+            except Exception as exc:
+                logger.error(f"Failed to ensure detection image directory {self.images_dir}: {exc}")
+
+        if self.save_processed_frames:
+            try:
+                self.processed_frames_dir.mkdir(parents=True, exist_ok=True)
+            except Exception as exc:
+                logger.error(f"Failed to ensure processed frames directory {self.processed_frames_dir}: {exc}")
+
+    def apply_config(self, updated_config: Dict[str, Any]) -> None:
+        """Apply a new configuration payload at runtime."""
+        if not isinstance(updated_config, dict):
+            raise ValueError("Updated configuration must be a mapping")
+
+        self.config = updated_config
+        self.alert_manager.refresh_config(updated_config)
+        self._apply_runtime_config()
 
     def _save_event_image(
         self,
@@ -595,7 +726,7 @@ This alert was generated by the ZEDEDA Camera Monitoring Agent.
     ) -> Optional[str]:
         """Persist an event image and return the file path."""
         try:
-            target_dir.mkdir(exist_ok=True)
+            target_dir.mkdir(parents=True, exist_ok=True)
         except Exception as exc:
             logger.error(f"Failed to create image directory {target_dir}: {exc}")
             return None

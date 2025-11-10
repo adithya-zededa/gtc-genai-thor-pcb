@@ -38,13 +38,16 @@ Camera Feed → SSIM Analysis → Scene Description → Keyword Detection → Em
    EMAIL_FROM=your-email@gmail.com
    ```
 
-3. **Configure Recipients** (`camera_config.yaml`):
-   ```yaml
-   rules:
-     - id: "MONITOR_DETECTED"
+3. **Configure Recipients** (Settings UI or `camera_config.yaml`):
+   - Recommended: open the web app → **Settings → Alert Recipients** and add the desired email addresses.
+   - Alternatively, update `notifications.email.recipients` (and the corresponding rule `to` lists) in `camera_config.yaml`:
+
+     ```yaml
+     notifications:
        email:
-         to: ["admin@company.com"]
-   ```
+         recipients:
+           - admin@company.com
+     ```
 
 4. **Run**:
    ```bash
@@ -76,18 +79,21 @@ detection:
     Be specific about any computer equipment, screens, displays, or technology.
 ```
 
+> Tip: Use the configuration page or `POST /api/config/reset` to restore the default YAML at any time. The API also exposes `GET /api/config/defaults` for read-only inspection.
+
 ### Email Configuration (`.env`)
 ```env
 # Ollama Settings
 VISION_MODEL=gemma3:4b
 OLLAMA_URL=http://localhost:11434
 
-# Email Configuration
+# Email Configuration (secrets supplied via environment)
 EMAIL_USER=your-email@gmail.com
 EMAIL_PASS=your-gmail-app-password
 EMAIL_FROM=your-email@gmail.com
 EMAIL_SMTP_SERVER=smtp.gmail.com
 EMAIL_SMTP_PORT=587
+CAMERA_AGENT_CONFIG=/data/camera_config.yaml  # optional override for container mounts
 ```
 
 ## Detection Logic
