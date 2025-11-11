@@ -11,8 +11,6 @@ import base64
 import sqlite3
 import logging
 import copy
-from collections import deque
-from concurrent.futures import ThreadPoolExecutor, FIRST_COMPLETED, wait
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 from pathlib import Path
@@ -21,6 +19,8 @@ from flask_socketio import SocketIO, emit
 import threading
 import time
 from camera_agent import MonitorDetectionAgent, DEFAULT_CONFIG_PATH
+from camera_feed_publisher import get_camera_publisher, CameraFrame
+from camera_monitoring import CameraMonitoringService
 import cv2
 
 # Set up logging
@@ -36,6 +36,7 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Global variables
 camera_agent = None
+camera_publisher = None  # Global publisher instance for camera viewing
 DATA_DIR = Path('.')
 DETECTED_IMAGES_DIR = DATA_DIR / 'detected_images'
 PROCESSED_FRAMES_DIR = DATA_DIR / 'processed_frames'
@@ -75,7 +76,7 @@ def ensure_config_directory() -> None:
     try:
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     except Exception as exc:
-        logger.error(f"Failed to create config directory {CONFIG_PATH.parent}: {exc}")
+        logger.error("Failed to create config directory %s: %s", CONFIG_PATH.parent, exc)
 
 
 def _sanitize_config_payload(config: Dict) -> Dict:
@@ -100,9 +101,8 @@ def load_camera_config() -> Dict:
                     return data
                 logger.warning("Camera configuration root is not a mapping; reverting to defaults")
             except Exception as exc:
-                logger.error(f"Failed to read configuration file: {exc}")
-        default_config = MonitorDetectionAgent.default_config()
-        return default_config
+                logger.error("Failed to read configuration file: %s", exc)
+        return MonitorDetectionAgent.default_config()
 
 
 def save_camera_config(config: Dict) -> Dict:
@@ -155,14 +155,16 @@ def extract_recipients(config: Dict) -> List[str]:
                         if isinstance(addr, str)
                     ])
 
-    # Deduplicate while preserving order
     seen = set()
     deduped: List[str] = []
     for email in recipients:
         normalized = email.strip()
-        if not normalized or normalized.lower() in seen:
+        if not normalized:
             continue
-        seen.add(normalized.lower())
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
         deduped.append(normalized)
     return deduped
 
@@ -188,598 +190,21 @@ def apply_recipients(config: Dict, recipients: List[str]) -> Dict:
 
     return config
 
-class WebCameraAgent:
-    """Web-integrated camera agent with real-time updates"""
-    
+
+class WebCameraAgent(CameraMonitoringService):
+    """Flask-integrated camera monitoring agent with Socket.IO updates."""
+
     def __init__(self):
-        self.agent = None
-        self.is_monitoring = False
-        self.last_frame = None
-        self.last_error = None
-        self._thread: Optional[threading.Thread] = None
-        self.camera = None  # Web app owns the camera
-        self.last_processed_time = 0.0
-        self.capture_interval = 5.0  # seconds between agent processing
-        self.analysis_workers = 1
-        self.max_pending_analyses = 12
-        self._analysis_executor: Optional[ThreadPoolExecutor] = None
-        self._analysis_futures = deque()
-        self.ssim_threshold = 0.80
-        self.motion_burst_interval = 0.2
-        self.motion_burst_window = 12.0
-        self.motion_burst_ssim = 0.75
-        self.pending_similarity_threshold = 0.92
-        self._pending_reference_frames = deque()
-        self._last_dedupe_log = 0.0
-        self.last_motion_time = 0.0
-        self._last_backpressure_log = 0.0
-        self.stats = {
-            'total_frames': 0,
-            'processed_frames': 0,
-            'detections': 0,
-            'alerts_sent': 0,
-            'dropped_frames': 0,
-            'deduped_frames': 0,
-            'analysis_avg_ms': 0.0,
-            'analysis_samples': 0,
-            'uptime_start': datetime.now().isoformat()
-        }
+        super().__init__(subscriber_id="monitoring_agent", auto_start_publisher=False)
 
-    def _apply_configuration_settings(self, config: Optional[Dict]) -> None:
-        """Apply configuration values to runtime parameters."""
-        if not isinstance(config, dict):
-            return
-
-        camera_config = config.get("camera")
-        if isinstance(camera_config, dict):
-            interval = camera_config.get("capture_interval")
-            self.capture_interval = self._safe_positive_float(interval, self.capture_interval)
-
-            preprocessing_cfg = camera_config.get("preprocessing")
-            threshold_cfg = preprocessing_cfg.get("diff_threshold") if isinstance(preprocessing_cfg, dict) else None
-            env_threshold = os.getenv("SSIM_DIFF_THRESHOLD")
-            threshold_source = env_threshold if env_threshold is not None else threshold_cfg
-            if threshold_source is not None:
-                self.ssim_threshold = self._clamp(threshold_source, 0.0, 1.0, self.ssim_threshold)
-
-        advanced_cfg = config.get("advanced")
-        if isinstance(advanced_cfg, dict):
-            configured_workers = self._safe_positive_int(advanced_cfg.get("max_concurrent_analyses"), self.analysis_workers)
-            env_workers = os.getenv("MAX_CONCURRENT_ANALYSES")
-            self.analysis_workers = self._safe_positive_int(env_workers, configured_workers)
-
-            default_pending = max(self.analysis_workers * 3, self.max_pending_analyses, 1)
-            configured_pending = self._safe_positive_int(advanced_cfg.get("max_pending_analyses"), default_pending)
-            env_pending = os.getenv("MAX_PENDING_ANALYSES")
-            self.max_pending_analyses = self._safe_positive_int(env_pending, configured_pending)
-
-            motion_interval_source = os.getenv("MOTION_BURST_INTERVAL")
-            if motion_interval_source is None:
-                motion_interval_source = advanced_cfg.get("motion_burst_interval")
-            motion_interval = self._safe_float(motion_interval_source, self.motion_burst_interval)
-            self.motion_burst_interval = motion_interval if motion_interval > 0 else 0.0
-
-            motion_window_source = os.getenv("MOTION_BURST_WINDOW")
-            if motion_window_source is None:
-                motion_window_source = advanced_cfg.get("motion_burst_window")
-            motion_window = self._safe_float(motion_window_source, self.motion_burst_window)
-            self.motion_burst_window = motion_window if motion_window > 0 else 0.0
-
-            burst_ssim_source = os.getenv("MOTION_BURST_SSIM")
-            if burst_ssim_source is None:
-                burst_ssim_source = advanced_cfg.get("motion_burst_ssim")
-            if burst_ssim_source is not None:
-                self.motion_burst_ssim = self._clamp(burst_ssim_source, 0.0, 1.0, self.motion_burst_ssim)
-
-            dedupe_ssim_source = os.getenv("PENDING_DEDUPE_SSIM")
-            if dedupe_ssim_source is None:
-                dedupe_ssim_source = advanced_cfg.get("pending_dedupe_ssim")
-            if dedupe_ssim_source is not None:
-                self.pending_similarity_threshold = self._clamp(
-                    dedupe_ssim_source,
-                    0.0,
-                    1.0,
-                    self.pending_similarity_threshold
-                )
-
-        self.last_motion_time = 0.0
-
-    def refresh_configuration(self, config: Optional[Dict] = None) -> None:
-        """Refresh derived runtime settings when configuration changes."""
-        if config is None and self.agent is not None:
-            config = self.agent.config
-        self._apply_configuration_settings(config)
-    
-    @staticmethod
-    def _safe_positive_int(value, default):
+    def emit_event(self, event_name: str, payload):
         try:
-            val = int(value)
-            return val if val > 0 else default
-        except (TypeError, ValueError):
-            return default
-
-    @staticmethod
-    def _safe_positive_float(value, default):
-        try:
-            val = float(value)
-            return val if val > 0 else default
-        except (TypeError, ValueError):
-            return default
-
-    @staticmethod
-    def _safe_float(value, default):
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return default
-
-    @staticmethod
-    def _clamp(value, minimum, maximum, default):
-        try:
-            val = float(value)
-        except (TypeError, ValueError):
-            return default
-        return max(minimum, min(maximum, val))
-
-    @staticmethod
-    def _make_reference_frame(frame):
-        try:
-            target_size = (320, 240)
-            resized = cv2.resize(frame, target_size)
-            return cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
-        except Exception:
-            return None
-
-    def initialize(self):
-        """Initialize the camera agent (without camera - web app handles that)"""
-        try:
-            self.agent = MonitorDetectionAgent()
-            # Don't initialize camera in agent - web app will handle it
-            # Just test Ollama connection
-            if not self.agent.ollama_client.test_connection():
-                self.last_error = f"Failed to connect to Ollama service at {self.agent.ollama_client.base_url}"
-                return False
-            
-            self._apply_configuration_settings(self.agent.config)
-
-            # Reset executor so configuration updates apply on the next start
-            if self._analysis_executor:
-                self._analysis_executor.shutdown(wait=False, cancel_futures=True)
-                self._analysis_executor = None
-            self._analysis_futures.clear()
-
-            self.last_error = None
-            return True
-        except Exception as e:
-            self.last_error = str(e)
-            print(f"Failed to initialize camera agent: {e}")
-            return False
-    
-    def initialize_camera(self):
-        """Initialize camera for web app streaming"""
-        try:
-            if self.camera and self.camera.isOpened():
-                return True
-            
-            self.camera = cv2.VideoCapture(0)
-            if not self.camera.isOpened():
-                self.last_error = "Failed to open camera"
-                return False
-            
-            # Set resolution
-            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            
-            return True
-        except Exception as e:
-            self.last_error = str(e)
-            return False
-    
-    def start_monitoring(self):
-        """Start monitoring in background thread"""
-        if self.is_monitoring:
-            return False
-        if not self.agent:
-            if not self.initialize():
-                return False
-        
-        # Initialize camera for web app
-        if not self.initialize_camera():
-            return False
-
-        self._analysis_futures.clear()
-        self._ensure_analysis_executor()
-        self._last_backpressure_log = 0.0
-        now = time.time()
-        self.last_processed_time = now - self.capture_interval
-        self.last_motion_time = now - (self.motion_burst_interval if self.motion_burst_interval > 0 else 0.0)
-        self._pending_reference_frames.clear()
-        self._last_dedupe_log = 0.0
-
-        self.is_monitoring = True
-        thread = threading.Thread(target=self._monitoring_loop)
-        thread.daemon = True
-        thread.start()
-        self._thread = thread
-        return True
-    
-    def stop_monitoring(self):
-        """Stop monitoring"""
-        self.is_monitoring = False
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=5)
-        self._thread = None
-        if self.camera:
-            self.camera.release()
-            self.camera = None
-        if self._analysis_executor:
-            self._analysis_executor.shutdown(wait=False, cancel_futures=True)
-            self._analysis_executor = None
-        self._analysis_futures.clear()
-        self._pending_reference_frames.clear()
-    
-    def _ensure_analysis_executor(self):
-        if self._analysis_executor:
-            return
-        try:
-            self._analysis_executor = ThreadPoolExecutor(
-                max_workers=self.analysis_workers,
-                thread_name_prefix="ollama-analysis"
-            )
-        except ValueError:
-            self.analysis_workers = max(self.analysis_workers, 1)
-            self._analysis_executor = ThreadPoolExecutor(
-                max_workers=self.analysis_workers,
-                thread_name_prefix="ollama-analysis"
-            )
-
-    def _count_pending_futures(self):
-        return sum(1 for future in self._analysis_futures if not future.done())
-
-    def _is_duplicate_pending(self, reference_frame):
-        if reference_frame is None or not self._pending_reference_frames:
-            return False, 0.0
-        try:
-            from skimage.metrics import structural_similarity as ssim
-        except Exception:
-            return False, 0.0
-
-        max_similarity = 0.0
-        for future, pending_frame in list(self._pending_reference_frames):
-            if future.cancelled():
-                continue
-            if pending_frame is None:
-                continue
-            try:
-                similarity = ssim(pending_frame, reference_frame, data_range=255)
-            except Exception:
-                continue
-
-            if similarity > max_similarity:
-                max_similarity = similarity
-
-            if similarity >= self.pending_similarity_threshold:
-                return True, similarity
-
-        return False, max_similarity
-
-    def _prune_pending_reference(self, future):
-        if not self._pending_reference_frames:
-            return
-        cleaned = deque()
-        for existing_future, ref_frame in self._pending_reference_frames:
-            if existing_future is future or existing_future.cancelled():
-                continue
-            cleaned.append((existing_future, ref_frame))
-        self._pending_reference_frames = cleaned
-
-    def _cleanup_pending_references(self):
-        if not self._pending_reference_frames:
-            return
-        cleaned = deque()
-        for future, ref_frame in self._pending_reference_frames:
-            if future.cancelled() or future.done():
-                continue
-            cleaned.append((future, ref_frame))
-        self._pending_reference_frames = cleaned
-
-    def _record_backpressure(self, current_time, frame_number, pending):
-        self.stats['dropped_frames'] += 1
-        if current_time - self._last_backpressure_log >= 1.0:
-            print(
-                f"⏳ Skipping frame {frame_number}; {pending} tasks pending (limit {self.max_pending_analyses})"
-            )
-            self._last_backpressure_log = current_time
-
-    def _update_latency_stats(self, latency_ms):
-        samples = self.stats.get('analysis_samples', 0)
-        average = self.stats.get('analysis_avg_ms', 0.0)
-        new_samples = samples + 1
-        self.stats['analysis_avg_ms'] = ((average * samples) + latency_ms) / new_samples
-        self.stats['analysis_samples'] = new_samples
-
-    def _monitoring_loop(self):
-        """Main monitoring loop - web app captures, agent analyzes periodically"""
-        prev_frame_for_ssim = None
-        frame_count = 0
-        
-        while self.is_monitoring:
-            try:
-                self._drain_analysis_results()
-                current_time = time.time()
-                
-                # Ensure camera is available
-                if not self.camera or not self.camera.isOpened():
-                    if not self.initialize_camera():
-                        self.last_error = "Camera connection lost"
-                        time.sleep(2)
-                        continue
-                    self.last_error = None
-                
-                # Capture frame from web app's camera
-                ret, frame = self.camera.read()
-                if not ret:
-                    self.last_error = "Failed to capture frame"
-                    time.sleep(1)
-                    continue
-                
-                frame_count += 1
-                self.stats['total_frames'] += 1
-                
-                # Encode frame for storage/display
-                success, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                if not success:
-                    self.last_error = "Failed to encode frame"
-                    time.sleep(0.2)
-                    continue
-
-                image_data = buffer.tobytes()
-
-                # Store latest frame for web display
-                self.last_frame = {
-                    'image_b64': base64.b64encode(image_data).decode('utf-8'),
-                    'timestamp': datetime.now().isoformat(),
-                    'frame_number': frame_count
-                }
-
-                # Emit frame update to web clients
-                socketio.emit('frame_update', {
-                    'frame': self.last_frame,
-                    'stats': self._serialize_stats()
-                })
-
-                # Determine scene change
-                similarity = None
-                motion_detected = True
-                reason = "initial_frame"
-                reference_frame = None
-
-                if prev_frame_for_ssim is not None:
-                    try:
-                        from skimage.metrics import structural_similarity as ssim
-
-                        target_size = (320, 240)
-                        current_small = cv2.resize(frame, target_size)
-                        prev_small = cv2.resize(prev_frame_for_ssim, target_size)
-
-                        current_gray = cv2.cvtColor(current_small, cv2.COLOR_BGR2GRAY)
-                        prev_gray = cv2.cvtColor(prev_small, cv2.COLOR_BGR2GRAY)
-
-                        similarity = ssim(prev_gray, current_gray, data_range=255)
-                        motion_detected = similarity < self.ssim_threshold
-                        reference_frame = current_gray
-                        if motion_detected:
-                            reason = f"scene_change (SSIM={similarity:.3f})"
-                        else:
-                            reason = f"scene_similar (SSIM={similarity:.3f})"
-                    except Exception as exc:
-                        print(f"SSIM check failed: {exc}")
-                        motion_detected = True
-                        reason = "ssim_fallback"
-
-                if reference_frame is None:
-                    reference_frame = self._make_reference_frame(frame)
-
-                min_interval = self.motion_burst_interval if motion_detected else self.capture_interval
-                min_interval = max(min_interval, 0.0)
-                last_time = self.last_motion_time if motion_detected else self.last_processed_time
-                allow_wait = motion_detected
-
-                ready_to_submit = (min_interval == 0.0) or ((current_time - last_time) >= min_interval)
-
-                if ready_to_submit:
-                    frame_metadata = {
-                        'frame_number': frame_count,
-                        'timestamp': current_time,
-                        'reason': reason,
-                        'motion': motion_detected
-                    }
-                    if similarity is not None:
-                        frame_metadata['similarity_score'] = similarity
-
-                    submitted, pending, deduped = self._submit_frame_for_analysis(
-                        image_data,
-                        frame_metadata,
-                        current_time,
-                        allow_wait=allow_wait,
-                        reference_frame=reference_frame
-                    )
-
-                    if submitted:
-                        if motion_detected:
-                            self.last_motion_time = current_time
-                        else:
-                            self.last_processed_time = current_time
-
-                        self.stats['processed_frames'] += 1
-                        frame_metadata['processed_count'] = self.stats['processed_frames']
-                        print(f"🔍 Sending frame {frame_count} to agent for analysis: {reason}")
-                    elif not deduped:
-                        self._record_backpressure(current_time, frame_count, pending)
-                elif motion_detected and current_time - self._last_backpressure_log >= 1.0:
-                    remaining = max(min_interval - (current_time - last_time), 0.0)
-                    print(f"⏱ Waiting {remaining:.2f}s before next burst submission")
-                    self._last_backpressure_log = current_time
-
-                prev_frame_for_ssim = frame.copy()
-                
-                # Small delay to control frame rate
-                time.sleep(0.1)
-                
-            except Exception as e:
-                print(f"Monitoring loop error: {e}")
-                self.last_error = str(e)
-                time.sleep(2)
-
-        # Flush any remaining analysis results when stopping
-        self._drain_analysis_results(flush=True)
-
-    def _submit_frame_for_analysis(self, image_data, frame_metadata, enqueue_time, allow_wait=False, reference_frame=None):
-        if not self._analysis_executor:
-            return False, 0, False
-
-        is_duplicate = False
-        duplicate_similarity = 0.0
-        if reference_frame is not None:
-            is_duplicate, duplicate_similarity = self._is_duplicate_pending(reference_frame)
-
-        if is_duplicate:
-            self.stats['deduped_frames'] += 1
-            if enqueue_time - self._last_dedupe_log >= 1.0:
-                print(f"🗑️ Dropping similar frame (SSIM={duplicate_similarity:.3f}) already pending")
-                self._last_dedupe_log = enqueue_time
-            return False, self._count_pending_futures(), True
-
-        pending = self._count_pending_futures()
-        if self.max_pending_analyses > 0:
-            while pending >= self.max_pending_analyses:
-                if not allow_wait:
-                    return False, pending, False
-                self._drain_analysis_results(wait=True)
-                pending = self._count_pending_futures()
-
-        frame_metadata['queued_at'] = enqueue_time
-        frame_metadata['submitted_at'] = enqueue_time
-        future = self._analysis_executor.submit(self._analyze_frame_task, image_data, frame_metadata)
-        future.frame_metadata = frame_metadata  # type: ignore[attr-defined]
-        if reference_frame is not None:
-            future.reference_frame = reference_frame  # type: ignore[attr-defined]
-            self._pending_reference_frames.append((future, reference_frame))
-        else:
-            self._pending_reference_frames.append((future, None))
-        self._analysis_futures.append(future)
-        return True, pending, False
-
-    def _analyze_frame_task(self, image_data, frame_metadata):
-        return self.agent.analyze_frame(image_data, frame_metadata)
-
-    def _drain_analysis_results(self, flush=False, wait=False, wait_timeout=0.25):
-        if not self._analysis_futures:
-            if wait:
-                time.sleep(wait_timeout)
-            return
-
-        processed_any = False
-        still_pending = deque()
-
-        while self._analysis_futures:
-            future = self._analysis_futures.popleft()
-
-            if not future.done():
-                if flush:
-                    future.cancel()
-                else:
-                    still_pending.append(future)
-                continue
-
-            processed_any = True
-            frame_metadata = getattr(future, 'frame_metadata', {})
-
-            if future.cancelled():
-                self._prune_pending_reference(future)
-                continue
-
-            try:
-                event = future.result()
-            except Exception as exc:
-                frame_number = frame_metadata.get('frame_number', 'unknown') if isinstance(frame_metadata, dict) else 'unknown'
-                print(f"Analysis task failed for frame {frame_number}: {exc}")
-                self._prune_pending_reference(future)
-                continue
-
-            self._prune_pending_reference(future)
-            self._handle_analysis_result(event, frame_metadata if isinstance(frame_metadata, dict) else {})
-
-        self._analysis_futures.extend(still_pending)
-        self._cleanup_pending_references()
-
-        if wait and not processed_any and still_pending:
-            futures_list = list(still_pending)
-            try:
-                wait(futures_list, timeout=wait_timeout, return_when=FIRST_COMPLETED)
-            except Exception:
-                time.sleep(wait_timeout)
-
-    def _handle_analysis_result(self, event, frame_metadata):
-        frame_number = frame_metadata.get('frame_number', 'unknown')
-
-        latency_ms = None
-        queued_at = frame_metadata.get('queued_at')
-        if isinstance(queued_at, (int, float)):
-            latency_ms = (time.time() - queued_at) * 1000.0
-        elif isinstance(queued_at, str):
-            try:
-                latency_ms = (time.time() - float(queued_at)) * 1000.0
-            except ValueError:
-                latency_ms = None
-
-        if latency_ms is not None:
-            frame_metadata['analysis_latency_ms'] = latency_ms
-            self._update_latency_stats(latency_ms)
-
-        if not event:
-            print(f"⚠️  Analysis failed for frame {frame_number}")
-            return
-
-        if latency_ms is not None and isinstance(event.decision_trace, dict):
-            event.decision_trace['analysis_latency_ms'] = latency_ms
-
-        self._record_detection(event, frame_metadata)
-
-        if event.detected:
-            self.stats['detections'] += 1
-            print(f"🔔 Detection! Confidence: {event.confidence:.2f}")
-
-            if self.agent.process_detection(event):
-                self.stats['alerts_sent'] += 1
-
-            socketio.emit('detection_event', {
-                'event': {
-                    'timestamp': event.timestamp,
-                    'confidence': event.confidence,
-                    'response': event.full_response[:200] + '...' if len(event.full_response) > 200 else event.full_response
-                },
-                'stats': self._serialize_stats()
-            })
-        else:
-            classification = event.decision_trace.get('classification') if event.decision_trace else None
-            classification_display = classification or 'NO_DETECTION'
-            print(f"   No detection in frame {frame_number} (Decision: {classification_display})")
-
-    def _serialize_stats(self):
-        """Return stats dict with JSON-serializable values"""
-        stats_copy = self.stats.copy()
-        uptime_start = stats_copy.get('uptime_start')
-        if isinstance(uptime_start, datetime):
-            stats_copy['uptime_start'] = uptime_start.isoformat()
-        avg_latency = stats_copy.get('analysis_avg_ms')
-        if isinstance(avg_latency, (int, float)):
-            stats_copy['analysis_avg_ms'] = round(avg_latency, 2)
-        stats_copy['last_update'] = datetime.now().isoformat()
-        return stats_copy
+            socketio.emit(event_name, payload)
+        except Exception as exc:
+            logger.error("Failed to emit %s event: %s", event_name, exc)
 
     def _record_detection(self, event, frame_metadata):
-        """Persist detection event to the database for UI visibility"""
+        """Persist detection event to the database for UI visibility."""
         try:
             conn = get_db_connection()
             decision_details_json = json.dumps(event.decision_trace or {})
@@ -800,13 +225,14 @@ class WebCameraAgent:
                 )
             )
             conn.commit()
-        except Exception as e:
-            print(f"Failed to record detection: {e}")
+        except Exception as exc:
+            logger.error("Failed to record detection: %s", exc)
         finally:
             try:
                 conn.close()
             except Exception:
                 pass
+
 
 # Initialize database
 def init_db():
@@ -1557,22 +983,36 @@ def api_system_logging():
 
 @app.route('/api/video_feed')
 def video_feed():
-    """Stream live video frames from camera"""
+    """Stream live video frames from camera publisher"""
     def generate():
+        # Subscribe to camera feed for streaming
+        subscriber_id = f"video_feed_{id(generate)}"
+        
         try:
+            publisher = get_camera_publisher()
+            if not publisher.subscribe(subscriber_id):
+                return
+            
             while True:
-                if camera_agent and camera_agent.last_frame:
-                    # Use the latest frame captured by monitoring loop
-                    frame_data = base64.b64decode(camera_agent.last_frame['image_b64'])
-                    
-                    # Yield frame in multipart format
-                    yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + frame_data + b'\r\n')
+                frame_obj = publisher.get_frame(subscriber_id, timeout=1.0)
+                if not frame_obj:
+                    continue
                 
-                # Control frame rate
-                time.sleep(0.033)  # ~30 FPS
+                # Yield frame in multipart format
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_obj.image_data + b'\r\n')
+        except GeneratorExit:
+            # Client disconnected
+            pass
         except Exception as e:
             print(f"Video feed error: {e}")
+        finally:
+            # Cleanup: unsubscribe when done
+            try:
+                publisher = get_camera_publisher()
+                publisher.unsubscribe(subscriber_id)
+            except:
+                pass
     
     return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
@@ -1580,14 +1020,17 @@ def video_feed():
 def capture_frame():
     """Get the latest captured frame"""
     try:
-        if camera_agent and camera_agent.last_frame:
+        publisher = get_camera_publisher()
+        latest_frame = publisher.get_latest_frame()
+        
+        if latest_frame:
             return jsonify({
                 'success': True,
-                'image_b64': camera_agent.last_frame['image_b64'],
-                'timestamp': camera_agent.last_frame['timestamp'],
+                'image_b64': latest_frame.image_b64,
+                'timestamp': latest_frame.timestamp,
                 'metadata': {
-                    'frame_number': camera_agent.last_frame.get('frame_number', 0),
-                    'source': 'live_stream'
+                    'frame_number': latest_frame.frame_number,
+                    'source': 'camera_publisher'
                 }
             })
         
@@ -1598,13 +1041,11 @@ def capture_frame():
 # Helper functions
 def check_camera_availability():
     """Check if camera is available"""
-    global camera_agent
-    if camera_agent and camera_agent.camera:
-        try:
-            return camera_agent.camera.isOpened()
-        except:
-            return False
-    return False
+    try:
+        publisher = get_camera_publisher()
+        return publisher.camera.isOpened() if publisher.camera else False
+    except:
+        return False
 
 def check_ollama_availability():
     """Check if Ollama is available"""
@@ -1673,20 +1114,93 @@ def update_email_recipients():
 def handle_connect():
     """Handle client connection"""
     logger.debug('Socket client connected')
-    emit('connected', {'message': 'Connected to ZEDEDA Camera Agent'})
+    # Send current status
+    status = {
+        'message': 'Connected to ZEDEDA Camera Agent',
+        'camera_available': check_camera_availability(),
+        'monitoring_active': camera_agent.is_monitoring if camera_agent else False
+    }
+    emit('connected', status)
 
 @socketio.on('disconnect')
 def handle_disconnect():
     """Handle client disconnection"""
     logger.debug('Socket client disconnected')
 
+def broadcast_camera_status():
+    """Background thread to broadcast camera availability status"""
+    while True:
+        try:
+            time.sleep(2)  # Update every 2 seconds
+            status = {
+                'camera_available': check_camera_availability(),
+                'monitoring_active': camera_agent.is_monitoring if camera_agent else False,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            # Only send if there are connected clients
+            if camera_publisher:
+                stats = camera_publisher.get_stats()
+                status['publisher_stats'] = {
+                    'frames_captured': stats.get('frames_captured', 0),
+                    'subscribers': stats.get('subscribers_count', 0)
+                }
+            
+            socketio.emit('camera_status', status)
+        except Exception as e:
+            logger.error(f"Error broadcasting camera status: {e}")
+            time.sleep(5)
+
+def initialize_camera_publisher():
+    """Initialize camera publisher on app startup for live feed viewing"""
+    global camera_publisher
+    try:
+        if camera_publisher and getattr(camera_publisher, 'is_running', False):
+            logger.info("Camera publisher already running; skipping initialization")
+            return True
+        camera_index = int(os.getenv("CAMERA_INDEX", "0"))
+        camera_publisher = get_camera_publisher(
+            camera_index=camera_index,
+            width=640,
+            height=480,
+            fps=30
+        )
+        
+        # Start the publisher so camera feed is always available
+        if camera_publisher.start():
+            logger.info("✅ Camera publisher started - live feed available")
+            return True
+        else:
+            logger.error("❌ Failed to start camera publisher")
+            return False
+    except Exception as e:
+        logger.error(f"❌ Camera publisher initialization failed: {e}")
+        return False
+
 if __name__ == '__main__':
+    debug_env = os.getenv('FLASK_DEBUG')
+    debug_mode = True if debug_env is None else debug_env.strip().lower() in {'1', 'true', 'yes', 'on'}
+
     # Initialize database schema before serving requests
     init_db()
     update_email_recipients()
     
+    run_main_flag = os.getenv("WERKZEUG_RUN_MAIN")
+    should_start_services = (run_main_flag == "true") or not debug_mode
+
+    if should_start_services:
+        if initialize_camera_publisher():
+            status_thread = threading.Thread(target=broadcast_camera_status, daemon=True)
+            status_thread.start()
+        else:
+            logger.warning("⚠️  Camera publisher failed to start - live feed may not be available")
+    else:
+        logger.info("Skipping camera publisher startup in reloader bootstrap phase")
+    
     # Run the app
     print("🌐 Starting ZEDEDA Camera Agent Web Interface...")
     print("📱 Access the interface at: http://localhost:8080")
+    print("📹 Live camera feed available (monitoring off by default)")
+    print("🔍 Click 'Start Monitoring' to enable AI analysis")
     
-    socketio.run(app, host='0.0.0.0', port=8080, debug=True)
+    socketio.run(app, host='0.0.0.0', port=8080, debug=debug_mode)
