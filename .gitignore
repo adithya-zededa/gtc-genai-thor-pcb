@@ -29,14 +29,15 @@ processed_frames/
 *.log
 *.log.*
 
-# Test files
-test_*.py
-*_test.py
+# Legacy test/demo scripts
 test_agent_standalone.py
 check_status.py
 test_setup.py
 test_camera_setup.py
 demo_*.py
+
+# Ensure repository tests remain tracked
+!tests/
 
 # Environment variables
 .env
