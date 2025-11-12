@@ -156,20 +156,24 @@ DEFAULT_PACKAGING_ANALYZER_PARAMS: Dict[str, Any] = {
 
 DEFAULT_DECISION_LLM_CONFIG: Dict[str, Any] = {
     "system_prompt": (
-        "You are the safety decision-maker for packaging detection. "
+        "You are the safety decision-maker for shipping/packaging box detection. "
         "You MUST call exactly one tool to report the outcome. Choose based on the description:\n\n"
+        "IMPORTANT: A 'packaging/shipping box' refers ONLY to cardboard shipping boxes (brown/tan corrugated "
+        "cardboard boxes typically used for shipping/delivery). DO NOT consider tissue boxes, cereal boxes, "
+        "product packaging, or other consumer boxes as packaging boxes.\n\n"
         "CRITICAL RULES:\n"
         "1. trigger_packaging_alert: Use ONLY when BOTH conditions are met:\n"
-        "   a) At least one packaging/shipping box IS PRESENT in the scene (confirmed by vision description or detectors)\n"
+        "   a) At least one SHIPPING/PACKAGING box (cardboard delivery box) IS PRESENT in the scene\n"
         "   b) AND no visible shipping label is detected on that box\n\n"
         "2. record_no_detection: Use when ANY of these apply:\n"
-        "   a) NO packaging boxes are detected at all (vision description doesn't mention boxes)\n"
+        "   a) NO shipping/packaging boxes detected (non-shipping boxes)\n"
         "   b) Classical packaging analyzer reports 0 boxes or very low confidence\n"
-        "   c) RF-DETR detector reports 0 boxes\n"
-        "   d) Boxes are present BUT shipping labels ARE visible\n"
+        "   c) RF-DETR detector reports 0 packages\n"
+        "   d) Shipping boxes are present BUT shipping labels ARE visible\n"
         "   e) The scene is unclear or inconclusive\n\n"
         "DO NOT trigger alerts when:\n"
-        "- Vision description talks about windows, walls, furniture, hands, blur - but NO boxes\n"
+        "- Vision description mentions tissue boxes, cereal boxes, or consumer product packaging\n"
+        "- Vision description talks about windows, walls, furniture, hands, blur - but NO shipping boxes\n"
         "- Classical packaging analysis shows 0 estimated boxes\n"
         "- RF-DETR detects 0 packages\n"
         "- The image is just a blurry scene or empty workspace\n\n"
@@ -185,9 +189,9 @@ DEFAULT_DECISION_LLM_CONFIG: Dict[str, Any] = {
             "function": {
                 "name": "trigger_packaging_alert",
                 "description": (
-                    "ONLY use when a packaging/shipping box IS ACTUALLY PRESENT in the image "
+                    "ONLY use when a SHIPPING/PACKAGING box (cardboard delivery box) IS ACTUALLY PRESENT in the image "
                     "AND no shipping label is clearly visible on it. "
-                    "DO NOT use if: no boxes detected, vision sees only walls/furniture/blur, "
+                    "DO NOT use if: tissue boxes, product boxes, no shipping boxes detected, vision sees only walls/furniture/blur, "
                     "or detectors report 0 boxes. This triggers a critical alert."
                 ),
                 "parameters": {
@@ -236,11 +240,11 @@ DEFAULT_DECISION_LLM_CONFIG: Dict[str, Any] = {
                 "name": "record_no_detection",
                 "description": (
                     "Use when no alert is needed. This includes: "
-                    "(1) NO packaging boxes detected at all (vision sees walls/furniture/blur/etc), "
+                    "(1) NO shipping/packaging boxes detected (only tissue boxes, product boxes, or non-shipping items), "
                     "(2) detectors report 0 boxes, "
-                    "(3) boxes present but have visible shipping labels, "
+                    "(3) shipping boxes present but have visible shipping labels, "
                     "(4) scene is unclear/inconclusive. "
-                    "This is the DEFAULT choice when boxes are absent."
+                    "This is the DEFAULT choice when shipping boxes are absent."
                 ),
                 "parameters": {
                     "type": "object",
@@ -2016,6 +2020,7 @@ class MonitorDetectionAgent:
         self._ssim_reference_size = (320, 240)
         self._last_similarity_frame = None
         self._last_processed_event: Optional[DetectionEvent] = None
+        self._last_vision_description: Optional[str] = None
         self._last_llm_run_time = 0.0
         self._last_cache_reset = time.time()
         self._apply_runtime_config()
@@ -2103,6 +2108,69 @@ class MonitorDetectionAgent:
             except (TypeError, ValueError):
                 pass
 
+    def _vision_descriptions_similar(self, desc1: Optional[str], desc2: Optional[str]) -> bool:
+        """
+        Check if two vision descriptions are semantically similar enough to reuse a cached decision.
+        
+        This performs a simple keyword-based comparison focusing on critical elements:
+        - Presence/absence of shipping boxes
+        - Presence/absence of shipping labels
+        - Key object descriptions
+        
+        Returns True if descriptions are similar enough that the cached decision should still be valid.
+        """
+        if not desc1 or not desc2:
+            return False
+        
+        # Normalize descriptions for comparison
+        d1_lower = desc1.lower()
+        d2_lower = desc2.lower()
+        
+        # Critical keywords that indicate different states
+        shipping_label_keywords = [
+            'shipping label', 'barcode label', 'label', 'barcode',
+            'shipping sticker', 'address label', 'mailing label'
+        ]
+        
+        shipping_box_keywords = [
+            'cardboard box', 'shipping box', 'packaging box', 'delivery box',
+            'corrugated box', 'brown box', 'package'
+        ]
+        
+        non_shipping_keywords = [
+            'tissue box', 'tissue', 'cereal box', 'product box', 'product packaging'
+        ]
+        
+        # Check if presence of shipping labels differs
+        has_label_1 = any(keyword in d1_lower for keyword in shipping_label_keywords)
+        has_label_2 = any(keyword in d2_lower for keyword in shipping_label_keywords)
+        
+        if has_label_1 != has_label_2:
+            logger.debug("Vision descriptions differ: shipping label presence changed (%s -> %s)", 
+                        has_label_1, has_label_2)
+            return False
+        
+        # Check if presence of shipping boxes differs
+        has_shipping_box_1 = any(keyword in d1_lower for keyword in shipping_box_keywords)
+        has_shipping_box_2 = any(keyword in d2_lower for keyword in shipping_box_keywords)
+        
+        if has_shipping_box_1 != has_shipping_box_2:
+            logger.debug("Vision descriptions differ: shipping box presence changed (%s -> %s)", 
+                        has_shipping_box_1, has_shipping_box_2)
+            return False
+        
+        # Check if non-shipping items are mentioned (tissue box, etc.)
+        has_non_shipping_1 = any(keyword in d1_lower for keyword in non_shipping_keywords)
+        has_non_shipping_2 = any(keyword in d2_lower for keyword in non_shipping_keywords)
+        
+        if has_non_shipping_1 != has_non_shipping_2:
+            logger.debug("Vision descriptions differ: non-shipping item presence changed (%s -> %s)", 
+                        has_non_shipping_1, has_non_shipping_2)
+            return False
+        
+        # If all critical elements match, descriptions are similar enough
+        return True
+
     def _make_similarity_reference(self, frame: np.ndarray) -> Optional[np.ndarray]:
         """Prepare a grayscale reference used for SSIM comparisons."""
         try:
@@ -2116,10 +2184,12 @@ class MonitorDetectionAgent:
         self,
         event: DetectionEvent,
         reference_frame: Optional[np.ndarray],
-        analysis_timestamp: float
+        analysis_timestamp: float,
+        vision_description: Optional[str] = None
     ) -> None:
         """Cache the last evaluated event for SSIM-based reuse."""
         self._last_processed_event = copy.deepcopy(event)
+        self._last_vision_description = vision_description
         if reference_frame is not None:
             self._last_similarity_frame = reference_frame
         self._last_llm_run_time = analysis_timestamp
@@ -2183,6 +2253,7 @@ class MonitorDetectionAgent:
         """Drop cached SSIM reference data so future frames force fresh analysis."""
         self._last_processed_event = None
         self._last_similarity_frame = None
+        self._last_vision_description = None
         self._last_llm_run_time = 0.0
         self._last_cache_reset = time.time()
 
@@ -2306,6 +2377,9 @@ class MonitorDetectionAgent:
             if decoded_frame is not None:
                 reference_frame = self._make_similarity_reference(decoded_frame)
 
+            # Calculate frame similarity but don't make caching decision yet
+            # We need to run vision LLM first to compare vision descriptions
+            similarity_value = None
             if reference_frame is not None and self._last_similarity_frame is not None and structural_similarity is not None:
                 try:
                     similarity_value = structural_similarity(
@@ -2313,69 +2387,7 @@ class MonitorDetectionAgent:
                         reference_frame,
                         data_range=255
                     )
-                    time_since_last = analysis_started_at - self._last_llm_run_time
-                    if (
-                        self._last_processed_event
-                        and similarity_value >= self.agent_ssim_threshold
-                        and (
-                            self.agent_ssim_recheck_seconds <= 0.0
-                            or time_since_last <= self.agent_ssim_recheck_seconds
-                        )
-                    ):
-                        logger.info(
-                            "♻️ Frame similarity %.3f ≥ threshold %.3f (Δt=%.2fs); reusing previous decision",
-                            similarity_value,
-                            self.agent_ssim_threshold,
-                            time_since_last
-                        )
-                        reused_event = copy.deepcopy(self._last_processed_event)
-                        if reused_event:
-                            new_timestamp = datetime.now().isoformat()
-                            skip_payload = {
-                                "similarity": round(float(similarity_value), 3),
-                                "threshold": round(float(self.agent_ssim_threshold), 3),
-                                "time_since_last_analysis": round(float(time_since_last), 3),
-                                "recheck_window": round(float(self.agent_ssim_recheck_seconds), 3),
-                                "count_as_detection": False,
-                                "source": "agent_ssim_guard",
-                                "previous_primary_label": reused_event.primary_label,
-                                "previous_confidence": round(float(reused_event.confidence), 3),
-                                "previous_detected": bool(reused_event.detected)
-                            }
-                            if isinstance(reused_event.decision_trace, dict):
-                                reuse_trace = copy.deepcopy(reused_event.decision_trace)
-                            else:
-                                reuse_trace = {}
-                            reuse_trace["agent_similarity_skip"] = skip_payload
-                            reuse_trace.setdefault(
-                                "classification",
-                                reuse_trace.get("classification") or "REUSED_DECISION"
-                            )
-                            reused_event.decision_trace = reuse_trace
-                            reused_event.timestamp = new_timestamp
-                            reused_event.should_alert = False
-                            if isinstance(reused_event.tools_used, list):
-                                reused_event.tools_used = list(reused_event.tools_used)
-                            else:
-                                reused_event.tools_used = []
-                            if isinstance(reused_event.tool_trace, list):
-                                reused_event.tool_trace = list(reused_event.tool_trace)
-                            else:
-                                reused_event.tool_trace = []
-                            message_suffix = (
-                                f"\n\n[Agent] Reused previous decision due to high frame similarity "
-                                f"(SSIM {skip_payload['similarity']:.3f} ≥ {skip_payload['threshold']:.3f})."
-                            )
-                            reused_event.full_response = (reused_event.full_response or "") + message_suffix
-                            return reused_event
-                    elif similarity_value is not None and similarity_value >= self.agent_ssim_threshold:
-                        logger.debug(
-                            "Frame similarity %.3f ≥ threshold %.3f but recheck window elapsed (Δt=%.2fs > %.2fs)",
-                            similarity_value,
-                            self.agent_ssim_threshold,
-                            time_since_last,
-                            self.agent_ssim_recheck_seconds
-                        )
+                    logger.debug("Frame SSIM: %.3f (threshold: %.3f)", similarity_value, self.agent_ssim_threshold)
                 except Exception as exc:
                     logger.debug("Agent SSIM comparison failed: %s", exc)
 
@@ -2459,6 +2471,88 @@ class MonitorDetectionAgent:
             if not vision_description:
                 logger.warning("Vision LLM returned empty response")
                 return None
+            
+            # Check if we can reuse cached decision based on BOTH frame similarity AND vision description similarity
+            time_since_last = analysis_started_at - self._last_llm_run_time
+            if (
+                self._last_processed_event
+                and similarity_value is not None
+                and similarity_value >= self.agent_ssim_threshold
+                and (
+                    self.agent_ssim_recheck_seconds <= 0.0
+                    or time_since_last <= self.agent_ssim_recheck_seconds
+                )
+            ):
+                # Frame is visually similar, but check if vision description is also similar
+                vision_similar = self._vision_descriptions_similar(vision_description, self._last_vision_description)
+                
+                if vision_similar:
+                    logger.info(
+                        "♻️ Frame similarity %.3f ≥ threshold %.3f AND vision description similar (Δt=%.2fs); reusing previous decision",
+                        similarity_value,
+                        self.agent_ssim_threshold,
+                        time_since_last
+                    )
+                    reused_event = copy.deepcopy(self._last_processed_event)
+                    if reused_event:
+                        new_timestamp = datetime.now().isoformat()
+                        skip_payload = {
+                            "similarity": round(float(similarity_value), 3),
+                            "threshold": round(float(self.agent_ssim_threshold), 3),
+                            "time_since_last_analysis": round(float(time_since_last), 3),
+                            "recheck_window": round(float(self.agent_ssim_recheck_seconds), 3),
+                            "vision_description_similar": True,
+                            "count_as_detection": False,
+                            "source": "agent_ssim_guard",
+                            "previous_primary_label": reused_event.primary_label,
+                            "previous_confidence": round(float(reused_event.confidence), 3),
+                            "previous_detected": bool(reused_event.detected)
+                        }
+                        if isinstance(reused_event.decision_trace, dict):
+                            reuse_trace = copy.deepcopy(reused_event.decision_trace)
+                        else:
+                            reuse_trace = {}
+                        reuse_trace["agent_similarity_skip"] = skip_payload
+                        reuse_trace.setdefault(
+                            "classification",
+                            reuse_trace.get("classification") or "REUSED_DECISION"
+                        )
+                        reused_event.decision_trace = reuse_trace
+                        reused_event.timestamp = new_timestamp
+                        reused_event.should_alert = False
+                        # Update vision description to current one
+                        reused_event.vision_description = vision_description
+                        if isinstance(reused_event.tools_used, list):
+                            reused_event.tools_used = list(reused_event.tools_used)
+                        else:
+                            reused_event.tools_used = []
+                        if isinstance(reused_event.tool_trace, list):
+                            reused_event.tool_trace = list(reused_event.tool_trace)
+                        else:
+                            reused_event.tool_trace = []
+                        message_suffix = (
+                            f"\n\n[Agent] Reused previous decision due to high frame similarity "
+                            f"(SSIM {skip_payload['similarity']:.3f} ≥ {skip_payload['threshold']:.3f}) "
+                            f"and similar vision description."
+                        )
+                        reused_event.full_response = (reused_event.full_response or "") + message_suffix
+                        # Update the cached vision description
+                        self._last_vision_description = vision_description
+                        return reused_event
+                else:
+                    logger.info(
+                        "Frame similarity %.3f ≥ threshold %.3f BUT vision description changed; running fresh decision",
+                        similarity_value,
+                        self.agent_ssim_threshold
+                    )
+            elif similarity_value is not None and similarity_value >= self.agent_ssim_threshold:
+                logger.debug(
+                    "Frame similarity %.3f ≥ threshold %.3f but recheck window elapsed (Δt=%.2fs > %.2fs); running fresh decision",
+                    similarity_value,
+                    self.agent_ssim_threshold,
+                    time_since_last,
+                    self.agent_ssim_recheck_seconds
+                )
             
             # STAGE 2: Decision LLM determines if an unlabeled packaging box needs attention
             logger.info("🤖 Stage 2: Decision LLM evaluating...")
@@ -2670,7 +2764,7 @@ class MonitorDetectionAgent:
                     )
                     if image_path:
                         detection_event.image_path = image_path
-                self._record_last_event(detection_event, reference_frame, analysis_completed_at)
+                self._record_last_event(detection_event, reference_frame, analysis_completed_at, vision_description)
                 return detection_event
 
             # No detection – record outcome for visibility
@@ -2729,7 +2823,7 @@ class MonitorDetectionAgent:
                 if image_path:
                     detection_event.image_path = image_path
 
-            self._record_last_event(detection_event, reference_frame, analysis_completed_at)
+            self._record_last_event(detection_event, reference_frame, analysis_completed_at, vision_description)
             return detection_event
                 
         except Exception as e:

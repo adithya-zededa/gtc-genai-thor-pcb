@@ -26,7 +26,12 @@ camera:
   save_detection_images: true
   save_processed_frames: true
 detection:
-  prompt: Describe the image in 3-4 sentences.
+  prompt: >-
+    Describe the image in 3-4 sentences. Focus on identifying SHIPPING or PACKAGING boxes 
+    (cardboard boxes typically used for shipping/delivery with brown/tan color, rectangular shape, 
+    and corrugated cardboard material). Ignore other types of boxes like tissue boxes, cereal boxes, 
+    or consumer product packaging. If shipping boxes are present, note whether they have visible 
+    shipping labels or barcode labels attached to them.
 notifications:
   desktop:
     enabled: true
