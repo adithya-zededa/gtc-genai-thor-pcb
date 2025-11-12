@@ -31,6 +31,21 @@ from dotenv import load_dotenv
 from huggingface_hub import hf_hub_download
 from PIL import Image
 
+try:
+    from plyer import notification as plyer_notification
+except ImportError:  # pragma: no cover - optional dependency
+    plyer_notification = None
+
+try:
+    from skimage.metrics import structural_similarity
+except ImportError:  # pragma: no cover - optional dependency
+    structural_similarity = None
+
+try:
+    from rfdetr import RFDETRMedium
+except ImportError:  # pragma: no cover - optional dependency
+    RFDETRMedium = None
+
 # Load environment variables
 load_dotenv()
 
@@ -73,6 +88,222 @@ def _coerce_bool(value: Any, default: bool = False) -> bool:
         if normalized in {"false", "0", "no", "off"}:
             return False
     return default
+
+
+def clamp_float(value: Any, minimum: float = 0.0, maximum: float = 1.0, default: Optional[float] = None) -> float:
+    """Clamp a value to the provided range while handling conversion errors."""
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        if default is not None:
+            return default
+        return float(minimum)
+    return max(minimum, min(maximum, numeric))
+
+
+DEFAULT_PACKAGING_ANALYZER_PARAMS: Dict[str, Any] = {
+    "min_area_ratio": 0.004,
+    "max_area_ratio": 0.7,
+    "aspect_range": (0.3, 4.2),
+    "min_rectangularity": 0.5,
+    "min_solidity": 0.55,
+    "min_vertices": 4,
+    "max_vertices": 10,
+    "min_color_area_ratio": 0.002,
+    "min_edge_density": 0.02,
+    "target_aspect": 1.6,
+    "score_weights": {
+        "area": 0.25,
+        "rectangularity": 0.25,
+        "solidity": 0.2,
+        "aspect": 0.15,
+        "color": 0.15,
+    },
+    "color_mask_bonus": 0.07,
+    "edge_density_scale": 2.0,
+    "brown_hue_range": (5, 40),
+    "brown_saturation_min": 45.0,
+    "brown_value_range": (50.0, 225.0),
+    "brown_hue_center": 22.5,
+    "brown_hue_span": 17.5,
+    "brown_sat_scale": 140.0,
+    "brown_val_scale": 175.0,
+    "gaussian_kernel": (5, 5),
+    "canny_thresholds": (35, 120),
+    "morph_kernel": (5, 5),
+    "morph_iterations": 2,
+    "dilate_iterations": 1,
+    "approx_poly_factor": 0.035,
+    "color_kernel": (9, 9),
+    "color_iterations": 2,
+    "color_dilate_iterations": 1,
+    "color_ranges": [
+        {"lower": [5, 60, 40], "upper": [25, 180, 200]},
+        {"lower": [10, 50, 60], "upper": [30, 180, 230]},
+    ],
+    "strong_score_threshold": 0.58,
+    "moderate_score_threshold": 0.45,
+    "base_detection_threshold": 0.45,
+    "density_scale": 2.5,
+    "confidence_weights": {
+        "top_score": 0.5,
+        "avg_top": 0.25,
+        "density": 0.15,
+        "color_density": 0.1,
+    },
+}
+
+
+DEFAULT_DECISION_LLM_CONFIG: Dict[str, Any] = {
+    "system_prompt": (
+        "You are the safety decision-maker for packaging detection. "
+        "You MUST call exactly one tool to report the outcome. Choose based on the description:\n\n"
+        "CRITICAL RULES:\n"
+        "1. trigger_packaging_alert: Use ONLY when BOTH conditions are met:\n"
+        "   a) At least one packaging/shipping box IS PRESENT in the scene (confirmed by vision description or detectors)\n"
+        "   b) AND no visible shipping label is detected on that box\n\n"
+        "2. record_no_detection: Use when ANY of these apply:\n"
+        "   a) NO packaging boxes are detected at all (vision description doesn't mention boxes)\n"
+        "   b) Classical packaging analyzer reports 0 boxes or very low confidence\n"
+        "   c) RF-DETR detector reports 0 boxes\n"
+        "   d) Boxes are present BUT shipping labels ARE visible\n"
+        "   e) The scene is unclear or inconclusive\n\n"
+        "DO NOT trigger alerts when:\n"
+        "- Vision description talks about windows, walls, furniture, hands, blur - but NO boxes\n"
+        "- Classical packaging analysis shows 0 estimated boxes\n"
+        "- RF-DETR detects 0 packages\n"
+        "- The image is just a blurry scene or empty workspace\n\n"
+        "Always include your reasoning and any box/label counts you can infer. Do not return plain text."
+    ),
+    "user_prompt_template": (
+        "Vision AI description:\n{vision_description}\n"
+        "{extra_context}"
+    ),
+    "tools": [
+        {
+            "type": "function",
+            "function": {
+                "name": "trigger_packaging_alert",
+                "description": (
+                    "ONLY use when a packaging/shipping box IS ACTUALLY PRESENT in the image "
+                    "AND no shipping label is clearly visible on it. "
+                    "DO NOT use if: no boxes detected, vision sees only walls/furniture/blur, "
+                    "or detectors report 0 boxes. This triggers a critical alert."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "confidence": {
+                            "type": "number",
+                            "description": "Confidence (0.0-1.0) that an unlabeled packaging box is present"
+                        },
+                        "reasoning": {
+                            "type": "string",
+                            "description": "Concise justification for raising the alert"
+                        },
+                        "box_count": {
+                            "type": "integer",
+                            "description": "Estimated number of packaging boxes in view"
+                        },
+                        "label_count": {
+                            "type": "integer",
+                            "description": "Estimated number of shipping labels associated with those boxes"
+                        },
+                        "shipping_label_present": {
+                            "type": "boolean",
+                            "description": "Should normally be false; set true only if a label is visible"
+                        },
+                        "labels_per_box": {
+                            "type": "number",
+                            "description": "Average number of labels per detected box"
+                        },
+                        "box_description": {
+                            "type": "string",
+                            "description": "Optional location or appearance notes about the box"
+                        },
+                        "notes": {
+                            "type": "string",
+                            "description": "Optional free-form observations"
+                        }
+                    },
+                    "required": ["confidence", "reasoning", "box_count", "label_count"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "record_no_detection",
+                "description": (
+                    "Use when no alert is needed. This includes: "
+                    "(1) NO packaging boxes detected at all (vision sees walls/furniture/blur/etc), "
+                    "(2) detectors report 0 boxes, "
+                    "(3) boxes present but have visible shipping labels, "
+                    "(4) scene is unclear/inconclusive. "
+                    "This is the DEFAULT choice when boxes are absent."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "reasoning": {
+                            "type": "string",
+                            "description": "Explanation of why no action is needed"
+                        },
+                        "confidence": {
+                            "type": "number",
+                            "description": "Optional confidence (0.0-1.0) that no boxes require action"
+                        },
+                        "shipping_label_present": {
+                            "type": ["boolean", "null"],
+                            "description": "Set true if labels are visible on any boxes, false if none are present"
+                        },
+                        "box_count": {
+                            "type": "integer",
+                            "description": "Estimated number of boxes (0 if none)"
+                        },
+                        "label_count": {
+                            "type": "integer",
+                            "description": "Estimated number of labels associated with the boxes"
+                        },
+                        "labels_per_box": {
+                            "type": "number",
+                            "description": "Average labels per detected box"
+                        },
+                        "notes": {
+                            "type": "string",
+                            "description": "Optional supplemental notes"
+                        }
+                    },
+                    "required": ["reasoning"]
+                }
+            }
+        }
+    ],
+}
+
+
+DEFAULT_RFDETR_CONFIG: Dict[str, Any] = {
+    "threshold": 0.4,
+    "repo_id": "Mact0/rf-detr-package-detection",
+    "checkpoint_filename": "checkpoint_best_total.pth",
+}
+
+
+DEFAULT_SHIPPING_ANALYZER_PARAMS: Dict[str, Any] = {
+    "min_area_ratio": 0.001,
+    "max_area_ratio": 0.25,
+    "min_fill_ratio": 0.5,
+    "aspect_range": (0.45, 6.0),
+    "color_min_area_ratio": 0.0006,
+    "yellow_hue_range": (15, 45),
+    "white_value_threshold": 200,
+    "white_saturation_max": 40,
+    "min_color_region_area": 180,
+    "max_cluster_candidates": 6,
+    "color_bonus": 0.08,
+    "yellow_sat_threshold": 60,
+    "yellow_val_threshold": 110,
+}
 
 
 @dataclass
@@ -149,24 +380,25 @@ class PackagingBoxAnalysis:
 class ShippingLabelAnalyzer:
     """Lightweight CV + clustering model to identify shipping label regions."""
 
-    def __init__(self) -> None:
-        self.min_area_ratio = 0.001
-        self.max_area_ratio = 0.25
-        self.min_fill_ratio = 0.5
-        self.aspect_range = (0.45, 6.0)
-        self.color_min_area_ratio = 0.0006
-        self.yellow_hue_range = (15, 45)
-        self.white_value_threshold = 200
-        self.white_saturation_max = 40
-        self.min_color_region_area = 180
-        self.max_cluster_candidates = 6
+    def __init__(self, **params: Any) -> None:
+        cfg = DEFAULT_SHIPPING_ANALYZER_PARAMS.copy()
+        for key, value in params.items():
+            if value is not None:
+                cfg[key] = value
 
-    @staticmethod
-    def _clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
-        try:
-            return max(minimum, min(maximum, float(value)))
-        except (TypeError, ValueError):
-            return minimum
+        self.min_area_ratio = float(cfg["min_area_ratio"])
+        self.max_area_ratio = float(cfg["max_area_ratio"])
+        self.min_fill_ratio = float(cfg["min_fill_ratio"])
+        self.aspect_range = tuple(cfg["aspect_range"])
+        self.color_min_area_ratio = float(cfg["color_min_area_ratio"])
+        self.yellow_hue_range = tuple(cfg["yellow_hue_range"])
+        self.white_value_threshold = float(cfg["white_value_threshold"])
+        self.white_saturation_max = float(cfg["white_saturation_max"])
+        self.min_color_region_area = float(cfg["min_color_region_area"])
+        self.max_cluster_candidates = int(cfg["max_cluster_candidates"])
+        self.color_bonus = float(cfg["color_bonus"])
+        self.yellow_sat_threshold = float(cfg["yellow_sat_threshold"])
+        self.yellow_val_threshold = float(cfg["yellow_val_threshold"])
 
     def _cluster_candidates(
         self,
@@ -255,7 +487,9 @@ class ShippingLabelAnalyzer:
                 continue
             top_score = max(member.get("score", 0.0) for member in cluster_members)
             mean_score = sum(member.get("score", 0.0) for member in cluster_members) / len(cluster_members)
-            cluster_confidences.append(self._clamp(0.65 * top_score + 0.35 * mean_score))
+            cluster_confidences.append(
+                clamp_float(0.65 * top_score + 0.35 * mean_score, 0.0, 1.0)
+            )
 
         cluster_confidences.sort(reverse=True)
         return {
@@ -279,23 +513,30 @@ class ShippingLabelAnalyzer:
         aspect_score = 0.0
         if aspect_ratio > eps:
             aspect_score = math.exp(-abs(math.log(aspect_ratio)))
-            aspect_score = self._clamp(aspect_score)
+            aspect_score = clamp_float(aspect_score, 0.0, 1.0)
 
-        fill_score = self._clamp(fill_ratio)
-        area_score = self._clamp((area_ratio - self.min_area_ratio) / max(self.max_area_ratio - self.min_area_ratio, eps))
-        brightness_score = self._clamp(mean_intensity / 200.0)
+        fill_score = clamp_float(fill_ratio, 0.0, 1.0)
+        area_score = clamp_float((area_ratio - self.min_area_ratio) / max(self.max_area_ratio - self.min_area_ratio, eps), 0.0, 1.0)
+        brightness_score = clamp_float(mean_intensity / 200.0, 0.0, 1.0)
 
         hue = sat = val = 0.0
         if mean_hsv and len(mean_hsv) == 3:
             hue, sat, val = mean_hsv
 
         yellow_score = 0.0
-        if self.yellow_hue_range[0] <= hue <= self.yellow_hue_range[1] and sat >= 60 and val >= 110:
-            yellow_score = self._clamp((sat - 60) / 140.0) * 0.6 + self._clamp((val - 110) / 145.0) * 0.4
+        if (
+            self.yellow_hue_range[0] <= hue <= self.yellow_hue_range[1]
+            and sat >= self.yellow_sat_threshold
+            and val >= self.yellow_val_threshold
+        ):
+            yellow_score = (
+                clamp_float((sat - self.yellow_sat_threshold) / 140.0, 0.0, 1.0) * 0.6
+                + clamp_float((val - self.yellow_val_threshold) / 145.0, 0.0, 1.0) * 0.4
+            )
 
         white_score = 0.0
         if val >= self.white_value_threshold and sat <= self.white_saturation_max + 20:
-            white_score = self._clamp((val - self.white_value_threshold) / 55.0)
+            white_score = clamp_float((val - self.white_value_threshold) / 55.0, 0.0, 1.0)
 
         color_score = max(yellow_score, white_score)
 
@@ -308,14 +549,14 @@ class ShippingLabelAnalyzer:
         )
 
         if source == "color_mask":
-            base_score = self._clamp(base_score + 0.08)
+            base_score = clamp_float(base_score + self.color_bonus, 0.0, 1.0)
 
         return {
             "area": round(area_score, 3),
             "aspect": round(aspect_score, 3),
             "fill": round(fill_score, 3),
             "color": round(combined_color, 3),
-            "base": round(self._clamp(base_score), 3)
+            "base": round(clamp_float(base_score, 0.0, 1.0), 3)
         }
 
     def analyze(
@@ -336,6 +577,7 @@ class ShippingLabelAnalyzer:
                 return None
 
             image_area = float(width * height)
+            eps = 1e-6
 
             blurred = cv2.GaussianBlur(gray, (5, 5), 0)
             normalized = cv2.normalize(blurred, None, 0, 255, cv2.NORM_MINMAX)
@@ -482,15 +724,15 @@ class ShippingLabelAnalyzer:
                 cluster_confidences = cluster_summary.get("cluster_confidences", [])
                 max_cluster_conf = cluster_confidences[0] if cluster_confidences else 0.0
                 avg_top_clusters = sum(cluster_confidences[:3]) / max(1, min(3, len(cluster_confidences))) if cluster_confidences else 0.0
-                density_score = self._clamp(region_count / 4.0)
+                density_score = clamp_float(region_count / 4.0, 0.0, 1.0)
                 color_hits = sum(1 for c in candidates if c.get("source") == "color_mask")
-                color_density = self._clamp(color_hits / candidate_count) if candidate_count else 0.0
-                presence_confidence = self._clamp(
+                color_density = clamp_float(color_hits / candidate_count, 0.0, 1.0) if candidate_count else 0.0
+                presence_confidence = clamp_float(
                     0.5 * max_cluster_conf +
                     0.25 * avg_top_clusters +
                     0.15 * density_score +
                     0.1 * color_density
-                )
+                , 0.0, 1.0)
             else:
                 avg_aspect = 0.0
                 presence_confidence = 0.02
@@ -530,23 +772,63 @@ class ShippingLabelAnalyzer:
 class PackagingBoxAnalyzer:
     """Classical vision pipeline to flag packaging-box shaped regions."""
 
-    def __init__(self) -> None:
-        self.min_area_ratio = 0.004
-        self.max_area_ratio = 0.7
-        self.aspect_range = (0.3, 4.2)
-        self.min_rectangularity = 0.5
-        self.min_solidity = 0.55
-        self.min_vertices = 4
-        self.max_vertices = 10
-        self.min_color_area_ratio = 0.002
-        self.min_edge_density = 0.02
+    def __init__(self, **params: Any) -> None:
+        cfg = copy.deepcopy(DEFAULT_PACKAGING_ANALYZER_PARAMS)
+        for key, value in params.items():
+            if value is not None:
+                cfg[key] = value
 
-    @staticmethod
-    def _clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
-        try:
-            return max(minimum, min(maximum, float(value)))
-        except (TypeError, ValueError):
-            return minimum
+        self.min_area_ratio = float(cfg["min_area_ratio"])
+        self.max_area_ratio = float(cfg["max_area_ratio"])
+        self.aspect_range = tuple(cfg["aspect_range"])
+        self.min_rectangularity = float(cfg["min_rectangularity"])
+        self.min_solidity = float(cfg["min_solidity"])
+        self.min_vertices = int(cfg["min_vertices"])
+        self.max_vertices = int(cfg["max_vertices"])
+        self.min_color_area_ratio = float(cfg["min_color_area_ratio"])
+        self.min_edge_density = float(cfg["min_edge_density"])
+        self.target_aspect = float(cfg["target_aspect"])
+        default_score_weights = DEFAULT_PACKAGING_ANALYZER_PARAMS["score_weights"]
+        user_score_weights = cfg.get("score_weights", {})
+        if not isinstance(user_score_weights, dict):
+            user_score_weights = {}
+        merged_score_weights = {**default_score_weights, **user_score_weights}
+        self.score_weights = {key: float(value) for key, value in merged_score_weights.items()}
+        self.color_mask_bonus = float(cfg["color_mask_bonus"])
+        self.edge_density_scale = float(cfg["edge_density_scale"])
+        self.brown_hue_range = tuple(cfg["brown_hue_range"])
+        self.brown_saturation_min = float(cfg["brown_saturation_min"])
+        self.brown_value_range = tuple(cfg["brown_value_range"])
+        self.brown_hue_center = float(cfg["brown_hue_center"])
+        self.brown_hue_span = float(cfg["brown_hue_span"])
+        self.brown_sat_scale = float(cfg["brown_sat_scale"])
+        self.brown_val_scale = float(cfg["brown_val_scale"])
+        self.gaussian_kernel = tuple(cfg["gaussian_kernel"])
+        self.canny_thresholds = tuple(cfg["canny_thresholds"])
+        self.morph_kernel = tuple(cfg["morph_kernel"])
+        self.morph_iterations = int(cfg["morph_iterations"])
+        self.dilate_iterations = int(cfg["dilate_iterations"])
+        self.approx_poly_factor = float(cfg["approx_poly_factor"])
+        self.color_kernel = tuple(cfg["color_kernel"])
+        self.color_iterations = int(cfg["color_iterations"])
+        self.color_dilate_iterations = int(cfg["color_dilate_iterations"])
+        self.color_ranges = [
+            (
+                np.array(range_cfg["lower"], dtype=np.uint8),
+                np.array(range_cfg["upper"], dtype=np.uint8)
+            )
+            for range_cfg in cfg["color_ranges"]
+        ]
+        self.strong_score_threshold = float(cfg["strong_score_threshold"])
+        self.moderate_score_threshold = float(cfg["moderate_score_threshold"])
+        self.base_detection_threshold = float(cfg["base_detection_threshold"])
+        self.density_scale = float(cfg["density_scale"])
+        default_confidence_weights = DEFAULT_PACKAGING_ANALYZER_PARAMS["confidence_weights"]
+        user_confidence_weights = cfg.get("confidence_weights", {})
+        if not isinstance(user_confidence_weights, dict):
+            user_confidence_weights = {}
+        merged_confidence_weights = {**default_confidence_weights, **user_confidence_weights}
+        self.confidence_weights = {key: float(value) for key, value in merged_confidence_weights.items()}
 
     def _score_candidate(
         self,
@@ -560,43 +842,44 @@ class PackagingBoxAnalyzer:
         source: str = "contour"
     ) -> Dict[str, float]:
         eps = 1e-6
-        area_score = self._clamp((area_ratio - self.min_area_ratio) / max(self.max_area_ratio - self.min_area_ratio, eps))
+        area_score = clamp_float((area_ratio - self.min_area_ratio) / max(self.max_area_ratio - self.min_area_ratio, eps), 0.0, 1.0)
 
-        target_aspect = 1.6
         aspect_score = 0.0
         if aspect_ratio > eps:
-            aspect_score = math.exp(-abs(math.log(aspect_ratio / target_aspect)))
-            aspect_score = self._clamp(aspect_score)
+            aspect_score = math.exp(-abs(math.log(aspect_ratio / max(self.target_aspect, eps))))
+            aspect_score = clamp_float(aspect_score, 0.0, 1.0)
 
-        rectangularity_score = self._clamp(rectangularity)
-        solidity_score = self._clamp(solidity)
-        edge_score = self._clamp(edge_density * 2.0)
+        rectangularity_score = clamp_float(rectangularity, 0.0, 1.0)
+        solidity_score = clamp_float(solidity, 0.0, 1.0)
+        edge_score = clamp_float(edge_density * self.edge_density_scale, 0.0, 1.0)
 
         hue = sat = val = 0.0
         if mean_hsv and len(mean_hsv) == 3:
             hue, sat, val = mean_hsv
 
         brown_score = 0.0
-        if 5 <= hue <= 40 and sat >= 45 and 50 <= val <= 225:
-            hue_center = 22.5
-            hue_span = 17.5
-            hue_component = self._clamp(1.0 - abs(hue - hue_center) / hue_span)
-            sat_component = self._clamp((sat - 45) / 140.0)
-            val_component = self._clamp((val - 50) / 175.0)
+        if (
+            self.brown_hue_range[0] <= hue <= self.brown_hue_range[1]
+            and sat >= self.brown_saturation_min
+            and self.brown_value_range[0] <= val <= self.brown_value_range[1]
+        ):
+            hue_component = clamp_float(1.0 - abs(hue - self.brown_hue_center) / max(self.brown_hue_span, eps), 0.0, 1.0)
+            sat_component = clamp_float((sat - self.brown_saturation_min) / max(self.brown_sat_scale, eps), 0.0, 1.0)
+            val_component = clamp_float((val - self.brown_value_range[0]) / max(self.brown_val_scale, eps), 0.0, 1.0)
             brown_score = (0.5 * hue_component + 0.3 * sat_component + 0.2 * val_component)
 
         color_score = max(brown_score, edge_score)
 
         base_score = (
-            0.25 * area_score +
-            0.25 * rectangularity_score +
-            0.2 * solidity_score +
-            0.15 * aspect_score +
-            0.15 * color_score
+            self.score_weights["area"] * area_score +
+            self.score_weights["rectangularity"] * rectangularity_score +
+            self.score_weights["solidity"] * solidity_score +
+            self.score_weights["aspect"] * aspect_score +
+            self.score_weights["color"] * color_score
         )
 
         if source == "color_mask":
-            base_score = self._clamp(base_score + 0.07)
+            base_score = clamp_float(base_score + self.color_mask_bonus, 0.0, 1.0)
 
         return {
             "area": round(area_score, 3),
@@ -604,7 +887,7 @@ class PackagingBoxAnalyzer:
             "solidity": round(solidity_score, 3),
             "aspect": round(aspect_score, 3),
             "color": round(color_score, 3),
-            "base": round(self._clamp(base_score), 3)
+            "base": round(clamp_float(base_score, 0.0, 1.0), 3)
         }
 
     def analyze(
@@ -625,12 +908,13 @@ class PackagingBoxAnalyzer:
                 return None
 
             image_area = float(width * height)
+            eps = 1e-6
 
-            blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-            edges = cv2.Canny(blurred, 35, 120)
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-            closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=2)
-            dilated = cv2.dilate(closed, kernel, iterations=1)
+            blurred = cv2.GaussianBlur(gray, self.gaussian_kernel, 0)
+            edges = cv2.Canny(blurred, self.canny_thresholds[0], self.canny_thresholds[1])
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, self.morph_kernel)
+            closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=self.morph_iterations)
+            dilated = cv2.dilate(closed, kernel, iterations=self.dilate_iterations)
 
             contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             candidates: List[Dict[str, Any]] = []
@@ -665,7 +949,7 @@ class PackagingBoxAnalyzer:
                     continue
 
                 perimeter = cv2.arcLength(contour, True)
-                approx = cv2.approxPolyDP(contour, 0.035 * perimeter, True)
+                approx = cv2.approxPolyDP(contour, self.approx_poly_factor * perimeter, True)
                 vertex_count = len(approx)
                 if vertex_count < self.min_vertices or vertex_count > self.max_vertices:
                     continue
@@ -702,17 +986,16 @@ class PackagingBoxAnalyzer:
                 })
 
             if not candidates:
-                lower_brown = np.array([5, 60, 40])
-                upper_brown = np.array([25, 180, 200])
-                brown_mask = cv2.inRange(hsv, lower_brown, upper_brown)
-                lower_cardboard = np.array([10, 50, 60])
-                upper_cardboard = np.array([30, 180, 230])
-                cardboard_mask = cv2.inRange(hsv, lower_cardboard, upper_cardboard)
-                color_mask = cv2.bitwise_or(brown_mask, cardboard_mask)
+                masks = []
+                for lower, upper in self.color_ranges:
+                    masks.append(cv2.inRange(hsv, lower, upper))
+                color_mask = np.zeros_like(gray, dtype=np.uint8)
+                for mask in masks:
+                    color_mask = cv2.bitwise_or(color_mask, mask)
                 if np.count_nonzero(color_mask) > 0:
-                    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9))
-                    color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, kernel, iterations=2)
-                    color_mask = cv2.dilate(color_mask, kernel, iterations=1)
+                    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, self.color_kernel)
+                    color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, kernel, iterations=self.color_iterations)
+                    color_mask = cv2.dilate(color_mask, kernel, iterations=self.color_dilate_iterations)
                     color_contours, _ = cv2.findContours(color_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                     for contour in color_contours:
                         area = cv2.contourArea(contour)
@@ -768,25 +1051,29 @@ class PackagingBoxAnalyzer:
                 top_score = max(c["score"] for c in candidates)
                 top_scores = sorted((c["score"] for c in candidates), reverse=True)[:3]
                 avg_top = sum(top_scores) / len(top_scores)
-                density = self._clamp(candidate_count / 2.5)
-                color_density = self._clamp(
-                    sum(1 for c in candidates if c.get("source") == "color_mask") / candidate_count
+                density = clamp_float(candidate_count / max(self.density_scale, eps), 0.0, 1.0)
+                color_density = clamp_float(
+                    sum(1 for c in candidates if c.get("source") == "color_mask") / max(candidate_count, 1),
+                    0.0,
+                    1.0
                 )
-                confidence = self._clamp(
-                    0.5 * top_score +
-                    0.25 * avg_top +
-                    0.15 * density +
-                    0.1 * color_density
+                confidence = clamp_float(
+                    self.confidence_weights["top_score"] * top_score +
+                    self.confidence_weights["avg_top"] * avg_top +
+                    self.confidence_weights["density"] * density +
+                    self.confidence_weights["color_density"] * color_density,
+                    0.0,
+                    1.0
                 )
 
-                strong_candidates = [c for c in candidates if c.get("score", 0.0) >= 0.58]
-                moderate_candidates = [c for c in candidates if c.get("score", 0.0) >= 0.45]
+                strong_candidates = [c for c in candidates if c.get("score", 0.0) >= self.strong_score_threshold]
+                moderate_candidates = [c for c in candidates if c.get("score", 0.0) >= self.moderate_score_threshold]
                 if strong_candidates:
                     estimated_box_count = len(strong_candidates)
                 elif moderate_candidates:
                     estimated_box_count = len(moderate_candidates)
                 else:
-                    estimated_box_count = 1 if top_score >= 0.45 else 0
+                    estimated_box_count = 1 if top_score >= self.moderate_score_threshold else 0
             else:
                 avg_aspect = 0.0
                 avg_rectangularity = 0.0
@@ -795,7 +1082,7 @@ class PackagingBoxAnalyzer:
                 top_score = 0.0
                 estimated_box_count = 0
 
-            detected = candidate_count > 0 and confidence >= 0.45
+            detected = candidate_count > 0 and confidence >= self.base_detection_threshold
             summary = (
                 f"{candidate_count} packaging-like region{'s' if candidate_count != 1 else ''} "
                 f"(confidence {confidence:.2f}, top score {top_score:.2f}, "
@@ -821,10 +1108,15 @@ class PackagingBoxAnalyzer:
 class RFDetrPackageDetector:
     """Wrapper around the RF-DETR Medium package detector from Hugging Face."""
 
-    def __init__(self, threshold: float = 0.4) -> None:
-        self.threshold = threshold
-        self.repo_id = "Mact0/rf-detr-package-detection"
-        self.checkpoint_filename = "checkpoint_best_total.pth"
+    def __init__(self, **params: Any) -> None:
+        cfg = DEFAULT_RFDETR_CONFIG.copy()
+        for key, value in params.items():
+            if value is not None:
+                cfg[key] = value
+
+        self.threshold = float(cfg.get("threshold", DEFAULT_RFDETR_CONFIG["threshold"]))
+        self.repo_id = str(cfg.get("repo_id", DEFAULT_RFDETR_CONFIG["repo_id"]))
+        self.checkpoint_filename = str(cfg.get("checkpoint_filename", DEFAULT_RFDETR_CONFIG["checkpoint_filename"]))
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._model = None
         self._load_lock = threading.Lock()
@@ -837,9 +1129,9 @@ class RFDetrPackageDetector:
             if self._model is not None:
                 return
 
+            if RFDETRMedium is None:
+                raise ImportError("RFDETRMedium is not available; install rfdetr package")
             try:
-                from rfdetr import RFDETRMedium  # local import to avoid mandatory dependency at module import
-
                 checkpoint_path = hf_hub_download(
                     repo_id=self.repo_id,
                     filename=self.checkpoint_filename,
@@ -953,6 +1245,55 @@ class OllamaVisionClient:
         user_agent = os.getenv("CAMERA_AGENT_USER_AGENT", "camera-agent/1.0")
         self.session.headers.update({"User-Agent": user_agent})
         logger.info("Initialized Ollama client for vision model '%s' at %s", model, self.base_url)
+        
+        # Ensure model is available
+        self._ensure_model_available()
+    
+    def _check_model_exists(self) -> bool:
+        """Check if the model is already pulled."""
+        try:
+            response = self.session.get(f"{self.base_url}/api/tags", timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            models = data.get("models", [])
+            
+            for model in models:
+                model_name = model.get("name", "")
+                # Check if the model matches (handle both 'model:tag' and 'model' formats)
+                if model_name == self.model or model_name.startswith(f"{self.model}:"):
+                    return True
+            return False
+        except Exception as e:
+            logger.warning(f"Failed to check if model exists: {e}")
+            return False
+    
+    def _pull_model(self) -> bool:
+        """Pull the model from Ollama registry."""
+        try:
+            logger.info(f"🔄 Pulling Ollama model '{self.model}'... This may take a few minutes.")
+            payload = {"name": self.model, "stream": False}
+            
+            # Use a longer timeout for pulling models
+            response = self.session.post(
+                f"{self.base_url}/api/pull",
+                json=payload,
+                timeout=600  # 10 minutes for model pull
+            )
+            response.raise_for_status()
+            logger.info(f"✅ Successfully pulled model '{self.model}'")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to pull model '{self.model}': {e}")
+            return False
+    
+    def _ensure_model_available(self) -> None:
+        """Ensure the model is available, pull it if necessary."""
+        if not self._check_model_exists():
+            logger.warning(f"Model '{self.model}' not found locally. Attempting to pull...")
+            if not self._pull_model():
+                logger.error(f"Could not pull model '{self.model}'. Please run 'ollama pull {self.model}' manually.")
+        else:
+            logger.info(f"Model '{self.model}' is already available")
     
     def analyze_image(self, image_data: bytes, prompt: str) -> Dict[str, Any]:
         """Send image to Ollama for analysis."""
@@ -973,6 +1314,23 @@ class OllamaVisionClient:
                 json=payload,
                 timeout=self.timeout
             )
+            
+            # Handle 404 - model not found
+            if response.status_code == 404:
+                logger.warning(f"Model '{self.model}' not found. Attempting to pull it now...")
+                if self._pull_model():
+                    # Retry the request after pulling
+                    response = self.session.post(
+                        f"{self.base_url}/api/generate",
+                        json=payload,
+                        timeout=self.timeout
+                    )
+                else:
+                    raise requests.exceptions.HTTPError(
+                        f"Model '{self.model}' not available and could not be pulled",
+                        response=response
+                    )
+            
             response.raise_for_status()
             
             result = response.json()
@@ -1000,8 +1358,17 @@ class OllamaVisionClient:
 
 class DecisionLLM:
     """Second-stage LLM for packaging box decisions with tool calling capability."""
-    
-    def __init__(self, base_url: str, model: str, timeout: int = 30):
+
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        *,
+        system_prompt: str,
+        user_prompt_template: str,
+        tools: List[Dict[str, Any]],
+        timeout: int = 30,
+    ):
         if not model:
             raise ValueError("Decision model name must be provided")
 
@@ -1011,159 +1378,109 @@ class DecisionLLM:
         self.session = requests.Session()
         user_agent = os.getenv("CAMERA_AGENT_USER_AGENT", "camera-agent/1.0")
         self.session.headers.update({"User-Agent": user_agent})
-        self.tools = self._define_tools()
+        self.system_prompt = system_prompt
+        self.user_prompt_template = user_prompt_template
+        self.tools = tools or []
         logger.info("Initialized Decision LLM model '%s' at %s", model, self.base_url)
+        
+        # Ensure model is available
+        self._ensure_model_available()
     
-    def _define_tools(self) -> List[Dict]:
-        """Define available tools for the decision LLM."""
-        return [
-            {
-                "type": "function",
-                "function": {
-                    "name": "trigger_packaging_alert",
-                    "description": (
-                        "Use when at least one packaging/shipping box is present AND no shipping label is clearly visible. "
-                        "Call this to trigger an alert about unlabeled packaging."  # noqa: E501
-                    ),
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "confidence": {
-                                "type": "number",
-                                "description": "Confidence (0.0-1.0) that an unlabeled packaging box is present"
-                            },
-                            "reasoning": {
-                                "type": "string",
-                                "description": "Concise justification for raising the alert"
-                            },
-                            "box_count": {
-                                "type": "integer",
-                                "description": "Estimated number of packaging boxes in view"
-                            },
-                            "label_count": {
-                                "type": "integer",
-                                "description": "Estimated number of shipping labels associated with those boxes"
-                            },
-                            "shipping_label_present": {
-                                "type": "boolean",
-                                "description": "Should normally be false; set true only if a label is visible"
-                            },
-                            "labels_per_box": {
-                                "type": "number",
-                                "description": "Average number of labels per detected box"
-                            },
-                            "box_description": {
-                                "type": "string",
-                                "description": "Optional location or appearance notes about the box"
-                            },
-                            "notes": {
-                                "type": "string",
-                                "description": "Optional free-form observations"
-                            }
-                        },
-                        "required": ["confidence", "reasoning", "box_count", "label_count"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "record_no_detection",
-                    "description": (
-                        "Use when no alert is needed: either no packaging boxes are present, or boxes have clear shipping labels."
-                    ),
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "reasoning": {
-                                "type": "string",
-                                "description": "Explanation of why no action is needed"
-                            },
-                            "confidence": {
-                                "type": "number",
-                                "description": "Optional confidence (0.0-1.0) that no boxes require action"
-                            },
-                            "shipping_label_present": {
-                                "type": ["boolean", "null"],
-                                "description": "Set true if labels are visible on any boxes, false if none are present"
-                            },
-                            "box_count": {
-                                "type": "integer",
-                                "description": "Estimated number of boxes (0 if none)"
-                            },
-                            "label_count": {
-                                "type": "integer",
-                                "description": "Estimated number of labels associated with the boxes"
-                            },
-                            "labels_per_box": {
-                                "type": "number",
-                                "description": "Average labels per detected box"
-                            },
-                            "notes": {
-                                "type": "string",
-                                "description": "Optional supplemental notes"
-                            }
-                        },
-                        "required": ["reasoning"]
-                    }
-                }
-            }
-        ]
+    def _check_model_exists(self) -> bool:
+        """Check if the model is already pulled."""
+        try:
+            response = self.session.get(f"{self.base_url}/api/tags", timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            models = data.get("models", [])
+            
+            for model in models:
+                model_name = model.get("name", "")
+                # Check if the model matches (handle both 'model:tag' and 'model' formats)
+                if model_name == self.model or model_name.startswith(f"{self.model}:"):
+                    return True
+            return False
+        except Exception as e:
+            logger.warning(f"Failed to check if model exists: {e}")
+            return False
+    
+    def _pull_model(self) -> bool:
+        """Pull the model from Ollama registry."""
+        try:
+            logger.info(f"🔄 Pulling Ollama model '{self.model}'... This may take a few minutes.")
+            payload = {"name": self.model, "stream": False}
+            
+            # Use a longer timeout for pulling models
+            response = self.session.post(
+                f"{self.base_url}/api/pull",
+                json=payload,
+                timeout=600  # 10 minutes for model pull
+            )
+            response.raise_for_status()
+            logger.info(f"✅ Successfully pulled model '{self.model}'")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to pull model '{self.model}': {e}")
+            return False
+    
+    def _ensure_model_available(self) -> None:
+        """Ensure the model is available, pull it if necessary."""
+        if not self._check_model_exists():
+            logger.warning(f"Model '{self.model}' not found locally. Attempting to pull...")
+            if not self._pull_model():
+                logger.error(f"Could not pull model '{self.model}'. Please run 'ollama pull {self.model}' manually.")
+        else:
+            logger.info(f"Model '{self.model}' is already available")
     
     def make_detection_decision(self, vision_description: str, extra_context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """Request a unified tool call from the decision LLM and interpret the result."""
         tool_trace_entries: List[Dict[str, Any]] = []
         context_lines: List[str] = []
-        shipping_hint = None
         packaging_hint = None
+        rfdet_hint = None
 
         if isinstance(extra_context, dict):
-            shipping_hint = extra_context.get("shipping_label_hint")
             packaging_hint = extra_context.get("packaging_hint")
+            rfdet_hint = extra_context.get("rfdet_hint")
 
-            if shipping_hint:
-                context_lines.append(f"Local shipping label analysis: {shipping_hint}")
             if packaging_hint:
                 context_lines.append(f"Classical packaging analysis: {packaging_hint}")
+            if rfdet_hint:
+                context_lines.append(f"RF-DETR analysis: {rfdet_hint}")
 
             box_count_ctx = extra_context.get("packaging_box_count")
-            label_count_ctx = extra_context.get("label_region_count")
-            labels_per_box_ctx = extra_context.get("labels_per_box")
-            multi_label_flag_ctx = extra_context.get("multi_label_flag")
+            rfdet_box_ctx = extra_context.get("rfdet_box_count")
+            rfdet_avg_conf = extra_context.get("rfdet_average_confidence")
+            packaging_conf_ctx = extra_context.get("packaging_confidence")
+            packaging_candidates_ctx = extra_context.get("packaging_candidate_count")
 
             metrics_parts: List[str] = []
             if box_count_ctx is not None:
                 metrics_parts.append(f"boxes≈{box_count_ctx}")
-            if label_count_ctx is not None:
-                metrics_parts.append(f"labels≈{label_count_ctx}")
-            if labels_per_box_ctx is not None:
-                metrics_parts.append(f"labels_per_box≈{labels_per_box_ctx}")
+            if rfdet_box_ctx is not None:
+                metrics_parts.append(f"rfdet_boxes≈{rfdet_box_ctx}")
+            if packaging_conf_ctx is not None:
+                metrics_parts.append(f"packaging_conf≈{packaging_conf_ctx}")
+            if packaging_candidates_ctx is not None:
+                metrics_parts.append(f"candidates≈{packaging_candidates_ctx}")
+            if rfdet_avg_conf is not None:
+                metrics_parts.append(f"rfdet_conf≈{rfdet_avg_conf}")
             if metrics_parts:
                 context_lines.append("Scene metrics: " + ", ".join(str(part) for part in metrics_parts))
-            if multi_label_flag_ctx:
-                context_lines.append("Multiple labels detected on individual boxes")
 
-        system_prompt = (
-            "You are the safety decision-maker for packaging detection. "
-            "You MUST call exactly one tool to report the outcome. Choose based on the description:\n"
-            "- trigger_packaging_alert: at least one packaging box AND no visible shipping label (alert required).\n"
-            "- record_no_detection: no boxes, or boxes are present but labels are visible or the scene is inconclusive (no alert).\n"
-            "Always include your reasoning and any box/label counts you can infer. Do not return plain text."
-        )
-
-        user_prompt = (
-            "Vision AI description:\n"
-            f"{vision_description}"
-        )
-
+        context_block = ""
         if context_lines:
-            context_block = "\n".join(context_lines)
-            user_prompt += f"\n\nAdditional context:\n{context_block}"
+            context_block = "\n\nAdditional context:\n" + "\n".join(context_lines)
+
+        user_prompt = self.user_prompt_template.format(
+            vision_description=vision_description,
+            extra_context=context_block
+        )
 
         payload = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
             "tools": self.tools,
@@ -1183,17 +1500,6 @@ class DecisionLLM:
             except (TypeError, ValueError):
                 return None
 
-        def _coerce_bool(value: Any) -> Optional[bool]:
-            if isinstance(value, bool):
-                return value
-            if isinstance(value, str):
-                normalized = value.strip().lower()
-                if normalized in {"true", "1", "yes", "y"}:
-                    return True
-                if normalized in {"false", "0", "no", "n"}:
-                    return False
-            return None
-
         try:
             logger.info("🤖 Decision LLM requesting unified tool call...")
             response = self.session.post(
@@ -1201,6 +1507,23 @@ class DecisionLLM:
                 json=payload,
                 timeout=self.timeout
             )
+            
+            # Handle 404 - model not found
+            if response.status_code == 404:
+                logger.warning(f"Model '{self.model}' not found. Attempting to pull it now...")
+                if self._pull_model():
+                    # Retry the request after pulling
+                    response = self.session.post(
+                        f"{self.base_url}/api/chat",
+                        json=payload,
+                        timeout=self.timeout
+                    )
+                else:
+                    raise requests.exceptions.HTTPError(
+                        f"Model '{self.model}' not available and could not be pulled",
+                        response=response
+                    )
+            
             response.raise_for_status()
 
             result = response.json()
@@ -1263,10 +1586,10 @@ class DecisionLLM:
             if context_lines:
                 decision_trace["context"] = context_lines
 
-            if shipping_hint is not None:
-                decision_trace.setdefault("shipping_label_hint", shipping_hint)
             if packaging_hint is not None:
                 decision_trace.setdefault("packaging_hint", packaging_hint)
+            if rfdet_hint is not None:
+                decision_trace.setdefault("rfdet_hint", rfdet_hint)
 
             box_count_value = _coerce_int(arguments.get("box_count"))
             label_count_value = _coerce_int(arguments.get("label_count"))
@@ -1293,7 +1616,7 @@ class DecisionLLM:
             if tool_name == "trigger_packaging_alert":
                 confidence = max(0.0, min(1.0, _coerce_float(arguments.get("confidence"), 0.85)))
                 reasoning = arguments.get("reasoning") or "Unlabeled packaging box detected by decision model"
-                shipping_label_present = _coerce_bool(arguments.get("shipping_label_present"))
+                shipping_label_present = _coerce_bool(arguments.get("shipping_label_present"), None)
                 if shipping_label_present is None:
                     shipping_label_present = False
 
@@ -1323,7 +1646,7 @@ class DecisionLLM:
                 confidence = _coerce_float(confidence_val, 0.5) if confidence_val is not None else 0.5
                 reasoning = arguments.get("reasoning") or "No packaging boxes require action"
 
-                shipping_label_present = _coerce_bool(arguments.get("shipping_label_present"))
+                shipping_label_present = _coerce_bool(arguments.get("shipping_label_present"), None)
 
                 _finalize_common_trace("NO_BOX_DETECTED")
                 decision_trace["reasoning"] = reasoning
@@ -1487,16 +1810,15 @@ class AlertManager:
             msg["Subject"] = subject
             
             # Use environment variables for email credentials
-            sender_email = os.getenv("EMAIL_USER") or self.email_config.get("sender_email", "noreply@zededa.com")
-            env_password = os.getenv("EMAIL_PASS")
-            legacy_password = self.email_config.get("sender_password")
+            sender_email = os.getenv("EMAIL_USER") or self.email_config.get("sender_email")
+            if not sender_email:
+                logger.error("Email sender address missing; configure EMAIL_USER or notifications.email.sender_email")
+                return False
 
-            if legacy_password and not env_password:
-                logger.warning(
-                    "Using sender_password from configuration file; migrate credentials to EMAIL_PASS."
-                )
-
-            sender_password = env_password or legacy_password or ""
+            sender_password = os.getenv("EMAIL_PASS")
+            if not sender_password:
+                logger.error("Email password missing; set EMAIL_PASS environment variable")
+                return False
 
             msg["From"] = os.getenv("EMAIL_FROM", sender_email)
             
@@ -1535,9 +1857,12 @@ class AlertManager:
                     logger.error("Failed to attach detection image %s: %s", event.image_path, exc)
             
             # Send email
-            smtp_server = os.getenv("EMAIL_SMTP_SERVER") or self.email_config.get("smtp_server", "smtp.gmail.com")
+            smtp_server = self.email_config.get("smtp_server")
+            if not smtp_server:
+                logger.error("SMTP server not configured; set notifications.email.smtp_server")
+                return False
             try:
-                smtp_port = int(os.getenv("EMAIL_SMTP_PORT", self.email_config.get("smtp_port", 587)))
+                smtp_port = int(self.email_config.get("smtp_port"))
             except (TypeError, ValueError):
                 logger.error("Invalid SMTP port configuration")
                 return False
@@ -1547,10 +1872,6 @@ class AlertManager:
                 _coerce_bool(self.email_config.get("use_tls"), True)
             )
             use_tls = _coerce_bool(os.getenv("EMAIL_USE_TLS"), use_tls_config)
-            
-            if not sender_email or not sender_password:
-                logger.error("Email credentials missing; set EMAIL_USER and EMAIL_PASS environment variables")
-                return False
             
             with smtplib.SMTP(smtp_server, smtp_port) as server:
                 if use_tls:
@@ -1572,8 +1893,10 @@ class AlertManager:
         if not _coerce_bool(self.desktop_config.get("enabled"), False):
             logger.debug("Desktop notifications disabled")
             return False
+        if plyer_notification is None:
+            logger.debug("plyer not available for desktop notifications")
+            return False
         try:
-            import plyer
             try:
                 timeout = int(self.desktop_config.get("timeout", 10))
             except (TypeError, ValueError):
@@ -1592,16 +1915,13 @@ class AlertManager:
                 label=event.primary_label,
                 shipping_label_present=label_status
             )
-            plyer.notification.notify(
+            plyer_notification.notify(
                 title=title,
                 message=message,
                 timeout=timeout
             )
             logger.info("Desktop notification sent")
             return True
-        except ImportError:
-            logger.debug("plyer not available for desktop notifications")
-            return False
         except Exception as e:
             logger.error(f"Failed to send desktop notification: {e}")
             return False
@@ -1636,11 +1956,55 @@ class MonitorDetectionAgent:
         except (TypeError, ValueError) as exc:
             raise ValueError("Ollama timeout must be an integer value") from exc
 
+        decision_llm_cfg = self.config.get("decision_llm") if isinstance(self.config, dict) else {}
+        if not isinstance(decision_llm_cfg, dict):
+            decision_llm_cfg = {}
+
+        decision_system_prompt = decision_llm_cfg.get(
+            "system_prompt",
+            DEFAULT_DECISION_LLM_CONFIG["system_prompt"]
+        )
+        decision_user_prompt = decision_llm_cfg.get(
+            "user_prompt_template",
+            DEFAULT_DECISION_LLM_CONFIG["user_prompt_template"]
+        )
+        decision_tools = decision_llm_cfg.get("tools", DEFAULT_DECISION_LLM_CONFIG["tools"])
+        if not isinstance(decision_tools, list):
+            decision_tools = DEFAULT_DECISION_LLM_CONFIG["tools"]
+        else:
+            decision_tools = copy.deepcopy(decision_tools)
+
+        decision_timeout = decision_llm_cfg.get("timeout", 30)
+        try:
+            decision_timeout = int(decision_timeout)
+        except (TypeError, ValueError):
+            decision_timeout = 30
+
+        analysis_cfg = self.config.get("analysis") if isinstance(self.config, dict) else {}
+        if not isinstance(analysis_cfg, dict):
+            analysis_cfg = {}
+
+        packaging_cfg = analysis_cfg.get("packaging_box_analyzer")
+        if not isinstance(packaging_cfg, dict):
+            packaging_cfg = {}
+
+        rfdet_cfg = analysis_cfg.get("rf_detr")
+        if not isinstance(rfdet_cfg, dict):
+            rfdet_cfg = {}
+
         self.ollama_client = OllamaVisionClient(ollama_url, vision_model, timeout=ollama_timeout)
-        self.decision_llm = DecisionLLM(ollama_url, decision_model)
+        self.decision_llm = DecisionLLM(
+            ollama_url,
+            decision_model,
+            system_prompt=decision_system_prompt,
+            user_prompt_template=decision_user_prompt,
+            tools=decision_tools,
+            timeout=decision_timeout
+        )
         self.alert_manager = AlertManager(self.config)
-        self.packaging_box_analyzer = PackagingBoxAnalyzer()
+        self.packaging_box_analyzer = PackagingBoxAnalyzer(**packaging_cfg)
         self._rfdet_detector: Optional[RFDetrPackageDetector] = None
+        self._rfdet_config = rfdet_cfg
         self._rfdet_detector_failed = False
         self.images_dir = Path("detected_images")
         self.processed_frames_dir = Path("processed_frames")
@@ -1795,6 +2159,23 @@ class MonitorDetectionAgent:
 
         self.config = updated_config
         self.alert_manager.refresh_config(updated_config)
+
+        analysis_cfg = self.config.get("analysis") if isinstance(self.config, dict) else {}
+        if not isinstance(analysis_cfg, dict):
+            analysis_cfg = {}
+
+        packaging_cfg = analysis_cfg.get("packaging_box_analyzer")
+        if not isinstance(packaging_cfg, dict):
+            packaging_cfg = {}
+        self.packaging_box_analyzer = PackagingBoxAnalyzer(**packaging_cfg)
+
+        rfdet_cfg = analysis_cfg.get("rf_detr")
+        if not isinstance(rfdet_cfg, dict):
+            rfdet_cfg = {}
+        self._rfdet_config = rfdet_cfg
+        self._rfdet_detector = None
+        self._rfdet_detector_failed = False
+
         self._apply_runtime_config()
         self.clear_similarity_cache("config_refresh")
 
@@ -1820,7 +2201,7 @@ class MonitorDetectionAgent:
 
         if self._rfdet_detector is None:
             try:
-                self._rfdet_detector = RFDetrPackageDetector()
+                self._rfdet_detector = RFDetrPackageDetector(**self._rfdet_config)
             except Exception as exc:  # pragma: no cover - heavy dependency init
                 logger.error("Unable to initialize RF-DETR package detector: %s", exc)
                 self._rfdet_detector_failed = True
@@ -1925,11 +2306,13 @@ class MonitorDetectionAgent:
             if decoded_frame is not None:
                 reference_frame = self._make_similarity_reference(decoded_frame)
 
-            if reference_frame is not None and self._last_similarity_frame is not None:
+            if reference_frame is not None and self._last_similarity_frame is not None and structural_similarity is not None:
                 try:
-                    from skimage.metrics import structural_similarity as ssim
-
-                    similarity_value = ssim(self._last_similarity_frame, reference_frame, data_range=255)
+                    similarity_value = structural_similarity(
+                        self._last_similarity_frame,
+                        reference_frame,
+                        data_range=255
+                    )
                     time_since_last = analysis_started_at - self._last_llm_run_time
                     if (
                         self._last_processed_event
@@ -1999,10 +2382,9 @@ class MonitorDetectionAgent:
             packaging_analysis = None
             packaging_hint = None
             packaging_box_count = 0
+            packaging_confidence_value: Optional[float] = None
             local_tools_used: List[str] = []
             local_tool_trace: List[Dict[str, Any]] = []
-            labels_per_box = 0.0
-            label_region_count = 0
             rfdet_analysis = None
             rfdet_hint = None
             if self.packaging_box_analyzer:
@@ -2014,6 +2396,7 @@ class MonitorDetectionAgent:
                 if packaging_analysis:
                     packaging_box_count = max(0, int(packaging_analysis.estimated_box_count))
                     packaging_hint = packaging_analysis.summary
+                    packaging_confidence_value = float(packaging_analysis.confidence)
                     logger.info("📦 Local packaging analysis: %s", packaging_hint)
                 packaging_tool_payload = {
                     "detected": bool(packaging_analysis.detected) if packaging_analysis else False,
@@ -2043,25 +2426,25 @@ class MonitorDetectionAgent:
                         "output": rfdet_analysis
                     })
 
-
-            if packaging_box_count <= 0:
-                labels_per_box = float(label_region_count)
-            else:
-                labels_per_box = label_region_count / max(packaging_box_count, 1)
-
-            multi_label_flag = packaging_box_count > 0 and labels_per_box > 1.05
-
             base_prompt = self.config.get("detection", {}).get(
                 "prompt",
                 "Describe the image in 2-3 concise sentences."
             )
             prompt = base_prompt
-            if multi_label_flag:
-                prompt = (
-                    base_prompt.rstrip() +
-                    "\n\nFocus specifically on packaging boxes that appear to have multiple shipping labels. "
-                    "Describe each label's placement, orientation, and any distinguishing features if visible."
-                )
+
+            extra_context: Dict[str, Any] = {"packaging_box_count": packaging_box_count}
+            if packaging_hint:
+                extra_context["packaging_hint"] = packaging_hint
+            if packaging_confidence_value is not None:
+                extra_context["packaging_confidence"] = round(packaging_confidence_value, 3)
+            if packaging_analysis:
+                extra_context["packaging_candidate_count"] = int(packaging_analysis.candidate_count)
+            extra_context["rfdet_hint"] = rfdet_hint
+            if rfdet_analysis:
+                extra_context["rfdet_box_count"] = int(rfdet_analysis.get("box_count", 0) or 0)
+                avg_conf = rfdet_analysis.get("average_confidence")
+                if avg_conf is not None:
+                    extra_context["rfdet_average_confidence"] = float(avg_conf)
 
             # STAGE 1: Vision LLM describes what it sees
             logger.info("🔍 Stage 1: Vision LLM analyzing image...")
@@ -2076,37 +2459,10 @@ class MonitorDetectionAgent:
             if not vision_description:
                 logger.warning("Vision LLM returned empty response")
                 return None
-
-            multi_label_description = ""
-            if multi_label_flag:
-                detailed_prompt = (
-                    "Provide a focused description of any boxes that appear to contain more than one shipping label. "
-                    "List each box and summarize where the labels sit relative to the box faces."
-                )
-                try:
-                    detailed_result = self.ollama_client.analyze_image(image_data, detailed_prompt)
-                    multi_label_description = detailed_result.get('response', '') if isinstance(detailed_result, dict) else ''
-                except Exception as detail_exc:
-                    logger.warning("Failed to obtain multi-label scene description: %s", detail_exc)
-                    multi_label_description = ""
-
-                if multi_label_description:
-                    logger.info("📝 Multi-label detail: %s", multi_label_description[:300] + ('...' if len(multi_label_description) > 300 else ''))
-                    vision_description = (
-                        f"{vision_description}\n\nMulti-label detail:\n{multi_label_description}"
-                    )
-                    local_tools_used.append("vision_multi_label_detail")
-                    local_tool_trace.append({
-                        "name": "vision_multi_label_detail",
-                        "output": {
-                            "prompt": detailed_prompt,
-                            "response": multi_label_description
-                        }
-                    })
             
             # STAGE 2: Decision LLM determines if an unlabeled packaging box needs attention
             logger.info("🤖 Stage 2: Decision LLM evaluating...")
-            decision_result = self.decision_llm.make_detection_decision(vision_description, None)
+            decision_result = self.decision_llm.make_detection_decision(vision_description, extra_context)
             if not isinstance(decision_result, dict):
                 decision_result = {}
 
@@ -2141,14 +2497,7 @@ class MonitorDetectionAgent:
                 if name and name not in combined_tools_used:
                     combined_tools_used.append(name)
 
-            decision_trace["packaging_box_count"] = packaging_box_count
-            decision_trace["label_region_count"] = label_region_count
-            decision_trace["labels_per_box"] = round(float(labels_per_box), 3)
-            decision_trace["multi_label_flag"] = bool(multi_label_flag)
-            if multi_label_flag and multi_label_description and "multi_label_description" not in decision_trace:
-                decision_trace["multi_label_description"] = multi_label_description
-
-            packaging_confidence_value = packaging_analysis.confidence if packaging_analysis else None
+            decision_trace["local_packaging_box_count"] = packaging_box_count
 
             if packaging_confidence_value is not None:
                 decision_trace.setdefault("packaging_confidence", round(float(packaging_confidence_value), 3))
@@ -2175,29 +2524,55 @@ class MonitorDetectionAgent:
             llm_label_count = decision_trace.get("llm_reported_label_count", llm_label_count)
 
             report_box_count = llm_box_count if llm_box_count is not None else packaging_box_count
-            report_label_count = llm_label_count if llm_label_count is not None else label_region_count
             if report_box_count is None:
                 report_box_count = 0
-            if report_label_count is None:
-                report_label_count = 0
 
-            if report_box_count > 0:
-                report_labels_per_box = report_label_count / max(report_box_count, 1)
+            final_label_count: Optional[int]
+            if llm_label_count is not None:
+                try:
+                    final_label_count = int(llm_label_count)
+                except (TypeError, ValueError):
+                    final_label_count = None
             else:
-                report_labels_per_box = float(report_label_count)
+                final_label_count = None
 
-            labels_per_box = report_labels_per_box
-            packaging_box_count = report_box_count
-            label_region_count = report_label_count
+            if isinstance(report_box_count, float) and report_box_count.is_integer():
+                report_box_count = int(report_box_count)
 
-            decision_trace["final_box_count"] = report_box_count
-            decision_trace["final_label_count"] = report_label_count
-            decision_trace["labels_per_box"] = round(float(report_labels_per_box), 3)
+            labels_per_box_value: Optional[float]
+            if report_box_count > 0 and final_label_count is not None:
+                labels_per_box_value = final_label_count / max(report_box_count, 1)
+            elif final_label_count is not None:
+                labels_per_box_value = float(final_label_count)
+            else:
+                labels_per_box_value = None
+
+            packaging_box_count = int(report_box_count)
+
+            decision_trace["final_box_count"] = packaging_box_count
+            if final_label_count is not None:
+                decision_trace["final_label_count"] = final_label_count
+            else:
+                decision_trace.pop("final_label_count", None)
+
+            if labels_per_box_value is not None:
+                decision_trace["labels_per_box"] = round(float(labels_per_box_value), 3)
+            else:
+                decision_trace.pop("labels_per_box", None)
 
             if isinstance(decision_result, dict):
                 decision_result["decision_trace"] = decision_trace
                 decision_result["tools_used"] = combined_tools_used
                 decision_result["tool_trace"] = combined_tool_trace
+
+            scene_parts = [f"boxes≈{packaging_box_count}"]
+            if 'final_label_count' in decision_trace:
+                scene_parts.append(f"labels≈{decision_trace['final_label_count']}")
+                if labels_per_box_value is not None:
+                    scene_parts.append(f"labels_per_box≈{round(float(labels_per_box_value), 3)}")
+            scene_summary = ", ".join(scene_parts)
+            if not scene_summary:
+                scene_summary = "boxes≈0"
 
             classification_snapshot = decision_trace.get("classification", "")
             tools_summary = ", ".join(combined_tools_used) if combined_tools_used else "none"
@@ -2267,10 +2642,7 @@ class MonitorDetectionAgent:
                     combined_response += f"\n\nLocal packaging analysis: {packaging_hint}"
                 if rfdet_hint:
                     combined_response += f"\n\nRF-DETR packaging analysis: {rfdet_hint}"
-                combined_response += (
-                    f"\n\nScene counts: boxes≈{packaging_box_count}, label_regions≈{label_region_count}, "
-                    f"labels_per_box≈{round(float(labels_per_box), 3)}"
-                )
+                combined_response += f"\n\nScene counts: {scene_summary}"
                 combined_response += f"\n\nDecision tools: {', '.join(combined_tools_used) if combined_tools_used else 'none'}"
 
                 detection_event = DetectionEvent(
@@ -2326,10 +2698,7 @@ class MonitorDetectionAgent:
                 combined_response += f"\n\nLocal packaging analysis: {packaging_hint}"
             if rfdet_hint:
                 combined_response += f"\n\nRF-DETR packaging analysis: {rfdet_hint}"
-            combined_response += (
-                f"\n\nScene counts: boxes≈{packaging_box_count}, label_regions≈{label_region_count}, "
-                f"labels_per_box≈{round(float(labels_per_box), 3)}"
-            )
+            combined_response += f"\n\nScene counts: {scene_summary}"
             combined_response += f"\n\nDecision tools: {', '.join(combined_tools_used) if combined_tools_used else 'none'}"
 
             logger.info("✅ No packaging box requiring action detected by decision LLM")

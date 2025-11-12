@@ -13,6 +13,11 @@ from uuid import uuid4
 
 import cv2
 
+try:
+    from skimage.metrics import structural_similarity
+except ImportError:  # pragma: no cover - optional dependency
+    structural_similarity = None
+
 from camera_agent import MonitorDetectionAgent
 from camera_feed_publisher import get_camera_publisher
 
@@ -294,9 +299,7 @@ class CameraMonitoringService:
     def _is_duplicate_pending(self, reference_frame):
         if reference_frame is None or not self._pending_reference_frames:
             return False, 0.0
-        try:
-            from skimage.metrics import structural_similarity as ssim
-        except Exception:
+        if structural_similarity is None:
             return False, 0.0
 
         max_similarity = 0.0
@@ -306,7 +309,7 @@ class CameraMonitoringService:
             if pending_frame is None:
                 continue
             try:
-                similarity = ssim(pending_frame, reference_frame, data_range=255)
+                similarity = structural_similarity(pending_frame, reference_frame, data_range=255)
             except Exception:
                 continue
 
@@ -391,27 +394,28 @@ class CameraMonitoringService:
                 reference_frame = None
 
                 if prev_frame_for_ssim is not None:
-                    try:
-                        from skimage.metrics import structural_similarity as ssim
+                    if structural_similarity is not None:
+                        try:
+                            target_size = (320, 240)
+                            current_small = cv2.resize(frame_obj.raw_frame, target_size)
+                            prev_small = cv2.resize(prev_frame_for_ssim, target_size)
 
-                        target_size = (320, 240)
-                        current_small = cv2.resize(frame_obj.raw_frame, target_size)
-                        prev_small = cv2.resize(prev_frame_for_ssim, target_size)
+                            current_gray = cv2.cvtColor(current_small, cv2.COLOR_BGR2GRAY)
+                            prev_gray = cv2.cvtColor(prev_small, cv2.COLOR_BGR2GRAY)
 
-                        current_gray = cv2.cvtColor(current_small, cv2.COLOR_BGR2GRAY)
-                        prev_gray = cv2.cvtColor(prev_small, cv2.COLOR_BGR2GRAY)
-
-                        similarity = ssim(prev_gray, current_gray, data_range=255)
-                        motion_detected = similarity < self.ssim_threshold
-                        reference_frame = current_gray
-                        if motion_detected:
-                            reason = f"scene_change (SSIM={similarity:.3f})"
-                        else:
-                            reason = f"scene_similar (SSIM={similarity:.3f})"
-                    except Exception as exc:
-                        print(f"SSIM check failed: {exc}")
-                        motion_detected = True
-                        reason = "ssim_fallback"
+                            similarity = structural_similarity(prev_gray, current_gray, data_range=255)
+                            motion_detected = similarity < self.ssim_threshold
+                            reference_frame = current_gray
+                            if motion_detected:
+                                reason = f"scene_change (SSIM={similarity:.3f})"
+                            else:
+                                reason = f"scene_similar (SSIM={similarity:.3f})"
+                        except Exception as exc:
+                            print(f"SSIM check failed: {exc}")
+                            motion_detected = True
+                            reason = "ssim_fallback"
+                    else:
+                        reason = "ssim_unavailable"
 
                 if reference_frame is None:
                     reference_frame = self._make_reference_frame(frame_obj.raw_frame)
