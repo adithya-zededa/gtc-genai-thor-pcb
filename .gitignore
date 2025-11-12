@@ -19,7 +19,7 @@ processed_frames/
 *.png
 *.gif
 *.bmp
-
+*.pth
 # Database files
 *.db
 *.sqlite
