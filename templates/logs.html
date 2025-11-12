@@ -25,7 +25,6 @@
                 <option value="all">All Events</option>
                 <option value="detected">Detections</option>
                 <option value="no_detection">No Detection</option>
-                <option value="error">Errors</option>
             </select>
         </div>
         
@@ -61,7 +60,7 @@
 </div>
 
 <!-- Summary Stats -->
-<div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
     <div class="bg-white rounded-lg shadow-md p-6">
         <div class="flex items-center">
             <div class="p-3 rounded-full bg-blue-100 text-blue-600 mr-4">
@@ -94,18 +93,6 @@
             <div>
                 <p class="text-sm font-medium text-gray-600">Detection Rate</p>
                 <p class="text-2xl font-bold text-gray-900" id="detection-rate">0%</p>
-            </div>
-        </div>
-    </div>
-    
-    <div class="bg-white rounded-lg shadow-md p-6">
-        <div class="flex items-center">
-            <div class="p-3 rounded-full bg-red-100 text-red-600 mr-4">
-                <i class="fas fa-exclamation-triangle text-xl"></i>
-            </div>
-            <div>
-                <p class="text-sm font-medium text-gray-600">Errors</p>
-                <p class="text-2xl font-bold text-gray-900" id="total-errors">0</p>
             </div>
         </div>
     </div>
@@ -266,8 +253,53 @@
             segments.push(`<p><span class="font-semibold text-gray-700">Confidence:</span> ${confidenceDisplay}</p>`);
         }
 
-        if (details.monitor_type) {
-            segments.push(`<p><span class="font-semibold text-gray-700">Monitor Type:</span> ${escapeHtml(details.monitor_type)}</p>`);
+        if (typeof details.shipping_label_present !== 'undefined') {
+            let labelDisplay = 'unknown';
+            if (details.shipping_label_present === true) {
+                labelDisplay = 'visible';
+            } else if (details.shipping_label_present === false) {
+                labelDisplay = 'not visible';
+            } else if (typeof details.shipping_label_present === 'string') {
+                labelDisplay = escapeHtml(details.shipping_label_present);
+            }
+            segments.push(`<p><span class="font-semibold text-gray-700">Shipping Label:</span> ${labelDisplay}</p>`);
+        }
+
+        if (details.box_description) {
+            segments.push(`<p><span class="font-semibold text-gray-700">Box Details:</span> ${escapeHtml(details.box_description)}</p>`);
+        }
+
+        if (details.shipping_label_analysis) {
+            const analysis = details.shipping_label_analysis;
+            const summaryText = typeof analysis.summary === 'string' ? analysis.summary : JSON.stringify(analysis);
+            const confidence = typeof analysis.presence_confidence === 'number'
+                ? `${(Math.max(0, Math.min(1, analysis.presence_confidence)) * 100).toFixed(0)}%`
+                : 'n/a';
+            const candidates = typeof analysis.candidate_count === 'number' ? analysis.candidate_count : 'n/a';
+            segments.push(`<p><span class="font-semibold text-gray-700">Local Label Analysis:</span> ${escapeHtml(summaryText)} (confidence ${confidence}, candidates ${candidates})</p>`);
+        }
+
+        if (details.packaging_analysis) {
+            const packaging = details.packaging_analysis;
+            const summaryText = typeof packaging.summary === 'string' ? packaging.summary : JSON.stringify(packaging);
+            const confidence = typeof packaging.confidence === 'number'
+                ? `${(Math.max(0, Math.min(1, packaging.confidence)) * 100).toFixed(0)}%`
+                : 'n/a';
+            const candidates = typeof packaging.candidate_count === 'number' ? packaging.candidate_count : 'n/a';
+            segments.push(`<p><span class="font-semibold text-gray-700">Classical Packaging Analysis:</span> ${escapeHtml(summaryText)} (confidence ${confidence}, candidates ${candidates})</p>`);
+        }
+
+        if (Array.isArray(details.tools_used) && details.tools_used.length) {
+            segments.push(`<p><span class="font-semibold text-gray-700">Tools Used:</span> ${escapeHtml(details.tools_used.join(', '))}</p>`);
+        }
+
+        if (Array.isArray(details.tool_trace) && details.tool_trace.length) {
+            segments.push(`
+                <details class="rounded-md border border-gray-200 bg-white">
+                    <summary class="cursor-pointer px-3 py-2 text-sm font-medium text-blue-600">Tool Trace</summary>
+                    <pre class="px-3 py-2 text-xs text-gray-800 whitespace-pre-wrap break-words overflow-auto">${escapeHtml(JSON.stringify(details.tool_trace, null, 2))}</pre>
+                </details>
+            `);
         }
 
         if (details.reasoning) {
@@ -387,7 +419,6 @@
             if (statusFilter !== 'all') {
                 if (statusFilter === 'detected' && !log.detected) return false;
                 if (statusFilter === 'no_detection' && log.detected) return false;
-                if (statusFilter === 'error' && !log.error) return false;
             }
             
             // Search filter
@@ -531,17 +562,14 @@
     
     // Get log status
     function getLogStatus(log) {
-        if (log.error || (log.decision_details && log.decision_details.error)) return 'error';
-        if (log.detected) return 'detected';
-        return 'no_detection';
+        return log.detected ? 'detected' : 'no_detection';
     }
     
     // Get status badge
     function getStatusBadge(status) {
         const badges = {
             'detected': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Detected</span>',
-            'no_detection': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">No Detection</span>',
-            'error': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">Error</span>'
+            'no_detection': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">No Detection</span>'
         };
         return badges[status] || badges['no_detection'];
     }
@@ -564,12 +592,10 @@
     function updateSummaryStats() {
         const totalEvents = filteredLogs.length;
         const detections = filteredLogs.filter(log => log.detected).length;
-        const errors = filteredLogs.filter(log => log.error).length;
         const detectionRate = totalEvents > 0 ? ((detections / totalEvents) * 100).toFixed(1) : 0;
         
         document.getElementById('total-events').textContent = totalEvents;
         document.getElementById('total-detections').textContent = detections;
-        document.getElementById('total-errors').textContent = errors;
         document.getElementById('detection-rate').textContent = detectionRate + '%';
     }
     

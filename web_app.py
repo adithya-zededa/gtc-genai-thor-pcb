@@ -91,18 +91,9 @@ def _sanitize_config_payload(config: Dict) -> Dict:
 
 
 def load_camera_config() -> Dict:
-    """Load the camera configuration from disk or fall back to defaults."""
+    """Load the camera configuration from disk."""
     with CONFIG_LOCK:
-        if CONFIG_PATH.exists():
-            try:
-                with CONFIG_PATH.open('r', encoding='utf-8') as config_file:
-                    data = yaml.safe_load(config_file) or {}
-                if isinstance(data, dict):
-                    return data
-                logger.warning("Camera configuration root is not a mapping; reverting to defaults")
-            except Exception as exc:
-                logger.error("Failed to read configuration file: %s", exc)
-        return MonitorDetectionAgent.default_config()
+        return MonitorDetectionAgent.load_config_from_path(CONFIG_PATH)
 
 
 def save_camera_config(config: Dict) -> Dict:
@@ -655,7 +646,11 @@ def api_config():
             return jsonify({'success': False, 'error': str(e)})
     
     else:
-        config = load_camera_config()
+        try:
+            config = load_camera_config()
+        except Exception as exc:  # pragma: no cover - surface config load issues via API
+            return jsonify({'success': False, 'error': f'Failed to load configuration: {exc}'}), 500
+
         sanitized = _sanitize_config_payload(config)
         return jsonify(sanitized)
 
@@ -688,7 +683,11 @@ def api_config_reset():
 def api_notification_recipients():
     """Manage notification email recipients."""
     if request.method == 'GET':
-        config = load_camera_config()
+        try:
+            config = load_camera_config()
+        except Exception as exc:  # pragma: no cover - propagate load errors to client
+            return jsonify({'success': False, 'error': f'Failed to load configuration: {exc}'}), 500
+
         recipients = extract_recipients(config)
         return jsonify({'success': True, 'recipients': recipients})
 
@@ -706,7 +705,10 @@ def api_notification_recipients():
             continue
         sanitized.append(candidate)
 
-    config = load_camera_config()
+    try:
+        config = load_camera_config()
+    except Exception as exc:  # pragma: no cover - propagate load errors to client
+        return jsonify({'success': False, 'error': f'Failed to load configuration: {exc}'}), 500
     apply_recipients(config, sanitized)
     persisted = save_camera_config(config)
 

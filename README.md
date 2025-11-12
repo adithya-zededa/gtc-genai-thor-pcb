@@ -1,26 +1,30 @@
 # ZEDEDA Camera Monitoring Agent
 
-A smart camera monitoring system that uses computer vision and AI to detect computer monitors in real-time and send email alerts.
+An AI-assisted camera system that detects packaging/shipping boxes in real time and raises alerts only when a box is missing a visible shipping label.
 
 ## Overview
 
-The ZEDEDA Camera Monitoring Agent captures video from `/dev/video0`, uses SSIM-based preprocessing to detect scene changes, analyzes frames with Ollama vision models, and sends email alerts when computer monitors are detected in the camera feed.
+The ZEDEDA Camera Monitoring Agent captures video from `/dev/video0`, uses SSIM-based preprocessing to detect scene changes, analyzes frames with Ollama vision models, and differentiates between labeled and unlabeled packaging boxes. Alerts are generated only for boxes without clearly visible shipping labels, helping highlight items that may be misplaced or not yet processed.
 
 ## Key Features
 
-- **Smart Frame Preprocessing**: SSIM-based scene change detection reduces LLM calls by 95%
-- **Intelligent Scene Analysis**: Uses gemma3:4b model to describe scenes naturally
-- **Keyword-Based Detection**: Triggers alerts when scene descriptions contain "monitor" or related terms
+- **Smart Frame Preprocessing**: SSIM-based scene change detection reduces LLM calls by ~95%
+- **Agent Similarity Guard**: Reuses the last decision when frames are nearly identical, preventing redundant LLM calls
+- **Two-Stage LLM Pipeline**: Vision model summarizes the scene, decision model classifies box/label status
+- **Classical Packaging Detector**: Contour-based OpenCV analyzer scores packaging-shaped regions before any LLM call
+- **Shipping Label Awareness**: Hybrid pipeline merges LLM judgment with a local OpenCV-based analyzer to verify label visibility
+- **Tool Trace Logging**: Decision trace summaries record which LLM tools executed, visible in console logs and the web UI
+- **Confidence Blending**: Weighted scoring fuses LLM confidence with classical packaging/label analyzers for transparent decision strength
 - **Responsive Polling**: Processes frames immediately on scene changes, every 5s when static
-- **Email Notifications**: Automatic alerts via Gmail SMTP with App Password authentication
-- **Frame Logging**: Saves all processed frames and detection images for review
+- **Email & Desktop Notifications**: Automatic alerting with customizable templates
+- **Frame Logging**: Saves processed frames and detection imagery for auditability
 
 ## Architecture
 
 ```
-Camera Feed → SSIM Analysis → Scene Description → Keyword Detection → Email Alert
-     ↓              ↓               ↓                    ↓              ↓
-/dev/video0    Frame Diff      Ollama gemma3:4b    "monitor" found   Gmail SMTP
+Camera Feed → SSIM Analysis → Vision LLM Summary → Decision LLM (label check) → Alert Routing
+   ↓              ↓                 ↓                         ↓                  ↓
+/dev/video0    Frame Diff      Ollama gemma3:4b         llama3.2 decision     Email / UI Alert
 ```
 
 ## Quick Start
@@ -38,9 +42,9 @@ Camera Feed → SSIM Analysis → Scene Description → Keyword Detection → Em
    EMAIL_FROM=your-email@gmail.com
    ```
 
-3. **Configure Recipients** (Settings UI or `camera_config.yaml`):
+3. **Configure Recipients** (Settings UI or `config.yaml`):
    - Recommended: open the web app → **Settings → Alert Recipients** and add the desired email addresses.
-   - Alternatively, update `notifications.email.recipients` (and the corresponding rule `to` lists) in `camera_config.yaml`:
+   - Alternatively, update `notifications.email.recipients` (and the corresponding rule `to` lists) in `config.yaml`:
 
      ```yaml
      notifications:
@@ -57,27 +61,31 @@ Camera Feed → SSIM Analysis → Scene Description → Keyword Detection → Em
 
 ## Configuration
 
-### Camera Settings (`camera_config.yaml`)
+### Camera Settings (`config.yaml`)
 ```yaml
+advanced:
+   agent_ssim_skip_threshold: 0.95
+   agent_ssim_recheck_seconds: 30
+   motion_burst_interval: 0.2
+   motion_burst_window: 12
 camera:
-  device_index: 0                    # /dev/video0
-  capture_interval: 5                # Seconds between captures
-  save_detection_images: true        # Save positive detections
-  save_processed_frames: true        # Save all analyzed frames
-  preprocessing:
-    enabled: true
-    diff_threshold: 0.80             # SSIM threshold (lower = more sensitive)
-
+   device_index: 0
+   capture_interval: 5
+   save_detection_images: true
+   save_processed_frames: true
+   preprocessing:
+      diff_threshold: 0.80
 ollama:
-  model: "gemma3:4b"                # Vision model
-  base_url: "http://localhost:11434"
-
+   url: "http://localhost:11434"
+   vision_model: "gemma:12b"
+   decision_model: "llama3.2:latest"
 detection:
-  prompt: |
-    Describe what you see in this image in 2-3 concise sentences.
-    Focus on identifying objects, furniture, electronics, and the general setting.
-    Be specific about any computer equipment, screens, displays, or technology.
+   prompt: |
+      Describe what you see in this image in 2-3 concise sentences.
+      Highlight any packaging or shipping boxes and mention whether shipping labels are clearly visible.
 ```
+
+> Advanced SSIM tuning: adjust `advanced.agent_ssim_skip_threshold` (similarity to reuse), `advanced.agent_ssim_recheck_seconds` (max age before re-running the LLM), and `advanced.agent_ssim_reference_size` (width/height for SSIM downsampling) to fit your scene dynamics.
 
 > Tip: Use the configuration page or `POST /api/config/reset` to restore the default YAML at any time. The API also exposes `GET /api/config/defaults` for read-only inspection.
 
@@ -93,26 +101,28 @@ EMAIL_PASS=your-gmail-app-password
 EMAIL_FROM=your-email@gmail.com
 EMAIL_SMTP_SERVER=smtp.gmail.com
 EMAIL_SMTP_PORT=587
-CAMERA_AGENT_CONFIG=/data/camera_config.yaml  # optional override for container mounts
+CAMERA_AGENT_CONFIG=/data/config.yaml  # optional override for container mounts
 ```
 
 ## Detection Logic
 
-1. **Frame Capture**: Captures frames from camera every 5 seconds
-2. **SSIM Analysis**: Compares frames using Structural Similarity Index
-3. **Scene Description**: Sends significantly different frames to gemma3:4b for natural language description
-4. **Keyword Detection**: Checks if description contains monitor-related keywords:
-   - "monitor", "monitors", "computer monitor", "desktop monitor"
-   - "screen", "display", "computer screen", "laptop screen"
-5. **Alert Trigger**: Sends email if keywords detected in scene description
+1. **Frame Capture**: Captures frames from the camera, prioritizing scene changes detected via SSIM
+2. **Similarity Guard**: Compares the current frame against the last analyzed frame via SSIM and reuses the previous decision when similarity ≥ `agent_ssim_skip_threshold`
+3. **Vision Summary**: Sends selected frames to `gemma3:4b` (or configured model) for a concise description
+4. **Classical Packaging Analysis**: Applies a contour/geometry-based OpenCV model to score packaging-box candidates, generating interpretable hints
+5. **Label Region Clustering**: Uses a k-means model over candidate regions to estimate how many distinct shipping labels appear per box and feeds those counts into downstream tooling
+6. **Decision Pass**: Provides the description (plus local hints) to `llama3.2` for classification into `BOX_NO_LABEL`, `BOX_WITH_LABEL`, or `NO_BOX_DETECTED`
+7. **Confidence Blending**: Combines the LLM's reported confidence with classical analyzer scores for a traceable final confidence metric
+8. **Tool Call (Alerts)**: When `BOX_NO_LABEL` is confirmed, the decision model issues a structured tool call, including confidence, reasoning, and label status
+9. **Alert Routing**: The agent sends notifications only if no shipping label is detected; labeled boxes are logged without alerting
 
 ## Directory Structure
 
 ```
 ├── camera_agent.py           # Main monitoring application
-├── camera_config.yaml        # Configuration file
+├── config.yaml               # Configuration file
 ├── .env                      # Environment variables
-├── detected_images/          # Images where monitors were detected
+├── detected_images/          # Images where packaging boxes were detected
 ├── processed_frames/         # All frames sent to LLM for analysis
 └── camera_agent.log         # Application logs
 ```

@@ -72,10 +72,67 @@
                         </div>
                     {% endif %}
 
-                    {% if decision.monitor_type %}
+                    {% if decision.shipping_label_present is defined %}
+                        {% set label_value = decision.shipping_label_present %}
+                        {% if label_value is sameas(true) %}
+                            {% set label_status = 'Visible' %}
+                        {% elif label_value is sameas(false) %}
+                            {% set label_status = 'Not visible' %}
+                        {% elif label_value is string %}
+                            {% set label_status = label_value %}
+                        {% else %}
+                            {% set label_status = 'Unknown' %}
+                        {% endif %}
                         <div>
-                            <p class="font-medium text-gray-600">Monitor Type</p>
-                            <p class="mt-1">{{ decision.monitor_type }}</p>
+                            <p class="font-medium text-gray-600">Shipping Label</p>
+                            <p class="mt-1">{{ label_status }}</p>
+                        </div>
+                    {% endif %}
+
+                    {% if decision.box_description %}
+                        <div>
+                            <p class="font-medium text-gray-600">Box Details</p>
+                            <p class="mt-1">{{ decision.box_description }}</p>
+                        </div>
+                    {% endif %}
+
+                    {% if decision.shipping_label_analysis %}
+                        {% set analysis = decision.shipping_label_analysis %}
+                        <div>
+                            <p class="font-medium text-gray-600">Local Label Analysis</p>
+                            <p class="mt-1 text-sm text-gray-700">{{ analysis.summary if analysis.summary else analysis }}</p>
+                            <p class="mt-1 text-xs text-gray-500">
+                                Confidence: {% if analysis.presence_confidence is defined %}{{ '%.0f'|format((analysis.presence_confidence or 0) * 100) }}%{% else %}n/a{% endif %}
+                                • Candidates: {{ analysis.candidate_count if analysis.candidate_count is defined else 'n/a' }}
+                            </p>
+                        </div>
+                    {% endif %}
+
+                    {% if decision.packaging_analysis %}
+                        {% set packaging = decision.packaging_analysis %}
+                        <div>
+                            <p class="font-medium text-gray-600">Classical Packaging Analysis</p>
+                            <p class="mt-1 text-sm text-gray-700">{{ packaging.summary if packaging.summary else packaging }}</p>
+                            <p class="mt-1 text-xs text-gray-500">
+                                Confidence: {% if packaging.confidence is defined %}{{ '%.0f'|format((packaging.confidence or 0) * 100) }}%{% else %}n/a{% endif %}
+                                • Candidates: {{ packaging.candidate_count if packaging.candidate_count is defined else 'n/a' }}
+                            </p>
+                        </div>
+                    {% endif %}
+
+                    {% if decision.tools_used %}
+                        <div>
+                            <p class="font-medium text-gray-600">Tools Used</p>
+                            <p class="mt-1 text-sm text-gray-700">{{ decision.tools_used | join(', ') }}</p>
+                        </div>
+                    {% endif %}
+
+                    {% if decision.tool_trace %}
+                        <div>
+                            <details class="rounded-md border border-gray-200 bg-gray-50">
+                                <summary class="cursor-pointer px-3 py-2 text-sm font-medium text-blue-600">Tool Trace</summary>
+                                <pre class="px-3 py-2 text-xs text-gray-800 whitespace-pre-wrap break-words">{{ decision.tool_trace | tojson(indent=2) }}</pre>
+                            </details>
                         </div>
                     {% endif %}
 

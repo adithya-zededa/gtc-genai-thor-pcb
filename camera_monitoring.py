@@ -196,6 +196,10 @@ class CameraMonitoringService:
                 )
                 return False
 
+            if not self.agent.ensure_rfdet_ready():
+                self.last_error = "RF-DETR package detector failed to load"
+                return False
+
             self._apply_configuration_settings(self.agent.config)
 
             if self._analysis_executor:
@@ -578,22 +582,88 @@ class CameraMonitoringService:
 
         self._record_detection(event, frame_metadata)
 
-        if event.detected:
-            self.stats['detections'] += 1
-            print(f"🔔 Detection! Confidence: {event.confidence:.2f}")
+        decision_trace = event.decision_trace if isinstance(event.decision_trace, dict) else {}
+        skip_meta = decision_trace.get('agent_similarity_skip') if isinstance(decision_trace, dict) else None
+        skip_counts = True
+        if isinstance(skip_meta, dict):
+            skip_counts = skip_meta.get('count_as_detection', True)
 
-            if self.agent and self.agent.process_detection(event):
-                self.stats['alerts_sent'] += 1
+        if event.detected:
+            if skip_counts:
+                self.stats['detections'] += 1
+
+            label_status = event.shipping_label_present
+            if isinstance(skip_meta, dict):
+                similarity_display = skip_meta.get('similarity')
+                try:
+                    similarity_text = f"{float(similarity_display):.3f}"
+                except (TypeError, ValueError):
+                    similarity_text = str(similarity_display) if similarity_display is not None else "unknown"
+                prior_label = skip_meta.get('previous_primary_label', event.primary_label)
+                print(
+                    f"🟡 Similar frame reused previous decision ({prior_label}) - SSIM {similarity_text}; no duplicate alert"
+                )
+            else:
+                if label_status is True:
+                    print(f"ℹ️  Packaging box detected with shipping label (confidence {event.confidence:.2f})")
+                elif label_status is False:
+                    print(f"🔔 Unlabeled packaging box detected! Confidence: {event.confidence:.2f}")
+                else:
+                    print(f"🔔 Packaging box detected (label status unknown). Confidence: {event.confidence:.2f}")
+
+            alert_sent = False
+            if self.agent and event.should_alert and skip_counts:
+                if self.agent.process_detection(event):
+                    self.stats['alerts_sent'] += 1
+                    alert_sent = True
 
             preview = event.full_response
             if isinstance(preview, str) and len(preview) > 200:
                 preview = preview[:200] + '...'
 
+            label_analysis_summary = None
+            packaging_analysis_summary = None
+            tools_used = list(event.tools_used) if isinstance(event.tools_used, list) else []
+            tool_trace = event.tool_trace if isinstance(event.tool_trace, list) else []
+            if isinstance(event.decision_trace, dict):
+                label_analysis = event.decision_trace.get('shipping_label_analysis')
+                if isinstance(label_analysis, dict):
+                    label_analysis_summary = label_analysis.get('summary')
+                packaging_analysis = event.decision_trace.get('packaging_analysis')
+                if isinstance(packaging_analysis, dict):
+                    packaging_analysis_summary = packaging_analysis.get('summary')
+                if not tools_used:
+                    trace_tools = event.decision_trace.get('tools_used')
+                    if isinstance(trace_tools, list):
+                        tools_used = [str(tool) for tool in trace_tools]
+                    elif trace_tools:
+                        tools_used = [str(trace_tools)]
+                if not tool_trace:
+                    trace_entries = event.decision_trace.get('tool_trace')
+                    if isinstance(trace_entries, list):
+                        tool_trace = trace_entries
+
+            if label_analysis_summary:
+                print(f"   Local label analysis: {label_analysis_summary}")
+            if packaging_analysis_summary:
+                print(f"   Packaging analysis: {packaging_analysis_summary}")
+            if tools_used:
+                print(f"   Tools used: {', '.join(tools_used)}")
+
             self.emit_event('detection_event', {
                 'event': {
                     'timestamp': event.timestamp,
                     'confidence': event.confidence,
-                    'response': preview
+                    'response': preview,
+                    'shipping_label_present': label_status,
+                    'should_alert': event.should_alert,
+                    'alert_sent': alert_sent,
+                    'primary_label': event.primary_label,
+                    'label_analysis_summary': label_analysis_summary,
+                    'packaging_analysis_summary': packaging_analysis_summary,
+                    'tools_used': tools_used,
+                    'tool_trace': tool_trace,
+                    'skip_reused': bool(skip_meta)
                 },
                 'stats': self._serialize_stats()
             })

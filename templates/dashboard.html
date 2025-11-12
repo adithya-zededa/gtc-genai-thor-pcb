@@ -353,7 +353,24 @@
     
     // Override base handlers
     function handleDetectionEvent(data) {
-        addActivity(`Monitor detected with ${(data.event.confidence * 100).toFixed(0)}% confidence`, 'detection');
+        const labelStatus = data.event.shipping_label_present === true
+            ? 'with shipping label'
+            : data.event.shipping_label_present === false
+                ? 'without shipping label'
+                : 'with unknown label status';
+        const localSummaries = [];
+        if (data.event.label_analysis_summary) {
+            localSummaries.push(data.event.label_analysis_summary);
+        }
+        if (data.event.packaging_analysis_summary) {
+            localSummaries.push(data.event.packaging_analysis_summary);
+        }
+        const toolsUsed = Array.isArray(data.event.tools_used) ? data.event.tools_used : [];
+        if (toolsUsed.length) {
+            localSummaries.push(`Tools: ${toolsUsed.join(', ')}`);
+        }
+        const analysisSummary = localSummaries.length ? ` • ${localSummaries.join(' • ')}` : '';
+        addActivity(`Packaging box detected ${labelStatus} (confidence ${(data.event.confidence * 100).toFixed(0)}%)${analysisSummary}`, 'detection');
         updateStats(data.stats);
     }
     
