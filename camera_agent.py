@@ -15,6 +15,7 @@ import smtplib
 import sys
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -23,13 +24,18 @@ import torch
 from datetime import datetime
 from email.message import EmailMessage
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple, Union
 
 import requests
 import yaml
 from dotenv import load_dotenv
 from huggingface_hub import hf_hub_download
 from PIL import Image
+
+try:
+    import ollama
+except ImportError:  # pragma: no cover - optional dependency
+    ollama = None
 
 try:
     from plyer import notification as plyer_notification
@@ -156,28 +162,19 @@ DEFAULT_PACKAGING_ANALYZER_PARAMS: Dict[str, Any] = {
 
 DEFAULT_DECISION_LLM_CONFIG: Dict[str, Any] = {
     "system_prompt": (
-        "You are the safety decision-maker for shipping/packaging box detection. "
-        "You MUST call exactly one tool to report the outcome. Choose based on the description:\n\n"
-        "IMPORTANT: A 'packaging/shipping box' refers ONLY to cardboard shipping boxes (brown/tan corrugated "
-        "cardboard boxes typically used for shipping/delivery). DO NOT consider tissue boxes, cereal boxes, "
-        "product packaging, or other consumer boxes as packaging boxes.\n\n"
-        "CRITICAL RULES:\n"
-        "1. trigger_packaging_alert: Use ONLY when BOTH conditions are met:\n"
-        "   a) At least one SHIPPING/PACKAGING box (cardboard delivery box) IS PRESENT in the scene\n"
-        "   b) AND no visible shipping label is detected on that box\n\n"
-        "2. record_no_detection: Use when ANY of these apply:\n"
-        "   a) NO shipping/packaging boxes detected (non-shipping boxes)\n"
-        "   b) Classical packaging analyzer reports 0 boxes or very low confidence\n"
-        "   c) RF-DETR detector reports 0 packages\n"
-        "   d) Shipping boxes are present BUT shipping labels ARE visible\n"
-        "   e) The scene is unclear or inconclusive\n\n"
-        "DO NOT trigger alerts when:\n"
-        "- Vision description mentions tissue boxes, cereal boxes, or consumer product packaging\n"
-        "- Vision description talks about windows, walls, furniture, hands, blur - but NO shipping boxes\n"
-        "- Classical packaging analysis shows 0 estimated boxes\n"
-        "- RF-DETR detects 0 packages\n"
-        "- The image is just a blurry scene or empty workspace\n\n"
-        "Always include your reasoning and any box/label counts you can infer. Do not return plain text."
+        "You are a shipping box safety monitor. Your job: detect unlabeled shipping boxes.\n\n"
+        "DEFINITIONS:\n"
+        "- Shipping box = Brown/tan corrugated cardboard boxes used for delivery\n"
+        "- NOT shipping boxes = Tissue boxes, cereal boxes, product packaging\n\n"
+        "DECISION RULES (choose ONE tool):\n"
+        "1. trigger_packaging_alert IF:\n"
+        "- One or more shipping boxes are visible AND\n"
+        "- No shipping labels are visible on those boxes\n\n"
+        "2. record_no_detection IF:\n"
+        "- No shipping boxes present, OR\n"
+        "- Shipping boxes have visible labels, OR\n"
+        "- Scene is unclear/ambiguous\n\n"
+        "Use the reasoning field to explain your decision briefly."
     ),
     "user_prompt_template": (
         "Vision AI description:\n{vision_description}\n"
@@ -380,6 +377,142 @@ class PackagingBoxAnalysis:
             "estimated_box_count": int(self.estimated_box_count),
         }
 
+
+class AgentMemory:
+    """In-memory ring buffer for recent detection events with summarisation helpers."""
+
+    def __init__(self, max_events: int = 50, summary_window: int = 10) -> None:
+        self._max_events = max(1, int(max_events or 1))
+        summary_window = int(summary_window or 1)
+        self._summary_window = max(1, min(self._max_events, summary_window))
+        self._events: Deque[Dict[str, Any]] = deque(maxlen=self._max_events)
+        self._lock = threading.RLock()
+
+    def resize(self, max_events: int, summary_window: int) -> None:
+        """Adjust buffer limits while retaining the most recent events."""
+        new_max = max(1, int(max_events or 1))
+        new_window = max(1, min(new_max, int(summary_window or 1)))
+
+        with self._lock:
+            preserved = list(self._events)[-new_max:]
+            self._events = deque(preserved, maxlen=new_max)
+            self._max_events = new_max
+            self._summary_window = new_window
+
+    def add_event(self, record: Dict[str, Any]) -> None:
+        """Append an event record to the ring buffer."""
+        if not isinstance(record, dict):
+            return
+        sanitized = {key: record.get(key) for key in record.keys()}
+        with self._lock:
+            self._events.append(sanitized)
+
+    def snapshot(self, limit: Optional[int] = None) -> Dict[str, Any]:
+        """Return a copy of recent events and aggregated counters."""
+        with self._lock:
+            events = list(self._events)
+
+        window = limit if isinstance(limit, int) and limit > 0 else self._summary_window
+        window = min(window, len(events)) if events else 0
+        recent_events = events[-window:] if window else []
+
+        counts = self._calculate_counts(recent_events)
+        last_event = recent_events[-1] if recent_events else None
+
+        return {
+            "events": recent_events,
+            "counts": counts,
+            "last_event": last_event,
+        }
+
+    def summarise(self, limit: Optional[int] = None) -> str:
+        """Produce a concise status summary of recent activity."""
+        snapshot = self.snapshot(limit)
+        events = snapshot["events"]
+        counts = snapshot["counts"]
+
+        if not events:
+            return "No recent events processed yet."
+
+        total = counts["total"]
+        detections = counts["detections"]
+        unlabeled = counts["unlabeled"]
+        labeled = counts["labeled"]
+        alerts = counts["alerts"]
+        reused = counts["reused"]
+
+        summary_parts: List[str] = []
+        summary_parts.append(f"Processed {total} event{'s' if total != 1 else ''}.")
+
+        detection_clause = f"Detections: {detections}"
+        breakdown_bits: List[str] = []
+        if unlabeled:
+            breakdown_bits.append(f"{unlabeled} unlabeled")
+        if labeled:
+            breakdown_bits.append(f"{labeled} labeled")
+        if breakdown_bits:
+            detection_clause += f" ({', '.join(breakdown_bits)})"
+        summary_parts.append(detection_clause + ".")
+
+        summary_parts.append(f"Alerts raised: {alerts}.")
+        if reused:
+            summary_parts.append(f"Reused decisions: {reused}.")
+
+        last_event = snapshot.get("last_event") or {}
+        timestamp = last_event.get("timestamp")
+        descriptor = self._describe_event(last_event)
+        if timestamp and descriptor:
+            summary_parts.append(f"Last event at {timestamp}: {descriptor}.")
+
+        return " ".join(part for part in summary_parts if part)
+
+    @staticmethod
+    def _calculate_counts(events: List[Dict[str, Any]]) -> Dict[str, int]:
+        detections = sum(1 for event in events if event.get("detected"))
+        unlabeled = sum(
+            1
+            for event in events
+            if event.get("detected") and event.get("shipping_label_present") is False
+        )
+        labeled = sum(
+            1
+            for event in events
+            if event.get("detected") and event.get("shipping_label_present") is True
+        )
+        alerts = sum(1 for event in events if event.get("should_alert"))
+        reused = sum(1 for event in events if event.get("source") == "agent_ssim_guard")
+        no_detections = sum(1 for event in events if not event.get("detected"))
+
+        return {
+            "total": len(events),
+            "detections": detections,
+            "unlabeled": unlabeled,
+            "labeled": labeled,
+            "alerts": alerts,
+            "reused": reused,
+            "no_detections": no_detections,
+        }
+
+    @staticmethod
+    def _describe_event(event: Dict[str, Any]) -> str:
+        if not event:
+            return ""
+
+        if not event.get("detected"):
+            return "no packaging boxes required action"
+
+        shipping_label_present = event.get("shipping_label_present")
+        if shipping_label_present is True:
+            descriptor = "packaging box with visible label"
+        elif shipping_label_present is False:
+            descriptor = "unlabeled packaging box"
+        else:
+            descriptor = "packaging box with unknown label status"
+
+        if event.get("should_alert"):
+            descriptor += " (alert raised)"
+
+        return descriptor
 
 class ShippingLabelAnalyzer:
     """Lightweight CV + clustering model to identify shipping label regions."""
@@ -1385,10 +1518,176 @@ class DecisionLLM:
         self.system_prompt = system_prompt
         self.user_prompt_template = user_prompt_template
         self.tools = tools or []
+        self._tool_mode_supported = True
+        self._python_client_available = False
+        self._ollama_python_client = None
+        self._captured_tool_calls: List[Dict[str, Any]] = []
+        self._tool_function_map: Dict[str, Callable[..., str]] = {}
+        self._tool_function_list: List[Callable[..., str]] = []
         logger.info("Initialized Decision LLM model '%s' at %s", model, self.base_url)
         
+        if ollama is not None:
+            try:
+                self._ollama_python_client = ollama.Client(host=self.base_url)
+                self._python_client_available = True
+            except Exception as exc:  # pragma: no cover - network path
+                logger.warning("Unable to initialize Ollama Python client: %s", exc)
+        else:  # pragma: no cover - optional dependency
+            logger.debug("Ollama Python package not available; HTTP fallback will be used")
+
+        if self.tools:
+            self._tool_function_map, self._tool_function_list = self._prepare_tool_functions(self.tools)
+
         # Ensure model is available
         self._ensure_model_available()
+
+    def _prepare_tool_functions(
+        self,
+        tool_specs: List[Dict[str, Any]]
+    ) -> Tuple[Dict[str, Callable[..., str]], List[Callable[..., str]]]:
+        """Create Python callables for Ollama tool calling."""
+        function_map: Dict[str, Callable[..., str]] = {}
+
+        for spec in tool_specs:
+            if not isinstance(spec, dict):
+                continue
+            function_spec = spec.get("function")
+            if not isinstance(function_spec, dict):
+                continue
+
+            name = function_spec.get("name")
+            if not name:
+                continue
+
+            description = str(function_spec.get("description", "")).strip()
+            parameters = {}
+            required: List[str] = []
+            param_block = function_spec.get("parameters")
+            if isinstance(param_block, dict):
+                params = param_block.get("properties")
+                if isinstance(params, dict):
+                    parameters = params
+                req = param_block.get("required")
+                if isinstance(req, list):
+                    required = [str(item) for item in req if isinstance(item, str)]
+
+            docstring = self._tool_docstring(name, description, parameters, required)
+
+            if name == "trigger_packaging_alert":
+                function_map[name] = self._build_trigger_alert_tool(docstring)
+            elif name == "record_no_detection":
+                function_map[name] = self._build_record_no_detection_tool(docstring)
+
+        function_list = list(function_map.values())
+        return function_map, function_list
+
+    @staticmethod
+    def _tool_docstring(
+        name: str,
+        description: str,
+        parameters: Dict[str, Any],
+        required: List[str]
+    ) -> str:
+        """Generate a helpful docstring for Ollama tool functions."""
+        lines: List[str] = []
+        summary = description or f"Tool '{name}'"
+        lines.append(summary)
+
+        if parameters:
+            lines.append("\nArgs:")
+            for param_name, schema in parameters.items():
+                schema_desc = ""
+                schema_type = ""
+                if isinstance(schema, dict):
+                    schema_desc = str(schema.get("description", "")).strip()
+                    schema_type = schema.get("type") if isinstance(schema.get("type"), str) else ""
+                required_flag = " (required)" if param_name in required else ""
+                type_fragment = f"{schema_type} " if schema_type else ""
+                line = f"    {param_name}: {type_fragment}{required_flag}".rstrip()
+                if schema_desc:
+                    line += f" - {schema_desc}"
+                lines.append(line)
+
+        return "\n".join(lines)
+
+    def _register_tool_call(self, name: str, arguments: Dict[str, Any]) -> str:
+        """Record tool call arguments for downstream processing."""
+        captured = {key: arguments.get(key) for key in arguments}
+        self._captured_tool_calls.append({
+            "name": name,
+            "arguments": captured
+        })
+        logger.debug("Captured tool call '%s' with args %s", name, captured)
+        try:
+            response_body = json.dumps({"action": name, "arguments": captured})
+        except TypeError:
+            safe_arguments = {key: str(value) for key, value in captured.items()}
+            response_body = json.dumps({"action": name, "arguments": safe_arguments})
+        return response_body
+
+    def _build_trigger_alert_tool(self, docstring: str) -> Callable[..., str]:
+        """Return callable used for trigger_packaging_alert tool."""
+
+        def trigger_packaging_alert(
+            confidence: Optional[float] = None,
+            reasoning: Optional[str] = None,
+            box_count: Optional[int] = None,
+            label_count: Optional[int] = None,
+            shipping_label_present: Optional[bool] = None,
+            labels_per_box: Optional[float] = None,
+            box_description: Optional[str] = None,
+            notes: Optional[str] = None,
+            **extra: Any
+        ) -> str:
+            payload: Dict[str, Any] = {
+                "confidence": confidence,
+                "reasoning": reasoning,
+                "box_count": box_count,
+                "label_count": label_count,
+                "shipping_label_present": shipping_label_present,
+                "labels_per_box": labels_per_box,
+                "box_description": box_description,
+                "notes": notes
+            }
+            for key, value in extra.items():
+                if key not in payload:
+                    payload[key] = value
+            return self._register_tool_call("trigger_packaging_alert", payload)
+
+        trigger_packaging_alert.__name__ = "trigger_packaging_alert"
+        trigger_packaging_alert.__doc__ = docstring
+        return trigger_packaging_alert
+
+    def _build_record_no_detection_tool(self, docstring: str) -> Callable[..., str]:
+        """Return callable used for record_no_detection tool."""
+
+        def record_no_detection(
+            reasoning: Optional[str] = None,
+            confidence: Optional[float] = None,
+            shipping_label_present: Optional[bool] = None,
+            box_count: Optional[int] = None,
+            label_count: Optional[int] = None,
+            labels_per_box: Optional[float] = None,
+            notes: Optional[str] = None,
+            **extra: Any
+        ) -> str:
+            payload: Dict[str, Any] = {
+                "reasoning": reasoning,
+                "confidence": confidence,
+                "shipping_label_present": shipping_label_present,
+                "box_count": box_count,
+                "label_count": label_count,
+                "labels_per_box": labels_per_box,
+                "notes": notes
+            }
+            for key, value in extra.items():
+                if key not in payload:
+                    payload[key] = value
+            return self._register_tool_call("record_no_detection", payload)
+
+        record_no_detection.__name__ = "record_no_detection"
+        record_no_detection.__doc__ = docstring
+        return record_no_detection
     
     def _check_model_exists(self) -> bool:
         """Check if the model is already pulled."""
@@ -1436,6 +1735,63 @@ class DecisionLLM:
         else:
             logger.info(f"Model '{self.model}' is already available")
     
+    @staticmethod
+    def _parse_json_content_block(content: str) -> Optional[Dict[str, Any]]:
+        """Extract a JSON object from raw model content."""
+        if not isinstance(content, str):
+            return None
+
+        stripped = content.strip()
+        if not stripped:
+            return None
+
+        if stripped.startswith("```"):
+            lines = stripped.splitlines()
+            if lines:
+                lines = lines[1:]
+            for idx in range(len(lines) - 1, -1, -1):
+                if lines[idx].strip().startswith("```"):
+                    lines = lines[:idx]
+                    break
+            stripped = "\n".join(lines).strip()
+
+        start_idx = stripped.find("{")
+        end_idx = stripped.rfind("}")
+        if start_idx == -1 or end_idx == -1 or end_idx < start_idx:
+            return None
+
+        json_blob = stripped[start_idx:end_idx + 1]
+        try:
+            return json.loads(json_blob)
+        except json.JSONDecodeError:
+            # Attempt a relaxed parse by removing trailing text
+            try:
+                return json.loads(json_blob.replace("\n", " "))
+            except json.JSONDecodeError:
+                return None
+
+    @staticmethod
+    def _normalize_tool_name(action_value: Any) -> str:
+        """Map arbitrary action strings onto canonical tool names."""
+        if not isinstance(action_value, str):
+            return "record_no_detection"
+
+        normalized = action_value.strip().lower()
+        if not normalized:
+            return "record_no_detection"
+
+        if "trigger" in normalized and "alert" in normalized:
+            return "trigger_packaging_alert"
+        if normalized in {"alert", "trigger_packaging_alert", "trigger_alert", "raise_alert"}:
+            return "trigger_packaging_alert"
+
+        if "no" in normalized and "detection" in normalized:
+            return "record_no_detection"
+        if normalized in {"record_no_detection", "no_detection", "skip", "log_only"}:
+            return "record_no_detection"
+
+        return "record_no_detection"
+
     def make_detection_decision(self, vision_description: str, extra_context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """Request a unified tool call from the decision LLM and interpret the result."""
         tool_trace_entries: List[Dict[str, Any]] = []
@@ -1476,20 +1832,19 @@ class DecisionLLM:
         if context_lines:
             context_block = "\n\nAdditional context:\n" + "\n".join(context_lines)
 
-        user_prompt = self.user_prompt_template.format(
+        base_user_prompt = self.user_prompt_template.format(
             vision_description=vision_description,
             extra_context=context_block
         )
 
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "tools": self.tools,
-            "stream": False
-        }
+        json_instruction = (
+            "\n\nReturn ONLY a minified JSON object with these keys: "
+            '{"action": "trigger_packaging_alert" | "record_no_detection", "reasoning": string, '
+            '"confidence": number, "shipping_label_present": true | false | null, '
+            '"box_count": integer | null, "label_count": integer | null, '
+            '"labels_per_box": number | null, "notes": string | null}. '
+            "Do not include any prose before or after the JSON."
+        )
 
         def _coerce_float(value: Any, default: float) -> float:
             try:
@@ -1505,78 +1860,207 @@ class DecisionLLM:
                 return None
 
         try:
-            logger.info("🤖 Decision LLM requesting unified tool call...")
-            response = self.session.post(
-                f"{self.base_url}/api/chat",
-                json=payload,
-                timeout=self.timeout
-            )
-            
-            # Handle 404 - model not found
-            if response.status_code == 404:
-                logger.warning(f"Model '{self.model}' not found. Attempting to pull it now...")
-                if self._pull_model():
-                    # Retry the request after pulling
-                    response = self.session.post(
-                        f"{self.base_url}/api/chat",
-                        json=payload,
-                        timeout=self.timeout
-                    )
-                else:
+            attempt_tool_mode = bool(self.tools) and self._tool_mode_supported
+            assistant_message: Dict[str, Any] = {}
+            response_payload: Optional[Dict[str, Any]] = None
+            python_tool_mode_used = False
+            self._captured_tool_calls = []
+
+            while True:
+                active_prompt = base_user_prompt if attempt_tool_mode else base_user_prompt + json_instruction
+
+                use_python_tools = (
+                    attempt_tool_mode
+                    and self._python_client_available
+                    and bool(self._tool_function_list)
+                    and self._ollama_python_client is not None
+                )
+
+                if use_python_tools:
+                    logger.info("🤖 Decision LLM requesting unified tool call via ollama.chat()")
+                    try:
+                        self._captured_tool_calls = []
+                        response_payload = self._ollama_python_client.chat(
+                            model=self.model,
+                            messages=[
+                                {"role": "system", "content": self.system_prompt},
+                                {"role": "user", "content": active_prompt}
+                            ],
+                            tools=self._tool_function_list,
+                            stream=False
+                        )
+                        assistant_message = (
+                            response_payload.get("message", {})
+                            if isinstance(response_payload, dict) else {}
+                        )
+                        if self._captured_tool_calls and isinstance(assistant_message, dict):
+                            assistant_message["tool_calls"] = [
+                                {
+                                    "type": "function",
+                                    "function": {
+                                        "name": call.get("name"),
+                                        "arguments": json.dumps(call.get("arguments", {}))
+                                    }
+                                }
+                                for call in self._captured_tool_calls
+                            ]
+                        python_tool_mode_used = True
+                        break
+                    except Exception as exc:  # pragma: no cover - resilience path
+                        logger.warning(
+                            "Decision LLM Python client call failed: %s; falling back to HTTP client",
+                            exc
+                        )
+                        self._python_client_available = False
+                        python_tool_mode_used = False
+                        continue
+
+                payload: Dict[str, Any] = {
+                    "model": self.model,
+                    "messages": [
+                        {"role": "system", "content": self.system_prompt},
+                        {"role": "user", "content": active_prompt}
+                    ],
+                    "stream": False
+                }
+                if attempt_tool_mode and self.tools:
+                    payload["tools"] = self.tools
+
+                logger.info(
+                    "🤖 Decision LLM requesting %s...",
+                    "unified tool call" if attempt_tool_mode else "JSON fallback decision"
+                )
+
+                response = self.session.post(
+                    f"{self.base_url}/api/chat",
+                    json=payload,
+                    timeout=self.timeout
+                )
+
+                if response.status_code == 404:
+                    logger.warning(f"Model '{self.model}' not found. Attempting to pull it now...")
+                    if self._pull_model():
+                        continue
                     raise requests.exceptions.HTTPError(
                         f"Model '{self.model}' not available and could not be pulled",
                         response=response
                     )
-            
-            response.raise_for_status()
 
-            result = response.json()
-            assistant_message = result.get("message", {})
-            tool_calls = assistant_message.get("tool_calls") or []
+                if response.status_code == 400 and attempt_tool_mode:
+                    error_text = response.text.strip()
+                    logger.warning(
+                        "Decision LLM rejected tool-call payload (400). Falling back to JSON parsing. Response: %s",
+                        error_text or "<empty>"
+                    )
+                    self._tool_mode_supported = False
+                    attempt_tool_mode = False
+                    continue
+
+                response.raise_for_status()
+                try:
+                    response_payload = response.json()
+                except ValueError:
+                    response_payload = None
+                assistant_message = (
+                    response_payload.get("message", {})
+                    if isinstance(response_payload, dict) else {}
+                )
+                python_tool_mode_used = False
+                break
 
             logger.debug(
-                "Decision LLM tool-call raw response: %s",
-                json.dumps(result, indent=2) if isinstance(result, dict) else result
+                "Decision LLM raw response: %s",
+                json.dumps(response_payload, indent=2) if isinstance(response_payload, dict) else response_payload
             )
 
-            if not tool_calls:
-                logger.warning("Decision LLM returned no tool calls; treating as no detection")
-                trace_payload = {
-                    "vision_description": vision_description,
-                    "tool_error": "no_tool_call",
-                    "tools_used": [],
-                    "tool_trace": []
-                }
-                if context_lines:
-                    trace_payload["context"] = context_lines
-                return {
-                    "detected": False,
-                    "decision_trace": trace_payload
-                }
+            arguments: Dict[str, Any]
+            tool_name: str
 
-            if len(tool_calls) > 1:
-                logger.debug("Decision LLM returned multiple tool calls; only first will be used")
+            if attempt_tool_mode:
+                tool_calls = assistant_message.get("tool_calls") or []
 
-            tool_call = tool_calls[0]
-            function_payload = tool_call.get("function", {}) if isinstance(tool_call, dict) else {}
-            tool_name = function_payload.get("name") or "unknown_tool"
-            raw_arguments = function_payload.get("arguments", {})
+                if not tool_calls:
+                    logger.warning("Decision LLM returned no tool calls; treating as no detection")
+                    trace_payload = {
+                        "vision_description": vision_description,
+                        "tool_error": "no_tool_call",
+                        "tools_used": [],
+                        "tool_trace": []
+                    }
+                    if python_tool_mode_used:
+                        trace_payload["client"] = "ollama_python"
+                    if context_lines:
+                        trace_payload["context"] = context_lines
+                    return {
+                        "detected": False,
+                        "decision_trace": trace_payload
+                    }
 
-            if isinstance(raw_arguments, str):
-                try:
-                    arguments = json.loads(raw_arguments)
-                except json.JSONDecodeError:
-                    logger.warning("Decision LLM returned non-JSON arguments: %s", raw_arguments)
+                if len(tool_calls) > 1:
+                    logger.debug("Decision LLM returned multiple tool calls; only first will be used")
+
+                tool_call = tool_calls[0]
+                function_payload = tool_call.get("function", {}) if isinstance(tool_call, dict) else {}
+                tool_name = function_payload.get("name") or "unknown_tool"
+                raw_arguments = function_payload.get("arguments", {})
+
+                if isinstance(raw_arguments, str):
+                    try:
+                        arguments = json.loads(raw_arguments)
+                    except json.JSONDecodeError:
+                        logger.warning("Decision LLM returned non-JSON arguments: %s", raw_arguments)
+                        arguments = {}
+                elif isinstance(raw_arguments, dict):
+                    arguments = raw_arguments
+                else:
                     arguments = {}
-            elif isinstance(raw_arguments, dict):
-                arguments = raw_arguments
             else:
-                arguments = {}
+                content = assistant_message.get("content", "")
+                parsed_json = self._parse_json_content_block(content)
+                if parsed_json is None:
+                    logger.warning("Decision LLM JSON fallback response is not parseable; treating as no detection")
+                    trace_payload = {
+                        "vision_description": vision_description,
+                        "tool_error": "json_parse_failed",
+                        "tools_used": [],
+                        "tool_trace": [],
+                        "raw_response": content
+                    }
+                    if context_lines:
+                        trace_payload["context"] = context_lines
+                    return {
+                        "detected": False,
+                        "decision_trace": trace_payload
+                    }
+
+                action_value = (
+                    parsed_json.get("action")
+                    or parsed_json.get("tool")
+                    or parsed_json.get("decision")
+                )
+                tool_name = self._normalize_tool_name(action_value)
+
+                arguments = {
+                    key: parsed_json.get(key)
+                    for key in (
+                        "confidence",
+                        "reasoning",
+                        "box_count",
+                        "label_count",
+                        "shipping_label_present",
+                        "labels_per_box",
+                        "notes",
+                        "box_description"
+                    )
+                }
+                arguments["raw_payload"] = parsed_json
 
             tool_trace_entry = {
                 "name": tool_name,
                 "arguments": arguments
             }
+            if not attempt_tool_mode:
+                tool_trace_entry["compat_mode"] = "json_fallback"
             tool_trace_entries.append(tool_trace_entry)
             tools_used = [tool_name]
 
@@ -1586,6 +2070,8 @@ class DecisionLLM:
                 "tools_used": tools_used,
                 "decision_action": tool_name
             }
+            if not attempt_tool_mode:
+                decision_trace["compat_mode"] = "json_fallback"
 
             if context_lines:
                 decision_trace["context"] = context_lines
@@ -1984,6 +2470,21 @@ class MonitorDetectionAgent:
         except (TypeError, ValueError):
             decision_timeout = 30
 
+        memory_cfg = self.config.get("memory") if isinstance(self.config, dict) else {}
+        if not isinstance(memory_cfg, dict):
+            memory_cfg = {}
+
+        self._memory_max_events = self._safe_positive_int(memory_cfg.get("max_events"), 50)
+        default_window = min(10, self._memory_max_events) if self._memory_max_events else 10
+        self._memory_summary_window = self._safe_positive_int(
+            memory_cfg.get("summary_window"),
+            default_window or 1
+        )
+        self._agent_memory = AgentMemory(
+            max_events=self._memory_max_events,
+            summary_window=self._memory_summary_window
+        )
+
         analysis_cfg = self.config.get("analysis") if isinstance(self.config, dict) else {}
         if not isinstance(analysis_cfg, dict):
             analysis_cfg = {}
@@ -2058,6 +2559,14 @@ class MonitorDetectionAgent:
     def _safe_float(value: Any, default: float) -> float:
         try:
             return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _safe_positive_int(value: Any, default: int) -> int:
+        try:
+            candidate = int(value)
+            return candidate if candidate > 0 else default
         except (TypeError, ValueError):
             return default
 
@@ -2194,6 +2703,72 @@ class MonitorDetectionAgent:
             self._last_similarity_frame = reference_frame
         self._last_llm_run_time = analysis_timestamp
         self._last_cache_reset = analysis_timestamp
+        self._remember_event(event, source="analysis")
+
+    def _remember_event(self, event: DetectionEvent, source: str = "analysis") -> None:
+        """Persist an event summary in the agent memory ring buffer."""
+        try:
+            confidence = float(event.confidence) if event.confidence is not None else 0.0
+        except (TypeError, ValueError):
+            confidence = 0.0
+
+        record: Dict[str, Any] = {
+            "timestamp": event.timestamp,
+            "detected": bool(event.detected),
+            "primary_label": event.primary_label or "unknown",
+            "confidence": round(confidence, 3),
+            "shipping_label_present": event.shipping_label_present
+            if isinstance(event.shipping_label_present, bool)
+            else None,
+            "should_alert": bool(event.should_alert),
+            "source": source,
+            "tools_used": list(event.tools_used) if isinstance(event.tools_used, list) else [],
+        }
+
+        if isinstance(event.decision_trace, dict):
+            classification = event.decision_trace.get("classification")
+            if classification:
+                record["classification"] = classification
+
+            if event.decision_trace.get("agent_similarity_skip"):
+                record["source"] = "agent_ssim_guard"
+
+            reasoning = event.decision_trace.get("reasoning")
+            if isinstance(reasoning, str) and reasoning.strip():
+                record["reasoning"] = reasoning.strip()
+
+            scene_metrics = event.decision_trace.get("scene_metrics")
+            if isinstance(scene_metrics, dict):
+                metrics_payload: Dict[str, Any] = {}
+                for key in ("box_count", "label_count", "labels_per_box"):
+                    value = scene_metrics.get(key)
+                    if value is None:
+                        continue
+                    try:
+                        numeric = float(value)
+                    except (TypeError, ValueError):
+                        continue
+                    if math.isnan(numeric) or math.isinf(numeric):
+                        continue
+                    if key.endswith("_count"):
+                        metrics_payload[key] = int(round(numeric))
+                    else:
+                        metrics_payload[key] = round(numeric, 3)
+                if metrics_payload:
+                    record["scene_metrics"] = metrics_payload
+
+        if isinstance(event.vision_description, str) and event.vision_description.strip():
+            record["vision_description"] = event.vision_description.strip()
+
+        self._agent_memory.add_event(record)
+
+    def get_memory_snapshot(self, limit: Optional[int] = None) -> Dict[str, Any]:
+        """Expose a serialisable view of recent events."""
+        return self._agent_memory.snapshot(limit)
+
+    def summarise_recent_events(self, limit: Optional[int] = None) -> str:
+        """Return a short natural language summary of recent agent activity."""
+        return self._agent_memory.summarise(limit)
 
     def _apply_runtime_config(self) -> None:
         """Reapply runtime configuration values after a config update."""
@@ -2229,6 +2804,26 @@ class MonitorDetectionAgent:
 
         self.config = updated_config
         self.alert_manager.refresh_config(updated_config)
+
+        memory_cfg = self.config.get("memory") if isinstance(self.config, dict) else {}
+        if not isinstance(memory_cfg, dict):
+            memory_cfg = {}
+        self._memory_max_events = self._safe_positive_int(
+            memory_cfg.get("max_events"),
+            getattr(self, "_memory_max_events", 50)
+        )
+        default_window = min(10, self._memory_max_events) if self._memory_max_events else 10
+        self._memory_summary_window = self._safe_positive_int(
+            memory_cfg.get("summary_window"),
+            default_window or 1
+        )
+        if hasattr(self, "_agent_memory"):
+            self._agent_memory.resize(self._memory_max_events, self._memory_summary_window)
+        else:
+            self._agent_memory = AgentMemory(
+                max_events=self._memory_max_events,
+                summary_window=self._memory_summary_window
+            )
 
         analysis_cfg = self.config.get("analysis") if isinstance(self.config, dict) else {}
         if not isinstance(analysis_cfg, dict):
@@ -2538,6 +3133,7 @@ class MonitorDetectionAgent:
                         reused_event.full_response = (reused_event.full_response or "") + message_suffix
                         # Update the cached vision description
                         self._last_vision_description = vision_description
+                        self._remember_event(reused_event, source="agent_ssim_guard")
                         return reused_event
                 else:
                     logger.info(

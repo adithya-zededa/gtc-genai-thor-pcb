@@ -15,6 +15,7 @@ The ZEDEDA Camera Monitoring Agent captures video from `/dev/video0`, uses SSIM-
 - **Shipping Label Awareness**: Hybrid pipeline merges LLM judgment with a local OpenCV-based analyzer to verify label visibility
 - **Tool Trace Logging**: Decision trace summaries record which LLM tools executed, visible in console logs and the web UI
 - **Confidence Blending**: Weighted scoring fuses LLM confidence with classical packaging/label analyzers for transparent decision strength
+- **Agent Memory & Summaries**: Maintains a rolling memory of recent events and surfaces quick summaries without additional LLM calls
 - **Responsive Polling**: Processes frames immediately on scene changes, every 5s when static
 - **Email & Desktop Notifications**: Automatic alerting with customizable templates
 - **Frame Logging**: Saves processed frames and detection imagery for auditability

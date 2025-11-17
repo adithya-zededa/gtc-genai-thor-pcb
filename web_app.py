@@ -11,15 +11,15 @@ import base64
 import sqlite3
 import logging
 import copy
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, List, Dict
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session, Response, send_file, abort
+from flask import Flask, render_template, request, jsonify, redirect, url_for, Response, send_file, abort
 from flask_socketio import SocketIO, emit
 import threading
 import time
 from camera_agent import MonitorDetectionAgent, DEFAULT_CONFIG_PATH
-from camera_feed_publisher import get_camera_publisher, CameraFrame
+from camera_feed_publisher import get_camera_publisher
 from camera_monitoring import CameraMonitoringService
 import cv2
 
@@ -29,17 +29,71 @@ logger = logging.getLogger(__name__)
 import requests
 import csv
 import io
+ENV_DATA_DIR = "CAMERA_AGENT_DATA_DIR"
+ENV_SECRET_KEY = "FLASK_SECRET_KEY"
+ENV_SOCKETIO_CORS = "SOCKETIO_CORS"
+ENV_DB_PATH = "CAMERA_AGENT_DB"
+ENV_DETECTED_DIR = "DETECTED_IMAGES_DIR"
+ENV_PROCESSED_DIR = "PROCESSED_FRAMES_DIR"
+ENV_OLLAMA_URL = "OLLAMA_URL"
+ENV_HTTP_TIMEOUT = "HTTP_REQUEST_TIMEOUT"
+
+DEFAULT_SECRET_KEY_BYTES = 24
+DEFAULT_SOCKETIO_CORS = "*"
+DEFAULT_HTTP_TIMEOUT = 5.0
+IMAGE_GLOB_PATTERN = "*.jpg"
+
+
+def _safe_int_env(key: str, default: int) -> int:
+    try:
+        return int(os.getenv(key, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _resolve_secret_key():
+    secret = os.getenv(ENV_SECRET_KEY)
+    return secret if secret else os.urandom(DEFAULT_SECRET_KEY_BYTES)
+
+
+def _resolve_socketio_cors():
+    raw = os.getenv(ENV_SOCKETIO_CORS)
+    if not raw:
+        return DEFAULT_SOCKETIO_CORS
+    parsed = [origin.strip() for origin in raw.split(',') if origin.strip()]
+    return parsed or DEFAULT_SOCKETIO_CORS
+
+
+DATA_DIR = Path(os.getenv(ENV_DATA_DIR, '.')).expanduser()
+DATABASE_PATH = Path(os.getenv(ENV_DB_PATH, str(DATA_DIR / 'camera_agent.db'))).expanduser()
+DETECTED_IMAGES_DIR = Path(os.getenv(ENV_DETECTED_DIR, str(DATA_DIR / 'detected_images'))).expanduser()
+PROCESSED_FRAMES_DIR = Path(os.getenv(ENV_PROCESSED_DIR, str(DATA_DIR / 'processed_frames'))).expanduser()
+OLLAMA_BASE_URL = os.getenv(ENV_OLLAMA_URL, 'http://localhost:11434')
+
+
+def _resolve_request_timeout() -> float:
+    try:
+        timeout_value = float(os.getenv(ENV_HTTP_TIMEOUT, DEFAULT_HTTP_TIMEOUT))
+        return timeout_value if timeout_value > 0 else DEFAULT_HTTP_TIMEOUT
+    except (TypeError, ValueError):
+        return DEFAULT_HTTP_TIMEOUT
+
+
+REQUEST_TIMEOUT = _resolve_request_timeout()
+
+
+def _ollama_endpoint(path: str) -> str:
+    base = OLLAMA_BASE_URL.rstrip('/')
+    return f"{base}/{path.lstrip('/')}"
+
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
-socketio = SocketIO(app, cors_allowed_origins="*")
+app.secret_key = _resolve_secret_key()
+socketio = SocketIO(app, cors_allowed_origins=_resolve_socketio_cors())
 
 # Global variables
 camera_agent = None
 camera_publisher = None  # Global publisher instance for camera viewing
-DATA_DIR = Path('.')
-DETECTED_IMAGES_DIR = DATA_DIR / 'detected_images'
-PROCESSED_FRAMES_DIR = DATA_DIR / 'processed_frames'
 CONFIG_PATH = Path(os.getenv('CAMERA_AGENT_CONFIG', DEFAULT_CONFIG_PATH)).expanduser()
 CONFIG_LOCK = threading.RLock()
 
@@ -77,6 +131,14 @@ def ensure_config_directory() -> None:
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     except Exception as exc:
         logger.error("Failed to create config directory %s: %s", CONFIG_PATH.parent, exc)
+
+
+def ensure_database_directory() -> None:
+    """Ensure the database directory exists before connecting."""
+    try:
+        DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        logger.error("Failed to prepare database directory %s: %s", DATABASE_PATH.parent, exc)
 
 
 def _sanitize_config_payload(config: Dict) -> Dict:
@@ -182,6 +244,32 @@ def apply_recipients(config: Dict, recipients: List[str]) -> Dict:
     return config
 
 
+def _collect_images_from_directory(directory: Path, limit: int) -> List[Dict[str, str]]:
+    """Return encoded image metadata from a directory without duplicating loop logic."""
+    if not directory.exists():
+        return []
+
+    images: List[Dict[str, str]] = []
+    try:
+        files = sorted(
+            directory.glob(IMAGE_GLOB_PATTERN),
+            key=lambda file_path: file_path.stat().st_mtime,
+            reverse=True
+        )[:max(limit, 0)]
+        for img_file in files:
+            stat_info = img_file.stat()
+            with img_file.open('rb') as img_stream:
+                encoded = base64.b64encode(img_stream.read()).decode('utf-8')
+            images.append({
+                'filename': img_file.name,
+                'timestamp': datetime.fromtimestamp(stat_info.st_mtime).isoformat(),
+                'image_b64': encoded
+            })
+    except Exception as exc:
+        logger.error("Failed to collect images from %s: %s", directory, exc)
+    return images
+
+
 class WebCameraAgent(CameraMonitoringService):
     """Flask-integrated camera monitoring agent with Socket.IO updates."""
 
@@ -228,7 +316,8 @@ class WebCameraAgent(CameraMonitoringService):
 # Initialize database
 def init_db():
     """Initialize SQLite database for user management and logs"""
-    conn = sqlite3.connect('camera_agent.db')
+    ensure_database_directory()
+    conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
     
     # Users table
@@ -287,7 +376,8 @@ def init_db():
 
 def get_db_connection():
     """Get database connection"""
-    conn = sqlite3.connect('camera_agent.db')
+    ensure_database_directory()
+    conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -443,29 +533,26 @@ def configuration():
 @app.route('/users')
 def users():
     """User management"""
-    conn = get_db_connection()
-    users_list = conn.execute('SELECT * FROM users ORDER BY created_at DESC').fetchall()
-    conn.close()
+    with get_db_connection() as conn:
+        users_list = conn.execute('SELECT * FROM users ORDER BY created_at DESC').fetchall()
     return render_template('users.html', users=users_list)
 
 @app.route('/logs')
 def logs():
     """Detection logs and history"""
-    conn = get_db_connection()
-    detections = conn.execute('''
-        SELECT * FROM detection_logs 
-        ORDER BY timestamp DESC 
-        LIMIT 100
-    ''').fetchall()
-    conn.close()
+    with get_db_connection() as conn:
+        detections = conn.execute('''
+            SELECT * FROM detection_logs 
+            ORDER BY timestamp DESC 
+            LIMIT 100
+        ''').fetchall()
     return render_template('logs.html', detections=detections)
 
 @app.route('/logs/<int:log_id>')
 def log_detail(log_id):
     """Single detection event detail view"""
-    conn = get_db_connection()
-    log_row = conn.execute('SELECT * FROM detection_logs WHERE id = ?', (log_id,)).fetchone()
-    conn.close()
+    with get_db_connection() as conn:
+        log_row = conn.execute('SELECT * FROM detection_logs WHERE id = ?', (log_id,)).fetchone()
 
     if not log_row:
         abort(404)
@@ -548,65 +635,109 @@ def api_status():
     
     return jsonify(status)
 
+
+@app.route('/api/agent/memory')
+def api_agent_memory():
+    """Expose recent agent memory and summarised activity."""
+    global camera_agent
+
+    limit = request.args.get('limit', type=int)
+    agent = getattr(camera_agent, 'agent', None) if camera_agent else None
+
+    if not agent:
+        empty_counts = {
+            'total': 0,
+            'detections': 0,
+            'unlabeled': 0,
+            'labeled': 0,
+            'alerts': 0,
+            'reused': 0,
+            'no_detections': 0
+        }
+        return jsonify({
+            'success': True,
+            'summary': 'No agent memory available yet.',
+            'memory': {
+                'events': [],
+                'counts': empty_counts,
+                'last_event': None
+            }
+        })
+
+    snapshot = agent.get_memory_snapshot(limit=limit)
+    summary = agent.summarise_recent_events(limit=limit)
+    return jsonify({
+        'success': True,
+        'summary': summary,
+        'memory': snapshot
+    })
+
 @app.route('/api/users', methods=['GET', 'POST'])
 def api_users():
     """User management API"""
-    conn = get_db_connection()
-    
     if request.method == 'POST':
-        data = request.json
+        data = request.get_json(silent=True) or {}
+        required_fields = [field for field in ('email', 'name') if not data.get(field)]
+        if required_fields:
+            return jsonify({'success': False, 'error': f"Missing required fields: {', '.join(required_fields)}"}), 400
+
         try:
-            conn.execute('''
-                INSERT INTO users (email, name, role)
-                VALUES (?, ?, ?)
-            ''', (data['email'], data['name'], data.get('role', 'user')))
-            conn.commit()
-            
-            # Update configuration with new user
-            update_email_recipients()
-            
-            return jsonify({'success': True, 'message': 'User added successfully'})
-        except Exception as e:
-            return jsonify({'success': False, 'error': str(e)})
-        finally:
-            conn.close()
-    
-    else:
+            with get_db_connection() as conn:
+                conn.execute(
+                    '''
+                    INSERT INTO users (email, name, role)
+                    VALUES (?, ?, ?)
+                    ''',
+                    (data['email'], data['name'], data.get('role', 'user'))
+                )
+        except sqlite3.IntegrityError as exc:
+            return jsonify({'success': False, 'error': f'Unable to add user: {exc}'}), 400
+        except sqlite3.Error as exc:
+            return jsonify({'success': False, 'error': f'Database error: {exc}'}), 500
+
+        update_email_recipients()
+        return jsonify({'success': True, 'message': 'User added successfully'})
+
+    with get_db_connection() as conn:
         users = conn.execute('SELECT * FROM users WHERE active = 1').fetchall()
-        conn.close()
-        return jsonify([dict(user) for user in users])
+    return jsonify([dict(user) for user in users])
 
 @app.route('/api/users/<int:user_id>', methods=['DELETE', 'PUT'])
 def api_delete_user(user_id):
     """Delete or update user"""
     if request.method == 'DELETE':
-        conn = get_db_connection()
-        conn.execute('UPDATE users SET active = 0 WHERE id = ?', (user_id,))
-        conn.commit()
-        conn.close()
-        
+        try:
+            with get_db_connection() as conn:
+                conn.execute('UPDATE users SET active = 0 WHERE id = ?', (user_id,))
+        except sqlite3.Error as exc:
+            return jsonify({'success': False, 'error': f'Failed to deactivate user: {exc}'}), 500
+
         update_email_recipients()
         return jsonify({'success': True, 'message': 'User deactivated'})
     
     elif request.method == 'PUT':
-        data = request.json
-        conn = get_db_connection()
+        data = request.get_json(silent=True) or {}
+        required_fields = [field for field in ('email', 'name') if not data.get(field)]
+        if required_fields:
+            return jsonify({'success': False, 'error': f"Missing required fields: {', '.join(required_fields)}"}), 400
+
         try:
-            conn.execute('''
-                UPDATE users 
-                SET email = ?, name = ?, role = ?
-                WHERE id = ?
-            ''', (data['email'], data['name'], data.get('role', 'user'), user_id))
-            conn.commit()
-            
-            # Update configuration with updated user email
-            update_email_recipients()
-            
-            return jsonify({'success': True, 'message': 'User updated successfully'})
-        except Exception as e:
-            return jsonify({'success': False, 'error': str(e)})
-        finally:
-            conn.close()
+            with get_db_connection() as conn:
+                conn.execute(
+                    '''
+                    UPDATE users 
+                    SET email = ?, name = ?, role = ?
+                    WHERE id = ?
+                    ''',
+                    (data['email'], data['name'], data.get('role', 'user'), user_id)
+                )
+        except sqlite3.IntegrityError as exc:
+            return jsonify({'success': False, 'error': f'Unable to update user: {exc}'}), 400
+        except sqlite3.Error as exc:
+            return jsonify({'success': False, 'error': f'Database error: {exc}'}), 500
+
+        update_email_recipients()
+        return jsonify({'success': True, 'message': 'User updated successfully'})
 
 @app.route('/api/config', methods=['GET', 'POST'])
 def api_config():
@@ -619,13 +750,17 @@ def api_config():
             persisted = save_camera_config(data)
             
             # Log configuration change
-            conn = get_db_connection()
-            conn.execute('''
-                INSERT INTO config_history (config_type, changes)
-                VALUES (?, ?)
-            ''', ('camera_config', json.dumps(persisted)))
-            conn.commit()
-            conn.close()
+            try:
+                with get_db_connection() as conn:
+                    conn.execute(
+                        '''
+                        INSERT INTO config_history (config_type, changes)
+                        VALUES (?, ?)
+                        ''',
+                        ('camera_config', json.dumps(persisted))
+                    )
+            except sqlite3.Error as db_exc:
+                logger.error("Failed to record configuration history: %s", db_exc)
 
             # Refresh running agent configuration if active
             global camera_agent
@@ -728,7 +863,7 @@ def api_test_camera():
     global camera_agent
     try:
         # Try to open camera temporarily for testing
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(_safe_int_env("CAMERA_INDEX", 0))
         if cap.isOpened():
             ret, frame = cap.read()
             cap.release()
@@ -745,44 +880,19 @@ def api_test_camera():
 def api_test_ollama():
     """Test Ollama connection"""
     try:
-        response = requests.get('http://localhost:11434/api/version', timeout=5)
-        if response.status_code == 200:
-            return jsonify({'success': True, 'message': 'Ollama connection successful'})
-        else:
-            return jsonify({'success': False, 'error': f'Ollama returned status {response.status_code}'})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        response = requests.get(_ollama_endpoint('api/version'), timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        return jsonify({'success': True, 'message': 'Ollama connection successful'})
+    except requests.RequestException as exc:
+        return jsonify({'success': False, 'error': f'Ollama connectivity failed: {exc}'})
 
 @app.route('/api/recent_images')
 def api_recent_images():
     """Get recent detection images"""
     try:
-        detected_dir = Path('detected_images')
-        processed_dir = Path('processed_frames')
-        
-        detected_images = []
-        processed_images = []
-        
-        if detected_dir.exists():
-            for img_file in sorted(detected_dir.glob('*.jpg'), key=os.path.getmtime, reverse=True)[:10]:
-                with open(img_file, 'rb') as f:
-                    img_b64 = base64.b64encode(f.read()).decode('utf-8')
-                detected_images.append({
-                    'filename': img_file.name,
-                    'timestamp': datetime.fromtimestamp(img_file.stat().st_mtime).isoformat(),
-                    'image_b64': img_b64
-                })
-        
-        if processed_dir.exists():
-            for img_file in sorted(processed_dir.glob('*.jpg'), key=os.path.getmtime, reverse=True)[:5]:
-                with open(img_file, 'rb') as f:
-                    img_b64 = base64.b64encode(f.read()).decode('utf-8')
-                processed_images.append({
-                    'filename': img_file.name,
-                    'timestamp': datetime.fromtimestamp(img_file.stat().st_mtime).isoformat(),
-                    'image_b64': img_b64
-                })
-        
+        detected_images = _collect_images_from_directory(DETECTED_IMAGES_DIR, 10)
+        processed_images = _collect_images_from_directory(PROCESSED_FRAMES_DIR, 5)
+
         return jsonify({
             'detected': detected_images,
             'processed': processed_images
@@ -795,13 +905,12 @@ def api_logs():
     """Get or clear detection logs"""
     if request.method == 'GET':
         try:
-            conn = get_db_connection()
-            logs = conn.execute('''
-                SELECT id, timestamp, confidence, response, image_path, frame_number, reason, vision_description, decision_details
-                FROM detection_logs 
-                ORDER BY timestamp DESC
-            ''').fetchall()
-            conn.close()
+            with get_db_connection() as conn:
+                logs = conn.execute('''
+                    SELECT id, timestamp, confidence, response, image_path, frame_number, reason, vision_description, decision_details
+                    FROM detection_logs 
+                    ORDER BY timestamp DESC
+                ''').fetchall()
             
             logs_list = []
             for log in logs:
@@ -826,45 +935,40 @@ def api_logs():
                 })
             
             return jsonify({'success': True, 'logs': logs_list})
-        except Exception as e:
-            return jsonify({'success': False, 'error': str(e)})
+        except sqlite3.Error as exc:
+            return jsonify({'success': False, 'error': f'Database error: {exc}'}), 500
     
     elif request.method == 'DELETE':
         try:
-            conn = get_db_connection()
-            conn.execute('DELETE FROM detection_logs')
-            conn.commit()
-            conn.close()
+            with get_db_connection() as conn:
+                conn.execute('DELETE FROM detection_logs')
             return jsonify({'success': True, 'message': 'All logs cleared'})
-        except Exception as e:
-            return jsonify({'success': False, 'error': str(e)})
+        except sqlite3.Error as exc:
+            return jsonify({'success': False, 'error': f'Failed to clear logs: {exc}'}), 500
 
 @app.route('/api/logs/<int:log_id>', methods=['DELETE'])
 def api_delete_log(log_id):
     """Delete a specific log entry"""
     try:
-        conn = get_db_connection()
-        conn.execute('DELETE FROM detection_logs WHERE id = ?', (log_id,))
-        conn.commit()
-        conn.close()
+        with get_db_connection() as conn:
+            conn.execute('DELETE FROM detection_logs WHERE id = ?', (log_id,))
         return jsonify({'success': True, 'message': 'Log deleted'})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+    except sqlite3.Error as exc:
+        return jsonify({'success': False, 'error': f'Failed to delete log: {exc}'}), 500
 
 @app.route('/api/logs/export', methods=['POST'])
 def api_export_logs():
     """Export logs as CSV"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         format_type = data.get('format', 'csv')
         
-        conn = get_db_connection()
-        logs = conn.execute('''
-            SELECT timestamp, confidence, response, image_path, frame_number, reason, vision_description, decision_details
-            FROM detection_logs 
-            ORDER BY timestamp DESC
-        ''').fetchall()
-        conn.close()
+        with get_db_connection() as conn:
+            logs = conn.execute('''
+                SELECT timestamp, confidence, response, image_path, frame_number, reason, vision_description, decision_details
+                FROM detection_logs 
+                ORDER BY timestamp DESC
+            ''').fetchall()
         
         if format_type == 'csv':
             output = io.StringIO()
@@ -895,6 +999,8 @@ def api_export_logs():
                 mimetype='application/json',
                 headers={'Content-Disposition': f'attachment; filename=detection_logs_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'}
             )
+    except sqlite3.Error as exc:
+        return jsonify({'success': False, 'error': f'Failed to export logs: {exc}'}), 500
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
@@ -903,17 +1009,21 @@ def api_serve_image(image_path):
     """Serve detection images"""
     try:
         # Sanitize and resolve the image path
-        safe_path = Path(image_path).resolve()
+        candidate_path = Path(image_path)
+        if not candidate_path.is_absolute():
+            candidate_path = (DATA_DIR / candidate_path).resolve()
+        else:
+            candidate_path = candidate_path.resolve()
         
         # Check if path is within allowed directories
         detected_dir = DETECTED_IMAGES_DIR.resolve()
-        processed_dir = (DATA_DIR / 'processed_frames').resolve()
-        
-        if not (str(safe_path).startswith(str(detected_dir)) or str(safe_path).startswith(str(processed_dir))):
+        processed_dir = PROCESSED_FRAMES_DIR.resolve()
+
+        if not (candidate_path.is_relative_to(detected_dir) or candidate_path.is_relative_to(processed_dir)):
             return jsonify({'error': 'Access denied'}), 403
-        
-        if safe_path.exists() and safe_path.is_file():
-            return send_file(safe_path, mimetype='image/jpeg')
+
+        if candidate_path.exists() and candidate_path.is_file():
+            return send_file(candidate_path, mimetype='image/jpeg')
         else:
             return jsonify({'error': 'Image not found'}), 404
     except Exception as e:
@@ -943,7 +1053,7 @@ def api_system_environment():
         try:
             env_vars = {
                 'CAMERA_INDEX': os.getenv('CAMERA_INDEX', '0'),
-                'OLLAMA_URL': os.getenv('OLLAMA_URL', 'http://localhost:11434'),
+                'OLLAMA_URL': OLLAMA_BASE_URL,
                 'VISION_MODEL': os.getenv('VISION_MODEL', 'gemma3:4b'),
                 'DIFF_THRESHOLD': os.getenv('DIFF_THRESHOLD', '0.80'),
                 'CAPTURE_INTERVAL': os.getenv('CAPTURE_INTERVAL', '5'),
@@ -1052,9 +1162,10 @@ def check_camera_availability():
 def check_ollama_availability():
     """Check if Ollama is available"""
     try:
-        response = requests.get('http://localhost:11434/api/version', timeout=5)
-        return response.status_code == 200
-    except:
+        response = requests.get(_ollama_endpoint('api/version'), timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        return True
+    except requests.RequestException:
         return False
 
 def update_email_recipients():
@@ -1069,11 +1180,10 @@ def update_email_recipients():
             return
 
         # Get active users with valid emails
-        conn = get_db_connection()
-        users = conn.execute(
-            'SELECT email FROM users WHERE active = 1 AND email IS NOT NULL AND email != ""'
-        ).fetchall()
-        conn.close()
+        with get_db_connection() as conn:
+            users = conn.execute(
+                'SELECT email FROM users WHERE active = 1 AND email IS NOT NULL AND email != ""'
+            ).fetchall()
         
         seen = set()
         emails: List[str] = []
@@ -1160,12 +1270,12 @@ def initialize_camera_publisher():
         if camera_publisher and getattr(camera_publisher, 'is_running', False):
             logger.info("Camera publisher already running; skipping initialization")
             return True
-        camera_index = int(os.getenv("CAMERA_INDEX", "0"))
+        camera_index = _safe_int_env("CAMERA_INDEX", 0)
         camera_publisher = get_camera_publisher(
             camera_index=camera_index,
-            width=640,
-            height=480,
-            fps=30
+            width=_safe_int_env("CAMERA_WIDTH", 640),
+            height=_safe_int_env("CAMERA_HEIGHT", 480),
+            fps=_safe_int_env("CAMERA_FPS", 30)
         )
         
         # Start the publisher so camera feed is always available
@@ -1200,9 +1310,16 @@ if __name__ == '__main__':
         logger.info("Skipping camera publisher startup in reloader bootstrap phase")
     
     # Run the app
+    host = os.getenv('FLASK_RUN_HOST', '0.0.0.0')
+    port = _safe_int_env('FLASK_RUN_PORT', 8080)
+    app_url = os.getenv('FLASK_APP_URL')
+    if not app_url:
+        display_host = 'localhost' if host in {'0.0.0.0', '::'} else host
+        app_url = f"http://{display_host}:{port}"
+
     print("🌐 Starting ZEDEDA Camera Agent Web Interface...")
-    print("📱 Access the interface at: http://localhost:8080")
+    print(f"📱 Access the interface at: {app_url}")
     print("📹 Live camera feed available (monitoring off by default)")
     print("🔍 Click 'Start Monitoring' to enable AI analysis")
-    
-    socketio.run(app, host='0.0.0.0', port=8080, debug=debug_mode)
+
+    socketio.run(app, host=host, port=port, debug=debug_mode)

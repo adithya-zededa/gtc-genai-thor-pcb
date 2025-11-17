@@ -16,6 +16,9 @@ advanced:
   retry_attempts: 3
   retry_delay: 2
   stats_log_interval: 600
+memory:
+  max_events: 50
+  summary_window: 10
 camera:
   capture_interval: 5
   detection_image_dir: detected_images
@@ -49,9 +52,11 @@ notifications:
     use_tls: true
 ollama:
   url: http://localhost:11434
-  vision_model: gemma3:12b
-  decision_model: llama3.2:latest
-  timeout: 60
+  vision_model: gemma3:4b
+  decision_model: hf.co/bartowski/nvidia_NVIDIA-Nemotron-Nano-9B-v2-GGUF:Q4_K_M
+  timeout: 90
+decision_llm:
+  timeout: 90
 rules:
   - id: UNLABELED_BOX_DETECTED
     description: Trigger when a packaging box without a shipping label is detected

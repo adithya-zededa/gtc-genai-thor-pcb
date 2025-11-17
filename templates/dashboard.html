@@ -54,7 +54,7 @@
     </div>
 </div>
 
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-8">
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-8">
     <section class="surface p-6">
         <div class="flex items-center justify-between">
             <h3 class="text-lg font-semibold text-slate-900">System Status</h3>
@@ -103,6 +103,15 @@
         <div class="relative mt-6 h-64">
             <canvas id="performance-chart"></canvas>
         </div>
+    </section>
+
+    <section class="surface p-6" id="agent-summary-card">
+        <div class="flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-slate-900">Agent Summary</h3>
+            <button id="refresh-summary" class="text-sm font-medium text-blue-600 transition hover:text-blue-800">Refresh</button>
+        </div>
+        <p id="agent-summary" class="mt-4 text-sm text-slate-700">Summary not available yet.</p>
+        <div id="agent-memory-list" class="mt-4 space-y-3 text-xs text-slate-600"></div>
     </section>
 </div>
 
@@ -160,6 +169,7 @@
 <script>
     let performanceChart;
     let activityData = [];
+    const MEMORY_RENDER_LIMIT = 5;
 
     function renderActivityPlaceholder() {
         const feed = document.getElementById('activity-feed');
@@ -281,6 +291,142 @@
                 }
             });
     }
+
+    function buildMemoryDescription(entry) {
+        if (!entry) {
+            return 'No details available.';
+        }
+        if (!entry.detected) {
+            if (entry.source === 'agent_ssim_guard') {
+                return 'Reused previous decision (no new action).';
+            }
+            return 'No packaging boxes required action.';
+        }
+
+        if (entry.shipping_label_present === false) {
+            return entry.should_alert
+                ? 'Unlabeled packaging box detected and alert generated.'
+                : 'Unlabeled packaging box detected without alert.';
+        }
+
+        if (entry.shipping_label_present === true) {
+            return 'Packaging box with visible label logged for awareness.';
+        }
+
+        return 'Packaging activity recorded with unknown label status.';
+    }
+
+    function renderAgentMemory(events) {
+        const container = document.getElementById('agent-memory-list');
+        if (!container) {
+            return;
+        }
+
+        container.innerHTML = '';
+
+        if (!events || !events.length) {
+            const placeholder = document.createElement('p');
+            placeholder.className = 'text-xs text-slate-400';
+            placeholder.textContent = 'No recent memory entries yet.';
+            container.appendChild(placeholder);
+            return;
+        }
+
+        const recent = events.slice(-MEMORY_RENDER_LIMIT).reverse();
+        recent.forEach(entry => {
+            const card = document.createElement('div');
+            card.className = 'rounded-lg border border-slate-100 bg-white/80 p-3';
+
+            const header = document.createElement('div');
+            header.className = 'flex items-center justify-between text-xs font-semibold text-slate-500';
+
+            const timestamp = document.createElement('span');
+            timestamp.textContent = entry.timestamp || 'Unknown time';
+            header.appendChild(timestamp);
+
+            const badge = document.createElement('span');
+            badge.className = 'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold';
+            if (entry.detected) {
+                if (entry.shipping_label_present === false) {
+                    badge.className += ' bg-rose-100 text-rose-700';
+                    badge.textContent = entry.should_alert ? 'Alert' : 'Detection';
+                } else {
+                    badge.className += ' bg-emerald-100 text-emerald-700';
+                    badge.textContent = 'Detection';
+                }
+            } else {
+                badge.className += entry.source === 'agent_ssim_guard'
+                    ? ' bg-indigo-100 text-indigo-700'
+                    : ' bg-slate-100 text-slate-600';
+                badge.textContent = entry.source === 'agent_ssim_guard' ? 'Reused' : 'No Detection';
+            }
+            header.appendChild(badge);
+            card.appendChild(header);
+
+            const description = document.createElement('p');
+            description.className = 'mt-2 text-sm text-slate-700';
+            description.textContent = buildMemoryDescription(entry);
+            card.appendChild(description);
+
+            const metaBits = [];
+            if (typeof entry.confidence === 'number' && !Number.isNaN(entry.confidence)) {
+                metaBits.push(`confidence ${(entry.confidence * 100).toFixed(0)}%`);
+            }
+
+            const metrics = entry.scene_metrics || {};
+            if (typeof metrics.box_count === 'number' && Number.isFinite(metrics.box_count)) {
+                metaBits.push(`boxes≈${metrics.box_count}`);
+            }
+            if (typeof metrics.label_count === 'number' && Number.isFinite(metrics.label_count)) {
+                metaBits.push(`labels≈${metrics.label_count}`);
+            }
+            if (typeof metrics.labels_per_box === 'number' && Number.isFinite(metrics.labels_per_box)) {
+                metaBits.push(`labels/box≈${metrics.labels_per_box}`);
+            }
+
+            if (Array.isArray(entry.tools_used) && entry.tools_used.length) {
+                metaBits.push(`tools: ${entry.tools_used.join(', ')}`);
+            }
+
+            if (entry.source === 'agent_ssim_guard') {
+                metaBits.push('reused decision');
+            }
+
+            if (metaBits.length) {
+                const meta = document.createElement('p');
+                meta.className = 'mt-1 text-xs text-slate-500';
+                meta.textContent = metaBits.join(' • ');
+                card.appendChild(meta);
+            }
+
+            container.appendChild(card);
+        });
+    }
+
+    async function updateAgentSummary() {
+        const summaryElement = document.getElementById('agent-summary');
+        if (!summaryElement) {
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/agent/memory');
+            if (!response.ok) {
+                throw new Error('Request failed');
+            }
+            const data = await response.json();
+            if (data && data.success) {
+                summaryElement.textContent = data.summary || 'No summary available.';
+                renderAgentMemory(data.memory ? data.memory.events : []);
+            } else {
+                summaryElement.textContent = (data && data.summary) || 'No agent memory available yet.';
+                renderAgentMemory([]);
+            }
+        } catch (error) {
+            summaryElement.textContent = 'Failed to load agent summary.';
+            renderAgentMemory([]);
+        }
+    }
     
     // Add activity item
     function addActivity(message, type = 'info') {
@@ -372,6 +518,7 @@
         const analysisSummary = localSummaries.length ? ` • ${localSummaries.join(' • ')}` : '';
         addActivity(`Packaging box detected ${labelStatus} (confidence ${(data.event.confidence * 100).toFixed(0)}%)${analysisSummary}`, 'detection');
         updateStats(data.stats);
+        updateAgentSummary();
     }
     
     function handleFrameUpdate(data) {
@@ -382,6 +529,7 @@
     document.addEventListener('DOMContentLoaded', function() {
         initPerformanceChart();
         updateSystemStatusText();
+        updateAgentSummary();
         
         // Set up test buttons
         document.getElementById('test-camera').addEventListener('click', testCamera);
@@ -389,6 +537,11 @@
         
         // Refresh activity button
         document.getElementById('refresh-activity').addEventListener('click', updateSystemStatusText);
+
+        const summaryButton = document.getElementById('refresh-summary');
+        if (summaryButton) {
+            summaryButton.addEventListener('click', updateAgentSummary);
+        }
 
         const clearButton = document.getElementById('clear-activity');
         if (clearButton) {
