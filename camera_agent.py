@@ -162,32 +162,38 @@ DEFAULT_PACKAGING_ANALYZER_PARAMS: Dict[str, Any] = {
 
 DEFAULT_DECISION_LLM_CONFIG: Dict[str, Any] = {
     "system_prompt": (
-        "detailed thinking off\n"
+        "<|im_start|>system\n"
         "You are a shipping box safety monitor. Your job: detect ANY unlabeled shipping boxes.\n\n"
         "DEFINITIONS:\n"
         "- Shipping box = Brown/tan corrugated cardboard boxes used for delivery/shipping\n"
         "- Shipping label = WHITE or LIGHT-COLORED PAPER STICKER with printed address, barcode, tracking info\n"
         "- NOT shipping boxes = Tissue boxes, cereal boxes, product packaging\n"
         "- NOT shipping labels = Product branding stickers, handwritten text, logos printed on cardboard\n\n"
-        "CRITICAL DECISION RULES (choose ONE tool):\n\n"
-        "1. trigger_packaging_alert IF:\n"
+        "CRITICAL DECISION RULES:\n\n"
+        "1. Call trigger_packaging_alert IF:\n"
         "   - At least ONE shipping box is visible, AND\n"
         "   - AT LEAST ONE of those boxes LACKS a proper shipping label\n"
         "   → Even if some boxes have labels, if ANY box is unlabeled, trigger alert!\n\n"
-        "2. record_no_detection IF:\n"
+        "2. Call record_no_detection IF:\n"
         "   - No shipping boxes present at all, OR\n"
         "   - ALL shipping boxes have proper shipping labels (not just product stickers), OR\n"
         "   - Scene is too unclear to make a determination\n\n"
         "EXAMPLES:\n"
-        "- Vision says '2 boxes, 1 has label' → TRIGGER ALERT (1 box unlabeled)\n"
-        "- Vision says '3 boxes, all have labels' → NO ALERT (all labeled)\n"
-        "- Vision says '1 box, no label' → TRIGGER ALERT (unlabeled box)\n"
-        "- Vision says '1 box with small blue product sticker, 1 box with large white shipping label' → TRIGGER ALERT (first box has product sticker, not shipping label)\n\n"
-        "Be very specific in your reasoning about EACH box and whether it has a SHIPPING LABEL."
+        "- Vision says '2 boxes, 1 has label' → trigger_packaging_alert (1 box unlabeled)\n"
+        "- Vision says '3 boxes, all have labels' → record_no_detection (all labeled)\n"
+        "- Vision says '1 box, no label' → trigger_packaging_alert (unlabeled box)\n"
+        "- Vision says '1 box with small product sticker, 1 labeled box' → trigger_packaging_alert (first box unlabeled)\n\n"
+        "OUTPUT FORMAT: Respond with ONLY a valid JSON object using this exact schema:\n"
+        '{"tool": "trigger_packaging_alert" | "record_no_detection", "confidence": <0.0-1.0>, '
+        '"reasoning": "<explanation>", "box_count": <integer>, "label_count": <integer>, '
+        '"shipping_label_present": <true|false|null>, "labels_per_box": <number|null>, '
+        '"notes": "<optional>"}<|im_end|>\n'
     ),
     "user_prompt_template": (
+        "<|im_start|>user\n"
         "Vision AI description:\n{vision_description}\n"
-        "{extra_context}"
+        "{extra_context}\n"
+        "Analyze and respond with the JSON tool call.<|im_end|>\n<|im_start|>assistant\n"
     ),
     "tools": [
         {
@@ -1754,6 +1760,12 @@ class DecisionLLM:
         if not stripped:
             return None
 
+        # Remove Nemotron chat template markers
+        stripped = stripped.replace("<|im_start|>assistant\n", "")
+        stripped = stripped.replace("<|im_end|>", "")
+        stripped = stripped.strip()
+
+        # Handle markdown code blocks
         if stripped.startswith("```"):
             lines = stripped.splitlines()
             if lines:
@@ -1764,20 +1776,25 @@ class DecisionLLM:
                     break
             stripped = "\n".join(lines).strip()
 
+        # Find JSON object boundaries
         start_idx = stripped.find("{")
         end_idx = stripped.rfind("}")
         if start_idx == -1 or end_idx == -1 or end_idx < start_idx:
             return None
 
         json_blob = stripped[start_idx:end_idx + 1]
-        try:
-            return json.loads(json_blob)
-        except json.JSONDecodeError:
-            # Attempt a relaxed parse by removing trailing text
+        
+        # Try multiple parsing strategies
+        for attempt in [json_blob, json_blob.replace("\n", " "), json_blob.replace("'", '"')]:
             try:
-                return json.loads(json_blob.replace("\n", " "))
+                parsed = json.loads(attempt)
+                # Validate it has expected fields
+                if isinstance(parsed, dict) and any(k in parsed for k in ["tool", "action", "decision", "function"]):
+                    return parsed
             except json.JSONDecodeError:
-                return None
+                continue
+        
+        return None
 
     @staticmethod
     def _normalize_tool_name(action_value: Any) -> str:
@@ -1847,12 +1864,14 @@ class DecisionLLM:
         )
 
         json_instruction = (
-            "\n\nReturn ONLY a minified JSON object with these keys: "
-            '{"action": "trigger_packaging_alert" | "record_no_detection", "reasoning": string, '
-            '"confidence": number, "shipping_label_present": true | false | null, '
-            '"box_count": integer | null, "label_count": integer | null, '
-            '"labels_per_box": number | null, "notes": string | null}. '
-            "Do not include any prose before or after the JSON."
+            "\n\n<|im_start|>assistant\n"
+            "Respond with ONLY a valid JSON object using this exact schema:\n"
+            '{"tool": "trigger_packaging_alert" | "record_no_detection", '
+            '"confidence": <0.0-1.0>, "reasoning": "<explanation>", '
+            '"box_count": <integer>, "label_count": <integer>, '
+            '"shipping_label_present": <true|false|null>, '
+            '"labels_per_box": <number|null>, "notes": "<optional>"}\n'
+            "Do not include markdown, code blocks, or any text outside the JSON object.<|im_end|>"
         )
 
         def _coerce_float(value: Any, default: float) -> float:
@@ -2043,9 +2062,10 @@ class DecisionLLM:
                     }
 
                 action_value = (
-                    parsed_json.get("action")
-                    or parsed_json.get("tool")
+                    parsed_json.get("tool")
+                    or parsed_json.get("action")
                     or parsed_json.get("decision")
+                    or parsed_json.get("function")
                 )
                 tool_name = self._normalize_tool_name(action_value)
 
