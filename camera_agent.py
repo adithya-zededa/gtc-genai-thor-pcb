@@ -162,19 +162,28 @@ DEFAULT_PACKAGING_ANALYZER_PARAMS: Dict[str, Any] = {
 
 DEFAULT_DECISION_LLM_CONFIG: Dict[str, Any] = {
     "system_prompt": (
-        "You are a shipping box safety monitor. Your job: detect unlabeled shipping boxes.\n\n"
+        "detailed thinking off\n"
+        "You are a shipping box safety monitor. Your job: detect ANY unlabeled shipping boxes.\n\n"
         "DEFINITIONS:\n"
-        "- Shipping box = Brown/tan corrugated cardboard boxes used for delivery\n"
-        "- NOT shipping boxes = Tissue boxes, cereal boxes, product packaging\n\n"
-        "DECISION RULES (choose ONE tool):\n"
+        "- Shipping box = Brown/tan corrugated cardboard boxes used for delivery/shipping\n"
+        "- Shipping label = WHITE or LIGHT-COLORED PAPER STICKER with printed address, barcode, tracking info\n"
+        "- NOT shipping boxes = Tissue boxes, cereal boxes, product packaging\n"
+        "- NOT shipping labels = Product branding stickers, handwritten text, logos printed on cardboard\n\n"
+        "CRITICAL DECISION RULES (choose ONE tool):\n\n"
         "1. trigger_packaging_alert IF:\n"
-        "- One or more shipping boxes are visible AND\n"
-        "- No shipping labels are visible on those boxes\n\n"
+        "   - At least ONE shipping box is visible, AND\n"
+        "   - AT LEAST ONE of those boxes LACKS a proper shipping label\n"
+        "   → Even if some boxes have labels, if ANY box is unlabeled, trigger alert!\n\n"
         "2. record_no_detection IF:\n"
-        "- No shipping boxes present, OR\n"
-        "- Shipping boxes have visible labels, OR\n"
-        "- Scene is unclear/ambiguous\n\n"
-        "Use the reasoning field to explain your decision briefly."
+        "   - No shipping boxes present at all, OR\n"
+        "   - ALL shipping boxes have proper shipping labels (not just product stickers), OR\n"
+        "   - Scene is too unclear to make a determination\n\n"
+        "EXAMPLES:\n"
+        "- Vision says '2 boxes, 1 has label' → TRIGGER ALERT (1 box unlabeled)\n"
+        "- Vision says '3 boxes, all have labels' → NO ALERT (all labeled)\n"
+        "- Vision says '1 box, no label' → TRIGGER ALERT (unlabeled box)\n"
+        "- Vision says '1 box with small blue product sticker, 1 box with large white shipping label' → TRIGGER ALERT (first box has product sticker, not shipping label)\n\n"
+        "Be very specific in your reasoning about EACH box and whether it has a SHIPPING LABEL."
     ),
     "user_prompt_template": (
         "Vision AI description:\n{vision_description}\n"
@@ -2994,7 +3003,14 @@ class MonitorDetectionAgent:
             local_tool_trace: List[Dict[str, Any]] = []
             rfdet_analysis = None
             rfdet_hint = None
+            
+            logger.info("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            logger.info("┃ 🔬 ANALYSIS PIPELINE STARTED")
+            logger.info("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            
             if self.packaging_box_analyzer:
+                logger.info("")
+                logger.info("[1/3] 📦 Running Packaging Box Analyzer...")
                 packaging_analysis = self.packaging_box_analyzer.analyze(
                     decoded_frame,
                     gray_frame,
@@ -3004,7 +3020,11 @@ class MonitorDetectionAgent:
                     packaging_box_count = max(0, int(packaging_analysis.estimated_box_count))
                     packaging_hint = packaging_analysis.summary
                     packaging_confidence_value = float(packaging_analysis.confidence)
-                    logger.info("📦 Local packaging analysis: %s", packaging_hint)
+                    logger.info("      ✓ Result: %s", packaging_hint)
+                    logger.info("      ✓ Confidence: %.2f | Candidates: %d | Estimated boxes: %d",
+                               packaging_confidence_value,
+                               packaging_analysis.candidate_count,
+                               packaging_box_count)
                 packaging_tool_payload = {
                     "detected": bool(packaging_analysis.detected) if packaging_analysis else False,
                     "confidence": float(packaging_analysis.confidence) if packaging_analysis else 0.0,
@@ -3020,13 +3040,20 @@ class MonitorDetectionAgent:
 
             rf_detector = self._get_rfdet_detector()
             if rf_detector:
+                logger.info("")
+                logger.info("[2/3] 🤖 Running RF-DETR Object Detector...")
                 rfdet_analysis = rf_detector.analyze(decoded_frame)
                 if rfdet_analysis:
                     rfdet_box_count = int(rfdet_analysis.get("box_count", 0) or 0)
                     if rfdet_box_count > packaging_box_count:
                         packaging_box_count = rfdet_box_count
                     rfdet_hint = rfdet_analysis.get("summary")
-                    logger.info("🤖 RF-DETR packaging analysis: %s", rfdet_hint)
+                    logger.info("      ✓ Result: %s", rfdet_hint)
+                    avg_conf = rfdet_analysis.get("average_confidence")
+                    max_conf = rfdet_analysis.get("max_confidence")
+                    if avg_conf or max_conf:
+                        logger.info("      ✓ Avg confidence: %.2f | Max confidence: %.2f | Boxes: %d",
+                                   avg_conf or 0, max_conf or 0, rfdet_box_count)
                     local_tools_used.append("rf_detr_package_detector")
                     local_tool_trace.append({
                         "name": "rf_detr_package_detector",
@@ -3054,12 +3081,15 @@ class MonitorDetectionAgent:
                     extra_context["rfdet_average_confidence"] = float(avg_conf)
 
             # STAGE 1: Vision LLM describes what it sees
-            logger.info("🔍 Stage 1: Vision LLM analyzing image...")
+            logger.info("")
+            logger.info("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            logger.info("┃ [3/3] 🔍 STAGE 1: Vision LLM Analysis")
+            logger.info("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             vision_result = self.ollama_client.analyze_image(image_data, prompt)
             vision_description = vision_result.get('response', '')
             
             if len(vision_description) > 500:
-                logger.info(f"Vision LLM Response: {vision_description[:500]}... [truncated]")
+                logger.info("      ✓ Response: %s... [truncated to 500 chars]", vision_description[:500])
             else:
                 logger.info(f"Vision LLM Response: {vision_description}")
             
@@ -3151,7 +3181,10 @@ class MonitorDetectionAgent:
                 )
             
             # STAGE 2: Decision LLM determines if an unlabeled packaging box needs attention
-            logger.info("🤖 Stage 2: Decision LLM evaluating...")
+            logger.info("")
+            logger.info("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            logger.info("┃ 🤖 STAGE 2: Decision LLM Evaluation")
+            logger.info("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             decision_result = self.decision_llm.make_detection_decision(vision_description, extra_context)
             if not isinstance(decision_result, dict):
                 decision_result = {}
@@ -3308,11 +3341,24 @@ class MonitorDetectionAgent:
 
                 primary_label = "packaging_box_unlabeled" if not shipping_label_present else "packaging_box_with_label"
 
+                logger.info("")
+                logger.info("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                logger.info("┃ ✅ PIPELINE RESULT: BOX DETECTED")
+                logger.info("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                
                 if shipping_label_present:
-                    logger.info("📦 Packaging box detected with shipping label present; logging without alert")
+                    logger.info("      Classification: %s", primary_label)
+                    logger.info("      📍 Shipping Label: ✅ VISIBLE")
+                    logger.info("      🚨 Alert Status: ❌ NO ALERT (label present)")
+                    logger.info("      📊 Confidence: %.1f%%", confidence * 100)
                 else:
-                    logger.info(f"🚨 UNLABELED PACKAGING BOX DETECTED! Confidence: {confidence:.2f}")
-                logger.info(f"🎯 Detection reasoning: {reasoning}")
+                    logger.info("      Classification: %s", primary_label)
+                    logger.info("      📍 Shipping Label: ❌ NOT VISIBLE")
+                    logger.info("      🚨 Alert Status: ✅ ALERT TRIGGERED")
+                    logger.info("      📊 Confidence: %.1f%%", confidence * 100)
+                    
+                logger.info("      🧠 Reasoning: %s", reasoning[:100] + "..." if len(reasoning) > 100 else reasoning)
+                logger.info("")
 
                 label_status = "visible" if shipping_label_present else "not visible"
                 label_status = "unknown" if shipping_label_present is None else label_status
@@ -3367,6 +3413,16 @@ class MonitorDetectionAgent:
             classification_text = decision_trace.get("classification") or decision_result.get("classification")
             if not classification_text:
                 classification_text = "NO_BOX_DETECTED"
+
+            logger.info("")
+            logger.info("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            logger.info("┃ ⚪ PIPELINE RESULT: NO DETECTION")
+            logger.info("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            logger.info("      Classification: %s", classification_text)
+            logger.info("      🚨 Alert Status: ❌ NO ALERT")
+            reasoning_no_det = decision_result.get("reasoning", "No boxes requiring attention")
+            logger.info("      🧠 Reasoning: %s", reasoning_no_det[:100] + "..." if len(reasoning_no_det) > 100 else reasoning_no_det)
+            logger.info("")
 
             base_conf_no_detection = float(decision_result.get("confidence", 0.0) or 0.0)
             final_conf_no_detection, components_no_detection = blend_confidence(
