@@ -1,0 +1,138 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "camera-agent.fullname" . }}
+  labels:
+    {{- include "camera-agent.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "camera-agent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "camera-agent.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "camera-agent.serviceAccountName" . }}
+      {{- if .Values.gpu.runtimeClassName }}
+      runtimeClassName: {{ .Values.gpu.runtimeClassName }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: ollama
+              containerPort: 11434
+              protocol: TCP
+          env:
+            - name: CAMERA_INDEX
+              value: "{{ .Values.camera.index }}"
+            - name: CAMERA_AGENT_DATA_DIR
+              value: "/app/data"
+            - name: CAMERA_AGENT_DB
+              value: "/app/data/camera_agent.db"
+            - name: DETECTED_IMAGES_DIR
+              value: "/app/data/detected_images"
+            - name: PROCESSED_FRAMES_DIR
+              value: "/app/data/processed_frames"
+            - name: VISION_MODEL
+              value: {{ .Values.ollama.visionModel | quote }}
+            - name: DECISION_MODEL
+              value: {{ .Values.ollama.decisionModel | quote }}
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /api/status
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 20
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: camera-device
+              mountPath: {{ .Values.camera.devicePath }}
+            {{- if .Values.persistence.ollama.enabled }}
+            - name: ollama-data
+              mountPath: /root/.ollama
+            {{- end }}
+            {{- if .Values.persistence.data.enabled }}
+            - name: app-data
+              mountPath: /app/data
+            {{- end }}
+            {{- if .Values.gpu.enabled }}
+            # NVIDIA Jetson library mounts for GPU access
+            - name: nvidia-libs
+              mountPath: /usr/lib/aarch64-linux-gnu/nvidia
+              readOnly: true
+            - name: nvidia-tegra
+              mountPath: /usr/lib/aarch64-linux-gnu/tegra
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: camera-device
+          hostPath:
+            path: {{ .Values.camera.devicePath }}
+            type: CharDevice
+        {{- if .Values.persistence.ollama.enabled }}
+        - name: ollama-data
+          persistentVolumeClaim:
+            claimName: {{ include "camera-agent.fullname" . }}-ollama
+        {{- end }}
+        {{- if .Values.persistence.data.enabled }}
+        - name: app-data
+          persistentVolumeClaim:
+            claimName: {{ include "camera-agent.fullname" . }}-data
+        {{- end }}
+        {{- if .Values.gpu.enabled }}
+        # NVIDIA Jetson host library volumes
+        - name: nvidia-libs
+          hostPath:
+            path: /usr/lib/aarch64-linux-gnu/nvidia
+            type: Directory
+        - name: nvidia-tegra
+          hostPath:
+            path: /usr/lib/aarch64-linux-gnu/tegra
+            type: DirectoryOrCreate
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

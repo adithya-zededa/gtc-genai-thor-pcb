@@ -18,8 +18,15 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     structural_similarity = None
 
-from camera_agent import MonitorDetectionAgent
-from camera_feed_publisher import get_camera_publisher
+from camera_agent import (
+    MonitorDetectionAgent,
+    RFDetrAdapter,
+    CircuitBreaker,
+    DEFAULT_CONFIG_PATH,
+)
+from agent_runtime.inference import OllamaVisionClient
+from agent_runtime.publisher import get_camera_publisher
+from agent_runtime.state import DetectionEvent
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +105,9 @@ class CameraMonitoringService:
 
         advanced_cfg = config.get("advanced")
         if isinstance(advanced_cfg, dict):
-            configured_workers = self._safe_positive_int(advanced_cfg.get("max_concurrent_analyses"), self.analysis_workers)
+            configured_workers = self._safe_positive_int(
+                advanced_cfg.get("max_concurrent_analyses"), self.analysis_workers
+            )
             env_workers = os.getenv("MAX_CONCURRENT_ANALYSES")
             self.analysis_workers = self._safe_positive_int(env_workers, configured_workers)
 
@@ -194,16 +203,35 @@ class CameraMonitoringService:
     def initialize(self) -> bool:
         """Initialize the monitoring agent components."""
         try:
-            self.agent = MonitorDetectionAgent()
-            if not self.agent.ollama_client.test_connection():
-                self.last_error = (
-                    f"Failed to connect to Ollama service at {self.agent.ollama_client.base_url}"
-                )
+            # Load configuration
+            config = MonitorDetectionAgent.load_config_from_path(DEFAULT_CONFIG_PATH)
+            
+            # Initialize dependencies
+            ollama_cfg = config.get("ollama", {})
+            ollama_url = str(ollama_cfg.get("url", "http://localhost:11434")).rstrip("/")
+            vision_model = str(ollama_cfg.get("vision_model", ""))
+            ollama_timeout = int(ollama_cfg.get("timeout", 60))
+            
+            llm_client = OllamaVisionClient(ollama_url, vision_model, timeout=ollama_timeout)
+            
+            if not llm_client.test_connection():
+                self.last_error = f"Failed to connect to Ollama service at {ollama_url}"
                 return False
-
-            if not self.agent.ensure_rfdet_ready():
-                self.last_error = "RF-DETR package detector failed to load"
-                return False
+            
+            # Initialize RF-DETR detector
+            rfdet_cfg = config.get("analysis", {}).get("rf_detr", {})
+            detector = RFDetrAdapter(rfdet_cfg)
+            
+            # Initialize circuit breaker
+            circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=30.0)
+            
+            # Create the agent with all dependencies
+            self.agent = MonitorDetectionAgent(
+                config=config,
+                detector=detector,
+                llm_client=llm_client,
+                circuit_breaker=circuit_breaker
+            )
 
             self._apply_configuration_settings(self.agent.config)
 
@@ -309,7 +337,9 @@ class CameraMonitoringService:
             if pending_frame is None:
                 continue
             try:
-                similarity = structural_similarity(pending_frame, reference_frame, data_range=255)
+                sim_result = structural_similarity(pending_frame, reference_frame, data_range=255)
+                # Ensure we have a float value, not a tuple
+                similarity = float(sim_result[0]) if isinstance(sim_result, tuple) else float(sim_result)
             except Exception:
                 continue
 
@@ -403,7 +433,8 @@ class CameraMonitoringService:
                             current_gray = cv2.cvtColor(current_small, cv2.COLOR_BGR2GRAY)
                             prev_gray = cv2.cvtColor(prev_small, cv2.COLOR_BGR2GRAY)
 
-                            similarity = structural_similarity(prev_gray, current_gray, data_range=255)
+                            sim_result = structural_similarity(prev_gray, current_gray, data_range=255)
+                            similarity = float(sim_result[0]) if isinstance(sim_result, tuple) else float(sim_result)
                             motion_detected = similarity < self.ssim_threshold
                             reference_frame = current_gray
                             if motion_detected:
@@ -471,7 +502,9 @@ class CameraMonitoringService:
         self._drain_analysis_results(flush=True)
 
     # Analysis pipeline ----------------------------------------------------------------
-    def _submit_frame_for_analysis(self, image_data, frame_metadata, enqueue_time, allow_wait=False, reference_frame=None):
+    def _submit_frame_for_analysis(
+        self, image_data, frame_metadata, enqueue_time, allow_wait=False, reference_frame=None
+    ):
         if not self._analysis_executor:
             return False, 0, False
 
@@ -492,7 +525,7 @@ class CameraMonitoringService:
             while pending >= self.max_pending_analyses:
                 if not allow_wait:
                     return False, pending, False
-                self._drain_analysis_results(wait=True)
+                self._drain_analysis_results(should_wait=True)
                 pending = self._count_pending_futures()
 
         frame_metadata['queued_at'] = enqueue_time
@@ -510,11 +543,28 @@ class CameraMonitoringService:
     def _analyze_frame_task(self, image_data, frame_metadata):
         if not self.agent:
             raise RuntimeError("MonitorDetectionAgent not initialized")
-        return self.agent.analyze_frame(image_data, frame_metadata)
+        
+        # Decode JPEG bytes to numpy array
+        import numpy as np
+        try:
+            nparr = np.frombuffer(image_data, np.uint8)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if frame is None:
+                logger.warning("Failed to decode JPEG image data")
+                return None
+        except Exception as e:
+            logger.warning("Error decoding image data: %s", e)
+            return None
+        
+        # Use optimized method if available
+        if hasattr(self.agent, 'analyze_frame_optimized'):
+            return self.agent.analyze_frame_optimized(frame, frame_metadata)
+        else:
+            return self.agent.analyze_frame(frame, frame_metadata)
 
-    def _drain_analysis_results(self, flush=False, wait=False, wait_timeout=0.25):
+    def _drain_analysis_results(self, flush=False, should_wait=False, wait_timeout=0.25):
         if not self._analysis_futures:
-            if wait:
+            if should_wait:
                 time.sleep(wait_timeout)
             return
 
@@ -541,7 +591,11 @@ class CameraMonitoringService:
             try:
                 event = future.result()
             except Exception as exc:
-                frame_number = frame_metadata.get('frame_number', 'unknown') if isinstance(frame_metadata, dict) else 'unknown'
+                frame_number = (
+                    frame_metadata.get('frame_number', 'unknown')
+                    if isinstance(frame_metadata, dict)
+                    else 'unknown'
+                )
                 print(f"Analysis task failed for frame {frame_number}: {exc}")
                 self._prune_pending_reference(future)
                 continue
@@ -578,7 +632,23 @@ class CameraMonitoringService:
             self._update_latency_stats(latency_ms)
 
         if not event:
-            print(f"⚠️  Analysis failed for frame {frame_number}")
+            logger.warning(
+                "⚠️  Analysis failed for frame %s (latency: %s ms). "
+                "This usually means the Vision LLM request timed out or failed.",
+                frame_number,
+                f"{latency_ms:.0f}" if latency_ms else "unknown"
+            )
+            # Record the failure so it's visible in logs
+            failed_event = DetectionEvent(
+                timestamp=datetime.now().isoformat(),
+                detected=False,
+                confidence=0.0,
+                primary_label="analysis_failed",
+                full_response=f"Analysis failed for frame {frame_number}. Check Vision LLM connectivity and timeout settings.",
+                vision_description="",
+                decision_trace={"error": "analysis_timeout_or_failure", "latency_ms": latency_ms},
+            )
+            self._record_detection(failed_event, frame_metadata)
             return
 
         if latency_ms is not None and isinstance(event.decision_trace, dict):
@@ -600,12 +670,16 @@ class CameraMonitoringService:
             if isinstance(skip_meta, dict):
                 similarity_display = skip_meta.get('similarity')
                 try:
-                    similarity_text = f"{float(similarity_display):.3f}"
+                    if similarity_display is not None:
+                        similarity_text = f"{float(similarity_display):.3f}"
+                    else:
+                        similarity_text = "unknown"
                 except (TypeError, ValueError):
                     similarity_text = str(similarity_display) if similarity_display is not None else "unknown"
                 prior_label = skip_meta.get('previous_primary_label', event.primary_label)
                 print(
-                    f"🟡 Similar frame reused previous decision ({prior_label}) - SSIM {similarity_text}; no duplicate alert"
+                    f"🟡 Similar frame reused previous decision ({prior_label}) - "
+                    f"SSIM {similarity_text}; no duplicate alert"
                 )
             else:
                 if label_status is True:

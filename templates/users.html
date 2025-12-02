@@ -4,17 +4,17 @@
 {% block page_title %}User Management{% endblock %}
 
 {% block content %}
-<div class="mb-6">
+<div class="mb-5">
     <div class="flex items-center justify-between">
         <div>
-            <p class="text-gray-600">Manage email recipients for packaging box detection alerts</p>
+            <p class="text-sm" style="color: var(--color-text-secondary);">Manage email recipients for packaging box detection alerts</p>
         </div>
-        <button id="add-user-btn" class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all font-medium">
+        <button id="add-user-btn" class="px-5 py-2 text-sm font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%); box-shadow: var(--shadow-sm);">
             <i class="fas fa-plus mr-2"></i>Add User
         </button>
     </div>
-    <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-        <p class="text-sm text-blue-700">
+    <div class="mt-4 p-3.5 rounded-xl" style="background: rgba(0, 113, 227, 0.06); border: 0.5px solid rgba(0, 113, 227, 0.2);">
+        <p class="text-xs" style="color: #0071e3;">
             <i class="fas fa-info-circle mr-2"></i>
             <strong>Auto-Sync:</strong> Users added here are automatically included in camera detection email alerts
         </p>
@@ -22,196 +22,192 @@
 </div>
 
 <!-- Users Table -->
-<div class="bg-white rounded-lg shadow-md overflow-hidden">
-    <div class="px-6 py-4 bg-gray-50 border-b">
-        <h3 class="text-lg font-semibold text-gray-800">Email Recipients</h3>
+<div class="surface overflow-hidden">
+    <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
+        <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Email Recipients</h3>
     </div>
     
     <div class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-gray-50">
+        <table class="min-w-full">
+            <thead style="background: rgba(0, 0, 0, 0.02);">
                 <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-secondary);">
                         User
                     </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-secondary);">
                         Email
                     </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-secondary);">
                         Role
                     </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-secondary);">
                         Status
                     </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-secondary);">
                         Added
                     </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-secondary);">
                         Actions
                     </th>
                 </tr>
             </thead>
-            <tbody id="users-table-body" class="bg-white divide-y divide-gray-200">
+            <tbody id="users-table-body" style="background: var(--color-surface);">
                 <!-- Users will be loaded here -->
             </tbody>
         </table>
         
-        <div id="users-empty" class="text-center py-12 hidden">
-            <i class="fas fa-users text-4xl text-gray-300 mb-4"></i>
-            <p class="text-gray-500">No users configured</p>
-            <p class="text-sm text-gray-400">Add users to receive email alerts</p>
+        <div id="users-empty" class="text-center py-16 hidden">
+            <div class="inline-flex items-center justify-center w-14 h-14 rounded-full mb-4" style="background: rgba(0, 0, 0, 0.03);">
+                <i class="fas fa-users text-2xl opacity-40"></i>
+            </div>
+            <p class="text-sm font-medium" style="color: var(--color-text-secondary);">No users configured</p>
+            <p class="text-xs mt-1" style="color: var(--color-text-tertiary);">Add users to receive email alerts</p>
         </div>
     </div>
 </div>
 
 <!-- Add User Modal -->
-<div id="add-user-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden">
-    <div class="flex items-center justify-center min-h-screen p-4">
-        <div class="bg-white rounded-lg shadow-xl max-w-md w-full">
-            <div class="px-6 py-4 border-b">
-                <h3 class="text-lg font-semibold text-gray-800">Add New User</h3>
+<div id="add-user-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-6" style="background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);">
+    <div class="surface-glass rounded-2xl max-w-md w-full" style="box-shadow: var(--shadow-xl);">
+        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
+            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Add New User</h3>
+        </div>
+        
+        <form id="add-user-form" class="p-5 space-y-4">
+            <div>
+                <label for="user-name" class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">
+                    Full Name
+                </label>
+                <input type="text" id="user-name" name="name" required
+                       class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);"
+                       placeholder="Enter full name">
             </div>
             
-            <form id="add-user-form" class="p-6 space-y-4">
-                <div>
-                    <label for="user-name" class="block text-sm font-medium text-gray-700 mb-2">
-                        Full Name
-                    </label>
-                    <input type="text" id="user-name" name="name" required
-                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                           placeholder="Enter full name">
-                </div>
-                
-                <div>
-                    <label for="user-email" class="block text-sm font-medium text-gray-700 mb-2">
-                        Email Address
-                    </label>
-                    <input type="email" id="user-email" name="email" required
-                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                           placeholder="Enter email address">
-                </div>
-                
-                <div>
-                    <label for="user-role" class="block text-sm font-medium text-gray-700 mb-2">
-                        Role
-                    </label>
-                    <select id="user-role" name="role"
-                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                        <option value="user">User</option>
-                        <option value="admin">Administrator</option>
-                        <option value="operator">Operator</option>
-                    </select>
-                </div>
-                
-                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                    <div class="flex">
-                        <i class="fas fa-exclamation-triangle text-yellow-400 mr-3 mt-0.5"></i>
-                        <div class="text-sm text-yellow-700">
-                            <p class="font-medium mb-1">Email Alert Configuration</p>
-                                            <p>This user will receive email alerts when unlabeled packaging boxes are detected in the camera feed.</p>
-                        </div>
+            <div>
+                <label for="user-email" class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">
+                    Email Address
+                </label>
+                <input type="email" id="user-email" name="email" required
+                       class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);"
+                       placeholder="Enter email address">
+            </div>
+            
+            <div>
+                <label for="user-role" class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">
+                    Role
+                </label>
+                <select id="user-role" name="role"
+                        class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                    <option value="user">User</option>
+                    <option value="admin">Administrator</option>
+                    <option value="operator">Operator</option>
+                </select>
+            </div>
+            
+            <div class="rounded-xl p-4" style="background: rgba(255, 149, 0, 0.08); border: 0.5px solid rgba(255, 149, 0, 0.2);">
+                <div class="flex">
+                    <i class="fas fa-exclamation-triangle mr-3 mt-0.5" style="color: #ff9500;"></i>
+                    <div class="text-xs" style="color: #995900;">
+                        <p class="font-medium mb-1">Email Alert Configuration</p>
+                        <p>This user will receive email alerts when unlabeled packaging boxes are detected in the camera feed.</p>
                     </div>
                 </div>
-                
-                <div class="flex justify-end space-x-3 pt-4">
-                    <button type="button" id="cancel-add-user" 
-                            class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">
-                        Cancel
-                    </button>
-                    <button type="submit" 
-                            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-                        Add User
-                    </button>
-                </div>
-            </form>
-        </div>
+            </div>
+            
+            <div class="flex justify-end space-x-2 pt-2">
+                <button type="button" id="cancel-add-user" 
+                        class="px-4 py-2 text-sm font-medium rounded-lg transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
+                    Cancel
+                </button>
+                <button type="submit" 
+                        class="px-4 py-2 text-sm font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%);">
+                    Add User
+                </button>
+            </div>
+        </form>
     </div>
 </div>
 
 <!-- Edit User Modal -->
-<div id="edit-user-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden">
-    <div class="flex items-center justify-center min-h-screen p-4">
-        <div class="bg-white rounded-lg shadow-xl max-w-md w-full">
-            <div class="px-6 py-4 border-b">
-                <h3 class="text-lg font-semibold text-gray-800">Edit User</h3>
+<div id="edit-user-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-6" style="background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);">
+    <div class="surface-glass rounded-2xl max-w-md w-full" style="box-shadow: var(--shadow-xl);">
+        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
+            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Edit User</h3>
+        </div>
+        
+        <form id="edit-user-form" class="p-5 space-y-4">
+            <input type="hidden" id="edit-user-id">
+            
+            <div>
+                <label for="edit-user-name" class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">
+                    Full Name
+                </label>
+                <input type="text" id="edit-user-name" name="name" required
+                       class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
             </div>
             
-            <form id="edit-user-form" class="p-6 space-y-4">
-                <input type="hidden" id="edit-user-id">
-                
-                <div>
-                    <label for="edit-user-name" class="block text-sm font-medium text-gray-700 mb-2">
-                        Full Name
-                    </label>
-                    <input type="text" id="edit-user-name" name="name" required
-                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                </div>
-                
-                <div>
-                    <label for="edit-user-email" class="block text-sm font-medium text-gray-700 mb-2">
-                        Email Address
-                    </label>
-                    <input type="email" id="edit-user-email" name="email" required
-                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                </div>
-                
-                <div>
-                    <label for="edit-user-role" class="block text-sm font-medium text-gray-700 mb-2">
-                        Role
-                    </label>
-                    <select id="edit-user-role" name="role"
-                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                        <option value="user">User</option>
-                        <option value="admin">Administrator</option>
-                        <option value="operator">Operator</option>
-                    </select>
-                </div>
-                
-                <div class="flex justify-end space-x-3 pt-4">
-                    <button type="button" id="cancel-edit-user" 
-                            class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">
-                        Cancel
-                    </button>
-                    <button type="submit" 
-                            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-                        Update User
-                    </button>
-                </div>
-            </form>
-        </div>
+            <div>
+                <label for="edit-user-email" class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">
+                    Email Address
+                </label>
+                <input type="email" id="edit-user-email" name="email" required
+                       class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+            </div>
+            
+            <div>
+                <label for="edit-user-role" class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">
+                    Role
+                </label>
+                <select id="edit-user-role" name="role"
+                        class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                    <option value="user">User</option>
+                    <option value="admin">Administrator</option>
+                    <option value="operator">Operator</option>
+                </select>
+            </div>
+            
+            <div class="flex justify-end space-x-2 pt-2">
+                <button type="button" id="cancel-edit-user" 
+                        class="px-4 py-2 text-sm font-medium rounded-lg transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
+                    Cancel
+                </button>
+                <button type="submit" 
+                        class="px-4 py-2 text-sm font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%);">
+                    Update User
+                </button>
+            </div>
+        </form>
     </div>
 </div>
 
 <!-- Test Email Modal -->
-<div id="test-email-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden">
-    <div class="flex items-center justify-center min-h-screen p-4">
-        <div class="bg-white rounded-lg shadow-xl max-w-md w-full">
-            <div class="px-6 py-4 border-b">
-                <h3 class="text-lg font-semibold text-gray-800">Send Test Email</h3>
-            </div>
+<div id="test-email-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-6" style="background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);">
+    <div class="surface-glass rounded-2xl max-w-md w-full" style="box-shadow: var(--shadow-xl);">
+        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
+            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Send Test Email</h3>
+        </div>
+        
+        <div class="p-5">
+            <p class="text-sm mb-4" style="color: var(--color-text-secondary);">Send a test email to verify the configuration is working correctly.</p>
             
-            <div class="p-6">
-                <p class="text-gray-600 mb-4">Send a test email to verify the configuration is working correctly.</p>
-                
-                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                    <div class="flex">
-                        <i class="fas fa-info-circle text-blue-400 mr-3 mt-0.5"></i>
-                        <div class="text-sm text-blue-700">
-                            <p>This will send a test email to: <span id="test-email-address" class="font-medium"></span></p>
-                        </div>
+            <div class="rounded-xl p-4 mb-4" style="background: rgba(0, 113, 227, 0.06); border: 0.5px solid rgba(0, 113, 227, 0.2);">
+                <div class="flex">
+                    <i class="fas fa-info-circle mr-3 mt-0.5" style="color: #0071e3;"></i>
+                    <div class="text-xs" style="color: #0071e3;">
+                        <p>This will send a test email to: <span id="test-email-address" class="font-medium"></span></p>
                     </div>
                 </div>
-                
-                <div class="flex justify-end space-x-3">
-                    <button type="button" id="cancel-test-email" 
-                            class="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">
-                        Cancel
-                    </button>
-                    <button type="button" id="send-test-email"
-                            class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-                        <i class="fas fa-paper-plane mr-2"></i>Send Test Email
-                    </button>
-                </div>
+            </div>
+            
+            <div class="flex justify-end space-x-2">
+                <button type="button" id="cancel-test-email" 
+                        class="px-4 py-2 text-sm font-medium rounded-lg transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
+                    Cancel
+                </button>
+                <button type="button" id="send-test-email"
+                        class="px-4 py-2 text-sm font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #34c759 0%, #30b350 100%);">
+                    <i class="fas fa-paper-plane mr-2"></i>Send Test Email
+                </button>
             </div>
         </div>
     </div>
@@ -248,47 +244,47 @@
         emptyState.classList.add('hidden');
         
         tbody.innerHTML = users.map(user => `
-            <tr class="hover:bg-gray-50">
-                <td class="px-6 py-4 whitespace-nowrap">
+            <tr style="border-bottom: 0.5px solid var(--color-border);">
+                <td class="px-5 py-3.5 whitespace-nowrap">
                     <div class="flex items-center">
-                        <div class="flex-shrink-0 h-10 w-10">
-                            <div class="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-                                <span class="text-sm font-medium text-blue-600">
+                        <div class="flex-shrink-0 h-9 w-9">
+                            <div class="h-9 w-9 rounded-full flex items-center justify-center" style="background: linear-gradient(135deg, rgba(0, 113, 227, 0.15) 0%, rgba(0, 113, 227, 0.08) 100%);">
+                                <span class="text-xs font-semibold" style="color: #0071e3;">
                                     ${user.name.split(' ').map(n => n[0]).join('').toUpperCase()}
                                 </span>
                             </div>
                         </div>
-                        <div class="ml-4">
-                            <div class="text-sm font-medium text-gray-900">${user.name}</div>
+                        <div class="ml-3">
+                            <div class="text-sm font-medium" style="color: var(--color-text-primary);">${user.name}</div>
                         </div>
                     </div>
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap">
-                    <div class="text-sm text-gray-900">${user.email}</div>
+                <td class="px-5 py-3.5 whitespace-nowrap">
+                    <div class="text-sm" style="color: var(--color-text-primary);">${user.email}</div>
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap">
-                    <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getRoleColor(user.role)}">
+                <td class="px-5 py-3.5 whitespace-nowrap">
+                    <span class="inline-flex px-2.5 py-1 text-xs font-medium rounded-md ${getRoleStyle(user.role)}">
                         ${user.role}
                     </span>
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap">
-                    <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full ${user.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                <td class="px-5 py-3.5 whitespace-nowrap">
+                    <span class="inline-flex px-2.5 py-1 text-xs font-medium rounded-md" style="${user.active ? 'background: rgba(52, 199, 89, 0.12); color: #248a3d;' : 'background: rgba(255, 59, 48, 0.12); color: #d70015;'}">
                         ${user.active ? 'Active' : 'Inactive'}
                     </span>
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                <td class="px-5 py-3.5 whitespace-nowrap text-sm" style="color: var(--color-text-secondary);">
                     ${new Date(user.created_at).toLocaleDateString()}
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <div class="flex space-x-2">
-                        <button onclick="editUser(${user.id})" class="text-blue-600 hover:text-blue-900">
-                            <i class="fas fa-edit"></i>
+                <td class="px-5 py-3.5 whitespace-nowrap text-sm">
+                    <div class="flex items-center gap-2">
+                        <button onclick="editUser(${user.id})" class="p-1.5 rounded-md transition" style="color: #0071e3;" title="Edit user">
+                            <i class="fas fa-edit text-xs"></i>
                         </button>
-                        <button onclick="testEmail('${user.email}')" class="text-green-600 hover:text-green-900">
-                            <i class="fas fa-paper-plane"></i>
+                        <button onclick="testEmail('${user.email}')" class="p-1.5 rounded-md transition" style="color: #34c759;" title="Send test email">
+                            <i class="fas fa-paper-plane text-xs"></i>
                         </button>
-                        <button onclick="deleteUser(${user.id})" class="text-red-600 hover:text-red-900">
-                            <i class="fas fa-trash"></i>
+                        <button onclick="deleteUser(${user.id})" class="p-1.5 rounded-md transition" style="color: #ff3b30;" title="Delete user">
+                            <i class="fas fa-trash text-xs"></i>
                         </button>
                     </div>
                 </td>
@@ -296,14 +292,14 @@
         `).join('');
     }
     
-    // Get role color
-    function getRoleColor(role) {
-        const colors = {
-            'admin': 'bg-blue-100 text-blue-800',
-            'operator': 'bg-green-100 text-green-800',
-            'user': 'bg-gray-100 text-gray-800'
+    // Get role style
+    function getRoleStyle(role) {
+        const styles = {
+            'admin': 'style="background: rgba(0, 113, 227, 0.12); color: #0062cc;"',
+            'operator': 'style="background: rgba(52, 199, 89, 0.12); color: #248a3d;"',
+            'user': 'style="background: rgba(0, 0, 0, 0.05); color: var(--color-text-secondary);"'
         };
-        return colors[role] || colors['user'];
+        return styles[role] || styles['user'];
     }
     
     // Show add user modal

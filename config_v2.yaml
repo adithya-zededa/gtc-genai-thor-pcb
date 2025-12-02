@@ -19,7 +19,6 @@ ollama:
   url: http://localhost:11434
   vision_model: qwen3-vl:4b
   timeout: 300
-  temperature: 0.1  # Low temperature for deterministic, consistent output
 
 # Streamlined detection prompt
 detection:

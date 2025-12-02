@@ -4,104 +4,112 @@
 {% block page_title %}System Settings{% endblock %}
 
 {% block content %}
-<div class="max-w-5xl mx-auto px-6 py-8 space-y-4">
+<div class="max-w-5xl mx-auto px-6 py-6 space-y-4">
     <!-- System Overview -->
-    <section class="bg-white border border-gray-200/60 rounded-xl shadow-sm overflow-hidden">
-        <div class="px-6 py-5 border-b border-gray-100">
+    <section class="surface overflow-hidden">
+        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
             <div class="flex items-center justify-between">
                 <div>
-                    <h3 class="text-base font-semibold text-gray-900 tracking-tight">System Overview</h3>
-                    <p class="text-xs text-gray-500 mt-0.5">Monitor system status and resource usage</p>
+                    <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">System Overview</h3>
+                    <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">Monitor system status and resource usage</p>
                 </div>
                 <div class="flex gap-2">
-                    <button id="refresh-system-status" class="px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 transition-colors">
+                    <button id="refresh-system-status" class="px-3 py-1.5 text-xs font-medium rounded-lg transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
                         <i class="fas fa-rotate mr-1.5"></i>Refresh
                     </button>
-                    <button id="restart-services" class="px-3 py-1.5 text-xs font-medium bg-orange-500 text-white rounded-md hover:bg-orange-600 transition-colors">
+                    <button id="restart-services" class="px-3 py-1.5 text-xs font-medium rounded-lg text-white transition" style="background: linear-gradient(135deg, #ff9500 0%, #ff6b00 100%);">
                         <i class="fas fa-power-off mr-1.5"></i>Restart
                     </button>
                 </div>
             </div>
         </div>
-        <div class="p-6">
+        <div class="p-5">
             <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-4">
-                <div class="flex items-center justify-between px-4 py-3 bg-gray-50/50 rounded-lg border border-gray-100/80">
+                <div class="flex items-center justify-between px-4 py-3 rounded-xl" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
                     <div>
-                        <p class="text-xs text-gray-500 font-medium">Web Server</p>
-                        <p id="web-status" class="text-sm font-semibold text-green-600 mt-0.5">Running</p>
+                        <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Web Server</p>
+                        <p id="web-status" class="text-sm font-semibold mt-0.5" style="color: #34c759;">Running</p>
                     </div>
-                    <i class="fas fa-server text-gray-300 text-lg"></i>
+                    <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(52, 199, 89, 0.1) 0%, rgba(52, 199, 89, 0.05) 100%);">
+                        <i class="fas fa-server text-sm" style="color: #34c759;"></i>
+                    </div>
                 </div>
-                <div class="flex items-center justify-between px-4 py-3 bg-gray-50/50 rounded-lg border border-gray-100/80">
+                <div class="flex items-center justify-between px-4 py-3 rounded-xl" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
                     <div>
-                        <p class="text-xs text-gray-500 font-medium">Camera Agent</p>
-                        <p id="settings-agent-status" class="text-sm font-semibold text-gray-600 mt-0.5">Checking...</p>
+                        <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Camera Agent</p>
+                        <p id="settings-agent-status" class="text-sm font-semibold mt-0.5" style="color: var(--color-text-tertiary);">Checking...</p>
                     </div>
-                    <i class="fas fa-video text-gray-300 text-lg"></i>
+                    <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(0, 113, 227, 0.1) 0%, rgba(0, 113, 227, 0.05) 100%);">
+                        <i class="fas fa-video text-sm" style="color: #0071e3;"></i>
+                    </div>
                 </div>
-                <div class="flex items-center justify-between px-4 py-3 bg-gray-50/50 rounded-lg border border-gray-100/80">
+                <div class="flex items-center justify-between px-4 py-3 rounded-xl" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
                     <div>
-                        <p class="text-xs text-gray-500 font-medium">Ollama Service</p>
-                        <p id="settings-ollama-status" class="text-sm font-semibold text-gray-600 mt-0.5">Checking...</p>
+                        <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Ollama Service</p>
+                        <p id="settings-ollama-status" class="text-sm font-semibold mt-0.5" style="color: var(--color-text-tertiary);">Checking...</p>
                     </div>
-                    <i class="fas fa-brain text-gray-300 text-lg"></i>
+                    <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(175, 82, 222, 0.1) 0%, rgba(175, 82, 222, 0.05) 100%);">
+                        <i class="fas fa-brain text-sm" style="color: #af52de;"></i>
+                    </div>
                 </div>
-                <div class="flex items-center justify-between px-4 py-3 bg-gray-50/50 rounded-lg border border-gray-100/80">
+                <div class="flex items-center justify-between px-4 py-3 rounded-xl" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
                     <div>
-                        <p class="text-xs text-gray-500 font-medium">Email Service</p>
-                        <p id="settings-email-status" class="text-sm font-semibold text-gray-600 mt-0.5">Checking...</p>
+                        <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Email Service</p>
+                        <p id="settings-email-status" class="text-sm font-semibold mt-0.5" style="color: var(--color-text-tertiary);">Checking...</p>
                     </div>
-                    <i class="fas fa-envelope text-gray-300 text-lg"></i>
+                    <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(255, 149, 0, 0.1) 0%, rgba(255, 149, 0, 0.05) 100%);">
+                        <i class="fas fa-envelope text-sm" style="color: #ff9500;"></i>
+                    </div>
                 </div>
             </div>
             <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div class="px-4 py-3 bg-white border border-gray-100/80 rounded-lg">
-                    <p class="text-xs text-gray-500 font-medium">Uptime</p>
-                    <p id="system-uptime" class="text-sm font-semibold text-gray-800 mt-0.5">Loading...</p>
+                <div class="px-4 py-3 rounded-xl" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                    <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Uptime</p>
+                    <p id="system-uptime" class="text-sm font-semibold mt-0.5" style="color: var(--color-text-primary);">Loading...</p>
                 </div>
-                <div class="px-4 py-3 bg-white border border-gray-100/80 rounded-lg">
-                    <p class="text-xs text-gray-500 font-medium">CPU Usage</p>
-                    <p id="cpu-usage" class="text-sm font-semibold text-gray-800 mt-0.5">--</p>
+                <div class="px-4 py-3 rounded-xl" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                    <p class="text-xs font-medium" style="color: var(--color-text-secondary);">CPU Usage</p>
+                    <p id="cpu-usage" class="text-sm font-semibold mt-0.5" style="color: var(--color-text-primary);">--</p>
                 </div>
-                <div class="px-4 py-3 bg-white border border-gray-100/80 rounded-lg">
-                    <p class="text-xs text-gray-500 font-medium">Memory Usage</p>
-                    <p id="memory-usage" class="text-sm font-semibold text-gray-800 mt-0.5">--</p>
+                <div class="px-4 py-3 rounded-xl" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                    <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Memory Usage</p>
+                    <p id="memory-usage" class="text-sm font-semibold mt-0.5" style="color: var(--color-text-primary);">--</p>
                 </div>
-                <div class="px-4 py-3 bg-white border border-gray-100/80 rounded-lg">
-                    <p class="text-xs text-gray-500 font-medium">Disk Usage</p>
-                    <p id="disk-usage" class="text-sm font-semibold text-gray-800 mt-0.5">--</p>
+                <div class="px-4 py-3 rounded-xl" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                    <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Disk Usage</p>
+                    <p id="disk-usage" class="text-sm font-semibold mt-0.5" style="color: var(--color-text-primary);">--</p>
                 </div>
             </div>
         </div>
     </section>
 
     <!-- Environment & Integrations -->
-    <section class="bg-white border border-gray-200/60 rounded-xl shadow-sm overflow-hidden">
-        <div class="px-6 py-5 border-b border-gray-100">
-            <h3 class="text-base font-semibold text-gray-900 tracking-tight">Environment & Integrations</h3>
-            <p class="text-xs text-gray-500 mt-0.5">Configure email notifications and Ollama backend</p>
+    <section class="surface overflow-hidden">
+        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
+            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Environment & Integrations</h3>
+            <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">Configure email notifications and Ollama backend</p>
         </div>
-        <div class="p-6">
+        <div class="p-5">
             <div class="grid gap-6 md:grid-cols-2">
                 <div class="space-y-4">
                     <div>
-                        <label for="gmail-email" class="block text-xs font-medium text-gray-700 mb-1.5">Gmail Address</label>
-                        <input id="gmail-email" type="email" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500" placeholder="alerts@example.com">
+                        <label for="gmail-email" class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Gmail Address</label>
+                        <input id="gmail-email" type="email" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);" placeholder="alerts@example.com">
                     </div>
                     <div>
-                        <label for="gmail-password" class="block text-xs font-medium text-gray-700 mb-1.5">App Password</label>
-                        <div class="flex rounded-md border border-gray-300 focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500">
-                            <input id="gmail-password" type="password" class="flex-1 rounded-l-md border-0 focus:ring-0 px-3 py-2 text-sm" placeholder="16 character app password">
-                            <button type="button" class="px-3 text-gray-400 hover:text-gray-600" onclick="togglePassword('gmail-password')">
+                        <label for="gmail-password" class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">App Password</label>
+                        <div class="flex rounded-lg overflow-hidden" style="border: 0.5px solid var(--color-border);">
+                            <input id="gmail-password" type="password" class="flex-1 px-3 py-2 text-sm border-0" style="background: var(--color-surface);" placeholder="16 character app password">
+                            <button type="button" class="px-3" style="background: var(--color-surface); color: var(--color-text-tertiary);" onclick="togglePassword('gmail-password')">
                                 <i class="fas fa-eye text-sm"></i>
                             </button>
                         </div>
                     </div>
                     <div>
-                        <label for="ollama-url" class="block text-xs font-medium text-gray-700 mb-1.5">Ollama URL</label>
-                        <input id="ollama-url" type="url" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500" placeholder="http://localhost:11434">
+                        <label for="ollama-url" class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Ollama URL</label>
+                        <input id="ollama-url" type="url" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);" placeholder="http://localhost:11434">
                     </div>
-                    <div class="flex items-center justify-between text-xs text-gray-700">
+                    <div class="flex items-center justify-between text-xs" style="color: var(--color-text-primary);">
                         <span>Enable debug logging</span>
                         <label class="toggle-switch">
                             <input id="debug-mode" type="checkbox">
@@ -110,18 +118,18 @@
                     </div>
                 </div>
                 <div class="space-y-4">
-                    <div class="bg-gray-50/70 border border-gray-200/80 rounded-lg p-4">
-                        <h4 class="text-sm font-semibold text-gray-800 mb-1">Email Tools</h4>
-                        <p class="text-xs text-gray-600 mb-3">Test delivery before enabling notifications</p>
-                        <button id="test-email" class="w-full px-3 py-2 text-xs font-medium bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                    <div class="rounded-xl p-4" style="background: rgba(0, 113, 227, 0.04); border: 0.5px solid rgba(0, 113, 227, 0.15);">
+                        <h4 class="text-sm font-semibold mb-1" style="color: var(--color-text-primary);">Email Tools</h4>
+                        <p class="text-xs mb-3" style="color: var(--color-text-secondary);">Test delivery before enabling notifications</p>
+                        <button id="test-email" class="w-full px-3 py-2 text-xs font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%);">
                             <i class="fas fa-paper-plane mr-1.5"></i>Send Test Email
                         </button>
                     </div>
                     <div class="flex gap-2">
-                        <button id="save-env" class="flex-1 px-3 py-2 text-xs font-medium bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                        <button id="save-env" class="flex-1 px-3 py-2 text-xs font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%);">
                             <i class="fas fa-save mr-1.5"></i>Save
                         </button>
-                        <button id="load-env" class="flex-1 px-3 py-2 text-xs font-medium border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 transition-colors">
+                        <button id="load-env" class="flex-1 px-3 py-2 text-xs font-medium rounded-lg transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
                             <i class="fas fa-sync-alt mr-1.5"></i>Reload
                         </button>
                     </div>
@@ -131,35 +139,35 @@
     </section>
 
     <!-- Camera Settings -->
-    <section class="bg-white border border-gray-200/60 rounded-xl shadow-sm overflow-hidden">
-        <div class="px-6 py-5 border-b border-gray-100">
-            <h3 class="text-base font-semibold text-gray-900 tracking-tight">Camera Settings</h3>
-            <p class="text-xs text-gray-500 mt-0.5">Configure capture interval and resolution</p>
+    <section class="surface overflow-hidden">
+        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
+            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Camera Settings</h3>
+            <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">Configure capture interval and resolution</p>
         </div>
-        <div class="p-6">
+        <div class="p-5">
             <div class="grid gap-4 md:grid-cols-2 mb-4">
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Device Index</label>
-                    <select id="device-index" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Device Index</label>
+                    <select id="device-index" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
                         <option value="0">/dev/video0</option>
                         <option value="1">/dev/video1</option>
                         <option value="2">/dev/video2</option>
                     </select>
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Capture Interval (seconds)</label>
-                    <input id="capture-interval" type="number" min="0.1" step="0.1" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Capture Interval (seconds)</label>
+                    <input id="capture-interval" type="number" min="0.1" step="0.1" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Resolution Width</label>
-                    <input id="resolution-width" type="number" min="1" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Resolution Width</label>
+                    <input id="resolution-width" type="number" min="1" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Resolution Height</label>
-                    <input id="resolution-height" type="number" min="1" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Resolution Height</label>
+                    <input id="resolution-height" type="number" min="1" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
                 </div>
             </div>
-            <div class="space-y-3 text-xs text-gray-700">
+            <div class="space-y-3 text-xs" style="color: var(--color-text-primary);">
                 <div class="flex items-center justify-between">
                     <span>Store detection crops</span>
                     <label class="toggle-switch">
@@ -179,113 +187,113 @@
     </section>
 
     <!-- Detection Model & Prompt -->
-    <section class="bg-white border border-gray-200/60 rounded-xl shadow-sm overflow-hidden">
-        <div class="px-6 py-5 border-b border-gray-100">
-            <h3 class="text-base font-semibold text-gray-900 tracking-tight">Detection Model & Prompt</h3>
-            <p class="text-xs text-gray-500 mt-0.5">Configure Ollama model and vision prompt</p>
+    <section class="surface overflow-hidden">
+        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
+            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Detection Model & Prompt</h3>
+            <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">Configure Ollama model and vision prompt</p>
         </div>
-        <div class="p-6">
+        <div class="p-5">
             <div class="grid gap-4 md:grid-cols-2 mb-4">
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Vision Model</label>
-                    <select id="vision-model" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Vision Model</label>
+                    <select id="vision-model" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
                         <option value="gemma3:4b">gemma3:4b (Recommended)</option>
                         <option value="llava:7b">llava:7b</option>
                         <option value="llava:13b">llava:13b</option>
                     </select>
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">SSIM Threshold</label>
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">SSIM Threshold</label>
                     <input id="ssim-threshold-config" type="range" min="0.5" max="1.0" step="0.05" class="w-full mt-2">
-                    <div class="flex justify-between text-xs text-gray-500 mt-1">
+                    <div class="flex justify-between text-xs mt-1" style="color: var(--color-text-tertiary);">
                         <span>0.5 (sensitive)</span>
-                        <span id="ssim-threshold-value" class="font-medium text-gray-700">0.80</span>
+                        <span id="ssim-threshold-value" class="font-medium" style="color: var(--color-text-primary);">0.80</span>
                         <span>1.0 (strict)</span>
                     </div>
                 </div>
             </div>
             <div class="space-y-3">
-                <label class="block text-xs font-medium text-gray-700">Detection Prompt</label>
-                <textarea id="detection-prompt" rows="5" class="w-full px-3 py-2 text-sm rounded-md border border-gray-300 font-mono focus:ring-blue-500 focus:border-blue-500" placeholder="Describe the detection criteria"></textarea>
+                <label class="block text-xs font-medium" style="color: var(--color-text-secondary);">Detection Prompt</label>
+                <textarea id="detection-prompt" rows="5" class="w-full px-3 py-2 text-sm rounded-lg font-mono" style="background: var(--color-surface); border: 0.5px solid var(--color-border);" placeholder="Describe the detection criteria"></textarea>
                 <div class="flex items-center justify-between">
                     <div class="flex gap-2">
-                        <button id="reset-prompt" class="px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 transition-colors">
+                        <button id="reset-prompt" class="px-3 py-1.5 text-xs font-medium rounded-lg transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
                             <i class="fas fa-undo mr-1.5"></i>Reset
                         </button>
-                        <button id="test-prompt" class="px-3 py-1.5 text-xs font-medium bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                        <button id="test-prompt" class="px-3 py-1.5 text-xs font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%);">
                             <i class="fas fa-flask mr-1.5"></i>Test
                         </button>
                     </div>
-                    <span class="text-xs text-gray-500">Characters: <span id="prompt-length" class="font-medium text-gray-700">0</span></span>
+                    <span class="text-xs" style="color: var(--color-text-tertiary);">Characters: <span id="prompt-length" class="font-medium" style="color: var(--color-text-primary);">0</span></span>
                 </div>
             </div>
         </div>
     </section>
 
     <!-- Advanced Processing -->
-    <section class="bg-white border border-gray-200/60 rounded-xl shadow-sm overflow-hidden">
-        <div class="px-6 py-5 border-b border-gray-100">
-            <h3 class="text-base font-semibold text-gray-900 tracking-tight">Advanced Processing</h3>
-            <p class="text-xs text-gray-500 mt-0.5">Fine-tune concurrency and motion detection settings</p>
+    <section class="surface overflow-hidden">
+        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
+            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Advanced Processing</h3>
+            <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">Fine-tune concurrency and motion detection settings</p>
         </div>
-        <div class="p-6">
+        <div class="p-5">
             <div class="grid gap-4 md:grid-cols-3">
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Max Concurrent Analyses</label>
-                    <input id="max-concurrent-analyses" type="number" min="1" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Max Concurrent Analyses</label>
+                    <input id="max-concurrent-analyses" type="number" min="1" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Max Pending Analyses</label>
-                    <input id="max-pending-analyses" type="number" min="1" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Max Pending Analyses</label>
+                    <input id="max-pending-analyses" type="number" min="1" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Motion Burst Interval (s)</label>
-                    <input id="motion-burst-interval" type="number" min="0" step="0.1" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Motion Burst Interval (s)</label>
+                    <input id="motion-burst-interval" type="number" min="0" step="0.1" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Motion Burst Window (s)</label>
-                    <input id="motion-burst-window" type="number" min="0" step="0.5" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Motion Burst Window (s)</label>
+                    <input id="motion-burst-window" type="number" min="0" step="0.5" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Motion Burst SSIM</label>
-                    <input id="motion-burst-ssim" type="number" min="0" max="1" step="0.01" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Motion Burst SSIM</label>
+                    <input id="motion-burst-ssim" type="number" min="0" max="1" step="0.01" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Queued Frame SSIM Filter</label>
-                    <input id="pending-dedupe-ssim" type="number" min="0" max="1" step="0.01" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Queued Frame SSIM Filter</label>
+                    <input id="pending-dedupe-ssim" type="number" min="0" max="1" step="0.01" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
                 </div>
             </div>
         </div>
     </section>
 
     <!-- Email Notifications -->
-    <section class="bg-white border border-gray-200/60 rounded-xl shadow-sm overflow-hidden">
-        <div class="px-6 py-5 border-b border-gray-100">
-            <h3 class="text-base font-semibold text-gray-900 tracking-tight">Email Notifications</h3>
-            <p class="text-xs text-gray-500 mt-0.5">Configure SMTP settings and email templates</p>
+    <section class="surface overflow-hidden">
+        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
+            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Email Notifications</h3>
+            <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">Configure SMTP settings and email templates</p>
         </div>
-        <div class="p-6 space-y-6">
+        <div class="p-5 space-y-6">
             <div class="grid gap-4 md:grid-cols-2">
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">SMTP Server</label>
-                    <input id="smtp-server" type="text" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500" value="smtp.gmail.com">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">SMTP Server</label>
+                    <input id="smtp-server" type="text" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);" value="smtp.gmail.com">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">SMTP Port</label>
-                    <input id="smtp-port" type="number" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500" value="587">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">SMTP Port</label>
+                    <input id="smtp-port" type="number" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);" value="587">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">From Email</label>
-                    <input id="from-email" type="email" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500" placeholder="agent@example.com">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">From Email</label>
+                    <input id="from-email" type="email" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);" placeholder="agent@example.com">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Subject Template</label>
-                    <input id="email-subject" type="text" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500" value="Unlabeled Packaging Box Detected - Camera Alert">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Subject Template</label>
+                    <input id="email-subject" type="text" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);" value="Unlabeled Packaging Box Detected - Camera Alert">
                 </div>
             </div>
             <div>
-                <label class="block text-xs font-medium text-gray-700 mb-1.5">Email Body Template</label>
-                <textarea id="email-body" rows="5" class="w-full px-3 py-2 text-sm rounded-md border border-gray-300 font-mono focus:ring-blue-500 focus:border-blue-500">ZEDEDA Camera Security Alert
+                <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Email Body Template</label>
+                <textarea id="email-body" rows="5" class="w-full px-3 py-2 text-sm rounded-lg font-mono" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">ZEDEDA Camera Security Alert
 
 An unlabeled packaging or shipping box has been detected in the camera feed.
 
@@ -296,16 +304,16 @@ Details:
 - Shipping Label Present: {{shipping_label_present}}
 
 This alert was generated by the ZEDEDA Camera Monitoring Agent.</textarea>
-                <p class="mt-2 text-xs text-gray-500">Variables: {{timestamp}}, {{device}}, {{confidence}}, {{full_response}}, {{shipping_label_present}}, {{should_alert}}</p>
+                <p class="mt-2 text-xs" style="color: var(--color-text-tertiary);">Variables: {{timestamp}}, {{device}}, {{confidence}}, {{full_response}}, {{shipping_label_present}}, {{should_alert}}</p>
             </div>
             
-            <div class="border-t border-gray-100 pt-6">
+            <div class="pt-5" style="border-top: 0.5px solid var(--color-border);">
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                        <h4 class="text-sm font-semibold text-gray-800">Recipients</h4>
-                        <p class="text-xs text-gray-500">Manage destination addresses for alert delivery</p>
+                        <h4 class="text-sm font-semibold" style="color: var(--color-text-primary);">Recipients</h4>
+                        <p class="text-xs" style="color: var(--color-text-secondary);">Manage destination addresses for alert delivery</p>
                     </div>
-                    <div class="flex items-center justify-end gap-3 text-xs font-medium text-gray-700">
+                    <div class="flex items-center justify-end gap-3 text-xs font-medium" style="color: var(--color-text-primary);">
                         <span>Sync from User Management</span>
                         <label class="toggle-switch">
                             <input id="auto-sync-users" type="checkbox">
@@ -313,21 +321,21 @@ This alert was generated by the ZEDEDA Camera Monitoring Agent.</textarea>
                         </label>
                     </div>
                 </div>
-                <p id="recipient-sync-hint" class="mt-2 text-xs text-gray-500 hidden">
-                    Recipients are kept in sync with the <a href="/users" class="text-blue-600 hover:text-blue-700 underline">User Management</a> page.
+                <p id="recipient-sync-hint" class="mt-2 text-xs hidden" style="color: var(--color-text-secondary);">
+                    Recipients are kept in sync with the <a href="/users" style="color: #0071e3;">User Management</a> page.
                 </p>
                 <div class="flex gap-2 mt-4">
-                    <input id="new-recipient" type="email" class="flex-1 px-3 py-2 text-sm rounded-md border border-gray-300 focus:ring-blue-500 focus:border-blue-500" placeholder="recipient@example.com">
-                    <button id="add-recipient" class="px-3 py-2 text-xs font-medium bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                    <input id="new-recipient" type="email" class="flex-1 px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);" placeholder="recipient@example.com">
+                    <button id="add-recipient" class="px-3 py-2 text-xs font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%);">
                         <i class="fas fa-plus mr-1.5"></i>Add
                     </button>
                 </div>
                 <div id="recipient-list" class="flex flex-wrap gap-2 mt-3 mb-3"></div>
                 <div class="flex gap-2">
-                    <button id="save-recipients" class="px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 transition-colors">
+                    <button id="save-recipients" class="px-3 py-1.5 text-xs font-medium rounded-lg transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
                         <i class="fas fa-save mr-1.5"></i>Save
                     </button>
-                    <button id="reset-recipients" class="px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 transition-colors">
+                    <button id="reset-recipients" class="px-3 py-1.5 text-xs font-medium rounded-lg transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
                         <i class="fas fa-sync-alt mr-1.5"></i>Reload
                     </button>
                 </div>
@@ -336,16 +344,16 @@ This alert was generated by the ZEDEDA Camera Monitoring Agent.</textarea>
     </section>
 
     <!-- Logging -->
-    <section class="bg-white border border-gray-200/60 rounded-xl shadow-sm overflow-hidden">
-        <div class="px-6 py-5 border-b border-gray-100">
-            <h3 class="text-base font-semibold text-gray-900 tracking-tight">Logging</h3>
-            <p class="text-xs text-gray-500 mt-0.5">Configure log retention and output destinations</p>
+    <section class="surface overflow-hidden">
+        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
+            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Logging</h3>
+            <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">Configure log retention and output destinations</p>
         </div>
-        <div class="p-6">
+        <div class="p-5">
             <div class="grid gap-4 md:grid-cols-3 mb-4">
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Log Level</label>
-                    <select id="log-level" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Log Level</label>
+                    <select id="log-level" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
                         <option value="DEBUG">Debug</option>
                         <option value="INFO" selected>Info</option>
                         <option value="WARNING">Warning</option>
@@ -353,15 +361,15 @@ This alert was generated by the ZEDEDA Camera Monitoring Agent.</textarea>
                     </select>
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Retention (days)</label>
-                    <input id="log-retention" type="number" min="1" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500" value="30">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Retention (days)</label>
+                    <input id="log-retention" type="number" min="1" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);" value="30">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1.5">Max File Size (MB)</label>
-                    <input id="max-log-size" type="number" min="1" class="w-full px-3 py-2 text-sm rounded-md border-gray-300 focus:ring-blue-500 focus:border-blue-500" value="100">
+                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Max File Size (MB)</label>
+                    <input id="max-log-size" type="number" min="1" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);" value="100">
                 </div>
             </div>
-            <div class="space-y-3 text-xs text-gray-700 mb-4">
+            <div class="space-y-3 text-xs mb-4" style="color: var(--color-text-primary);">
                 <div class="flex items-center justify-between">
                     <span>Log to file</span>
                     <label class="toggle-switch">
@@ -384,79 +392,79 @@ This alert was generated by the ZEDEDA Camera Monitoring Agent.</textarea>
                     </label>
                 </div>
             </div>
-            <button id="save-log-settings" class="px-4 py-2 text-xs font-medium bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+            <button id="save-log-settings" class="px-4 py-2 text-xs font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%);">
                 <i class="fas fa-save mr-1.5"></i>Save Log Settings
             </button>
         </div>
     </section>
 
     <!-- Database Maintenance -->
-    <section class="bg-white border border-gray-200/60 rounded-xl shadow-sm overflow-hidden">
-        <div class="px-6 py-5 border-b border-gray-100">
-            <h3 class="text-base font-semibold text-gray-900 tracking-tight">Database Maintenance</h3>
-            <p class="text-xs text-gray-500 mt-0.5">Manage database health and backups</p>
+    <section class="surface overflow-hidden">
+        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
+            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Database Maintenance</h3>
+            <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">Manage database health and backups</p>
         </div>
-        <div class="p-6">
+        <div class="p-5">
             <div class="grid gap-2 md:grid-cols-3 mb-4">
-                <button id="backup-db" class="px-3 py-2 text-xs font-medium bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                <button id="backup-db" class="px-3 py-2 text-xs font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%);">
                     <i class="fas fa-download mr-1.5"></i>Backup
                 </button>
-                <button id="optimize-db" class="px-3 py-2 text-xs font-medium border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 transition-colors">
+                <button id="optimize-db" class="px-3 py-2 text-xs font-medium rounded-lg transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
                     <i class="fas fa-broom mr-1.5"></i>Optimize
                 </button>
-                <button id="reset-db" class="px-3 py-2 text-xs font-medium bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors">
+                <button id="reset-db" class="px-3 py-2 text-xs font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #ff3b30 0%, #ff2d55 100%);">
                     <i class="fas fa-trash mr-1.5"></i>Reset
                 </button>
             </div>
             <div class="grid gap-3 sm:grid-cols-3">
-                <div class="px-4 py-3 bg-gray-50/50 rounded-lg border border-gray-100/80">
-                    <p class="text-xs text-gray-500 font-medium">Database Size</p>
-                    <p id="db-size" class="text-sm font-semibold text-gray-800 mt-0.5">--</p>
+                <div class="px-4 py-3 rounded-xl" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
+                    <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Database Size</p>
+                    <p id="db-size" class="text-sm font-semibold mt-0.5" style="color: var(--color-text-primary);">--</p>
                 </div>
-                <div class="px-4 py-3 bg-gray-50/50 rounded-lg border border-gray-100/80">
-                    <p class="text-xs text-gray-500 font-medium">Users</p>
-                    <p id="db-users" class="text-sm font-semibold text-gray-800 mt-0.5">--</p>
+                <div class="px-4 py-3 rounded-xl" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
+                    <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Users</p>
+                    <p id="db-users" class="text-sm font-semibold mt-0.5" style="color: var(--color-text-primary);">--</p>
                 </div>
-                <div class="px-4 py-3 bg-gray-50/50 rounded-lg border border-gray-100/80">
-                    <p class="text-xs text-gray-500 font-medium">Log Entries</p>
-                    <p id="db-logs" class="text-sm font-semibold text-gray-800 mt-0.5">--</p>
+                <div class="px-4 py-3 rounded-xl" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
+                    <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Log Entries</p>
+                    <p id="db-logs" class="text-sm font-semibold mt-0.5" style="color: var(--color-text-primary);">--</p>
                 </div>
             </div>
         </div>
     </section>
 
     <!-- API Key & Configuration Management -->
-    <section class="bg-white border border-gray-200/60 rounded-xl shadow-sm overflow-hidden">
-        <div class="px-6 py-5 border-b border-gray-100">
-            <h3 class="text-base font-semibold text-gray-900 tracking-tight">Security & Configuration</h3>
-            <p class="text-xs text-gray-500 mt-0.5">API authentication and configuration management</p>
+    <section class="surface overflow-hidden">
+        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
+            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Security & Configuration</h3>
+            <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">API authentication and configuration management</p>
         </div>
-        <div class="p-6">
+        <div class="p-5">
             <div class="grid gap-6 md:grid-cols-2">
                 <div>
-                    <h4 class="text-sm font-semibold text-gray-800 mb-2">API Key</h4>
-                    <p class="text-xs text-gray-500 mb-3">Use this key to authenticate external tooling</p>
+                    <h4 class="text-sm font-semibold mb-2" style="color: var(--color-text-primary);">API Key</h4>
+                    <p class="text-xs mb-3" style="color: var(--color-text-secondary);">Use this key to authenticate external tooling</p>
                     <div class="flex gap-2">
-                        <input id="api-key" type="text" readonly class="flex-1 px-3 py-2 text-xs rounded-md border border-gray-300 bg-gray-50 font-mono">
-                        <button id="regenerate-key" class="px-3 py-2 text-xs font-medium bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                        <input id="api-key" type="text" readonly class="flex-1 px-3 py-2 text-xs rounded-lg font-mono" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
+                        <button id="regenerate-key" class="px-3 py-2 text-xs font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%);">
                             <i class="fas fa-redo mr-1.5"></i>Regenerate
                         </button>
                     </div>
                 </div>
                 <div>
-                    <h4 class="text-sm font-semibold text-gray-800 mb-2">Configuration Actions</h4>
-                    <p class="text-xs text-gray-500 mb-3">Save, reload, or reset all settings</p>
+                    <h4 class="text-sm font-semibold mb-2" style="color: var(--color-text-primary);">Configuration Actions</h4>
+                    <p class="text-xs mb-3" style="color: var(--color-text-secondary);">Save, reload, or reset all settings</p>
                     <div class="grid grid-cols-2 gap-2">
-                        <button id="save-config" class="px-3 py-2 text-xs font-medium bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors">
+                        <button id="save-config" class="px-3 py-2 text-xs font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%);">
                             <i class="fas fa-save mr-1.5"></i>Save Config
                         </button>
-                        <button id="load-config" class="px-3 py-2 text-xs font-medium border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 transition-colors">
+                        <button id="load-config" class="px-3 py-2 text-xs font-medium rounded-lg transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
                             <i class="fas fa-sync mr-1.5"></i>Reload
                         </button>
-                        <button id="reset-default-config" class="px-3 py-2 text-xs font-medium border border-gray-300 rounded-md text-gray-600 hover:bg-gray-50 transition-colors">
+                        <button id="reset-default-config" class="px-3 py-2 text-xs font-medium rounded-lg transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
                             <i class="fas fa-history mr-1.5"></i>Defaults
                         </button>
-                        <button id="save-all-settings" class="px-3 py-2 text-xs font-medium bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors">
+                        <button id="save-all-settings" class="px-3 py-2 text-xs font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #34c759 0%, #30b350 100%);">
                             <i class="fas fa-check mr-1.5"></i>Save All
                         </button>
                     </div>

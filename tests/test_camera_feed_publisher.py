@@ -21,13 +21,16 @@ class FakeCapture:
         return self._opened
 
     def read(self):
-        # Return a fresh copy so mutations in tested code do not bleed across calls
+        # Return a fresh copy so mutations in tested code do not bleed across
+        # calls
         return True, self._frame.copy()
 
     def release(self) -> None:
         self._opened = False
 
-    def set(self, *_args, **_kwargs) -> bool:  # pragma: no cover - setter just needs to exist
+    def set(
+        self, *_args, **_kwargs
+    ) -> bool:  # pragma: no cover - setter just needs to exist
         return True
 
     def get(self, prop_id):  # pragma: no cover - queried during initialization
@@ -52,7 +55,9 @@ def patch_video_capture(monkeypatch):
 
 @pytest.fixture
 def publisher() -> CameraFeedPublisher:
-    instance = CameraFeedPublisher(camera_index=0, width=640, height=480, fps=10)
+    instance = CameraFeedPublisher(
+        camera_index=0, width=640, height=480, fps=10
+    )
     try:
         yield instance
     finally:
@@ -72,22 +77,27 @@ def test_start_stop_publisher_produces_frames(publisher):
 
 def test_publish_frame_reaches_subscribers(publisher):
     frame_numbers: List[int] = []
-    assert publisher.subscribe("client", callback=lambda frame: frame_numbers.append(frame.frame_number))
+    assert publisher.subscribe(
+        "client",
+        callback=lambda frame: frame_numbers.append(frame.frame_number),
+    )
 
     raw_frame = np.zeros((10, 10, 3), dtype=np.uint8)
-    jpeg_bytes = cv2.imencode('.jpg', raw_frame)[1].tobytes()
+    jpeg_bytes = cv2.imencode(".jpg", raw_frame)[1].tobytes()
     frame = CameraFrame(
         frame_number=1,
         timestamp="2025-01-01T00:00:00",
         image_data=jpeg_bytes,
-        image_b64=base64.b64encode(jpeg_bytes).decode('utf-8'),
+        image_b64=base64.b64encode(jpeg_bytes).decode("utf-8"),
         raw_frame=raw_frame,
         width=10,
         height=10,
     )
 
     publisher._publish_frame(frame)  # pylint: disable=protected-access
-    queue = publisher._subscribers["client"]  # pylint: disable=protected-access
+    queue = publisher._subscribers[
+        "client"
+    ]  # pylint: disable=protected-access
     retrieved = queue.get(timeout=0.1)
 
     assert retrieved is frame
@@ -100,8 +110,8 @@ def test_stats_reflect_subscribers_and_frames(publisher):
     time.sleep(0.2)
     stats = publisher.get_stats()
 
-    assert stats['is_running'] is True
-    assert stats['subscribers_count'] == 1
-    assert stats['frames_captured'] >= 1
-    assert isinstance(stats['camera_available'], bool)
+    assert stats["is_running"] is True
+    assert stats["subscribers_count"] == 1
+    assert stats["frames_captured"] >= 1
+    assert isinstance(stats["camera_available"], bool)
     publisher.stop()

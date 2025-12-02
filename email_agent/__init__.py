@@ -1,1 +1,0 @@
-"""Email automation agent package."""

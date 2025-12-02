@@ -1,0 +1,35 @@
+{{- if .Values.persistence.ollama.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "camera-agent.fullname" . }}-ollama
+  labels:
+    {{- include "camera-agent.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.ollama.accessMode }}
+  {{- if .Values.persistence.ollama.storageClass }}
+  storageClassName: {{ .Values.persistence.ollama.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.ollama.size }}
+---
+{{- end }}
+{{- if .Values.persistence.data.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "camera-agent.fullname" . }}-data
+  labels:
+    {{- include "camera-agent.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.data.accessMode }}
+  {{- if .Values.persistence.data.storageClass }}
+  storageClassName: {{ .Values.persistence.data.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.data.size }}
+{{- end }}

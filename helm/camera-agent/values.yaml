@@ -1,0 +1,104 @@
+# Default values for camera-agent
+
+replicaCount: 1
+
+image:
+  repository: adithyazededa/camera-agent
+  pullPolicy: Always
+  tag: "1.0.4-gpu"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext: {}
+
+securityContext:
+  privileged: true  # Required for camera and GPU access
+
+service:
+  type: NodePort
+  port: 8080
+  nodePort: 30080
+  # Ollama port (internal)
+  ollamaPort: 11434
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: camera-agent.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    nvidia.com/gpu: 1
+  requests:
+    memory: "4Gi"
+    cpu: "2"
+
+# Camera device configuration
+camera:
+  # Device path on the host
+  devicePath: /dev/video0
+  # Camera index used by OpenCV
+  index: 0
+
+# Ollama configuration
+ollama:
+  # Model to pull on startup
+  visionModel: qwen3-vl:8b
+
+# Persistence configuration
+persistence:
+  # Ollama models storage
+  ollama:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 50Gi
+  # Application data (detected images, database)
+  data:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 10Gi
+
+# Environment variables
+env:
+  FLASK_RUN_HOST: "0.0.0.0"
+  FLASK_RUN_PORT: "8080"
+  OLLAMA_URL: "http://localhost:11434"
+  LOG_LEVEL: "INFO"
+
+nodeSelector: {}
+
+tolerations:
+  # Tolerate GPU nodes
+  - key: nvidia.com/gpu
+    operator: Exists
+    effect: NoSchedule
+
+affinity: {}
+
+# GPU scheduling - requires NVIDIA device plugin
+gpu:
+  enabled: true
+  # Number of GPUs to request
+  count: 1
+  # RuntimeClassName for NVIDIA GPU access (set to empty to disable)
+  # Note: On K3s with Docker backend, the nvidia-container-runtime is configured
+  # at the Docker level, not via RuntimeClass. Leave empty unless your cluster
+  # specifically requires a RuntimeClass for GPU access.
+  runtimeClassName: ""

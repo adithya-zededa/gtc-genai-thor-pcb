@@ -11,6 +11,9 @@ ENV/
 dist/
 build/
 
+
+*.venv
+
 # Camera Agent - Images and Data
 detected_images/
 processed_frames/
