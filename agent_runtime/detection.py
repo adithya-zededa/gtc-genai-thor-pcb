@@ -447,12 +447,12 @@ class PackagingBoxAnalyzer:
 
         return {
             "base": clamp_float(score, 0.0, 1.0),
-            "area": area_component,
-            "aspect": aspect_component,
-            "rectangularity": rectangularity_component,
-            "solidity": solidity_component,
-            "color": color_component,
-            "edge": edge_component,
+            "area": round(area_component, 4),
+            "aspect": round(aspect_component, 4),
+            "rectangularity": round(rectangularity_component, 4),
+            "solidity": round(solidity_component, 4),
+            "color": round(color_component, 4),
+            "edge": round(edge_component, 4),
         }
 
 

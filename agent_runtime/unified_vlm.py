@@ -54,13 +54,13 @@ TASK: Look for brown cardboard shipping boxes and check if they have shipping la
 A SHIPPING LABEL is: White/light paper sticker with printed address, barcode, or tracking info.
 NOT a shipping label: Product logos, handwritten text, tape, or markings printed on cardboard.
 
-Respond with ONLY this JSON (no other text):
+Respond with ONLY valid JSON (no other text):
 {
-  "detected": true/false,
-  "confidence": 0.0-1.0,
+  "detected": boolean (true or false),
+  "confidence": number between 0.0 and 1.0,
   "reasoning": "Brief description of what you see",
-  "box_count": number,
-  "shipping_label_present": true/false/null
+  "box_count": integer,
+  "shipping_label_present": boolean or null
 }
 
 RULES:

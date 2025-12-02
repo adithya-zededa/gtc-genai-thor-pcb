@@ -33,15 +33,14 @@ import time
 import requests
 import cv2
 
-from camera_agent import MonitorDetectionAgent, DEFAULT_CONFIG_PATH
-from camera_agent_v2 import StreamlinedAgent
+from camera_agent import StreamlinedAgent, DEFAULT_CONFIG_PATH
 from agent_runtime.utils import (
     coerce_bool,
     dedupe_strings,
     ensure_directory,
 )
 from agent_runtime.publisher import get_camera_publisher
-from agent_runtime.monitoring_v2 import StreamlinedMonitoringService
+from agent_runtime.monitoring import StreamlinedMonitoringService
 
 # Set up logging
 logging.basicConfig(
@@ -184,7 +183,7 @@ def _sanitize_config_payload(config: Dict) -> Dict:
 def load_camera_config() -> Dict:
     """Load the camera configuration from disk."""
     with CONFIG_LOCK:
-        return MonitorDetectionAgent.load_config_from_path(CONFIG_PATH)
+        return StreamlinedAgent.load_config_from_path(CONFIG_PATH)
 
 
 def save_camera_config(config: Dict) -> Dict:
@@ -208,7 +207,7 @@ def save_camera_config(config: Dict) -> Dict:
 
 def reset_camera_config() -> Dict:
     """Reset the configuration to defaults and persist the change."""
-    defaults = MonitorDetectionAgent.default_config()
+    defaults = StreamlinedAgent.default_config()
     save_camera_config(defaults)
     return defaults
 
@@ -860,8 +859,15 @@ def api_users():
 
 
 @app.route("/api/users/<int:user_id>", methods=["DELETE", "PUT"])
-def api_delete_user(user_id):
-    """Delete or update user"""
+def api_user_modify(user_id: int):
+    """Delete or update user.
+    
+    Args:
+        user_id: The ID of the user to modify.
+        
+    Returns:
+        JSON response indicating success or failure.
+    """
     if request.method == "DELETE":
         try:
             with get_db_connection() as conn:
@@ -882,58 +888,56 @@ def api_delete_user(user_id):
         update_email_recipients()
         return jsonify({"success": True, "message": "User deactivated"})
 
-    elif request.method == "PUT":
-        data = request.get_json(silent=True) or {}
-        required_fields = [
-            field for field in ("email", "name") if not data.get(field)
-        ]
-        if required_fields:
-            return (
-                jsonify(
-                    {
-                        "success": False,
-                        "error": f"Missing required fields: {', '.join(required_fields)}",
-                    }),
-                400,
-            )
-
-        try:
-            with get_db_connection() as conn:
-                conn.execute(
-                    """
-                    UPDATE users
-                    SET email = ?, name = ?, role = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        data["email"],
-                        data["name"],
-                        data.get("role", "user"),
-                        user_id,
-                    ),
-                )
-        except sqlite3.IntegrityError as exc:
-            return (
-                jsonify(
-                    {
-                        "success": False,
-                        "error": f"Unable to update user: {exc}",
-                    }
-                ),
-                400,
-            )
-        except sqlite3.Error as exc:
-            return (
-                jsonify({"success": False, "error": f"Database error: {exc}"}),
-                500,
-            )
-
-        update_email_recipients()
-        return jsonify(
-            {"success": True, "message": "User updated successfully"}
+    # PUT method
+    data = request.get_json(silent=True) or {}
+    required_fields = [
+        field for field in ("email", "name") if not data.get(field)
+    ]
+    if required_fields:
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": f"Missing required fields: {', '.join(required_fields)}",
+                }),
+            400,
         )
-    
-    return jsonify({"success": False, "error": "Method not allowed"}), 405
+
+    try:
+        with get_db_connection() as conn:
+            conn.execute(
+                """
+                UPDATE users
+                SET email = ?, name = ?, role = ?
+                WHERE id = ?
+                """,
+                (
+                    data["email"],
+                    data["name"],
+                    data.get("role", "user"),
+                    user_id,
+                ),
+            )
+    except sqlite3.IntegrityError as exc:
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": f"Unable to update user: {exc}",
+                }
+            ),
+            400,
+        )
+    except sqlite3.Error as exc:
+        return (
+            jsonify({"success": False, "error": f"Database error: {exc}"}),
+            500,
+        )
+
+    update_email_recipients()
+    return jsonify(
+        {"success": True, "message": "User updated successfully"}
+    )
 
 
 @app.route("/api/config", methods=["GET", "POST"])
@@ -1023,7 +1027,7 @@ def api_config():
 @app.route("/api/config/defaults", methods=["GET"])
 def api_config_defaults():
     """Return the default configuration without persisting it."""
-    defaults = MonitorDetectionAgent.default_config()
+    defaults = StreamlinedAgent.default_config()
     sanitized = _sanitize_config_payload(defaults)
     return jsonify({"success": True, "config": sanitized})
 
@@ -1184,52 +1188,15 @@ def api_recent_images():
 
 @app.route("/api/logs", methods=["GET", "DELETE"])
 def api_logs():
-    """Get or clear detection logs"""
-    if request.method == "GET":
-        try:
-            with get_db_connection() as conn:
-                logs = conn.execute(
-                    """
-                    SELECT id, timestamp, confidence, response, image_path,
-                           frame_number, reason, vision_description, decision_details
-                    FROM detection_logs
-                    ORDER BY timestamp DESC
-                """
-                ).fetchall()
-
-            logs_list = []
-            for log in logs:
-                decision_details = {}
-                if log["decision_details"]:
-                    try:
-                        decision_details = json.loads(log["decision_details"])
-                    except json.JSONDecodeError:
-                        decision_details = {"raw": log["decision_details"]}
-
-                logs_list.append(
-                    {
-                        "id": log["id"],
-                        "timestamp": log["timestamp"],
-                        "confidence": log["confidence"],
-                        "response": log["response"],
-                        "image_path": log["image_path"],
-                        "frame_number": log["frame_number"],
-                        "reason": log["reason"],
-                        "vision_description": log["vision_description"],
-                        "decision_details": decision_details,
-                        "detected": log["confidence"] is not None
-                        and log["confidence"] > 0,
-                    }
-                )
-
-            return jsonify({"success": True, "logs": logs_list})
-        except sqlite3.Error as exc:
-            return (
-                jsonify({"success": False, "error": f"Database error: {exc}"}),
-                500,
-            )
-
-    elif request.method == "DELETE":
+    """Get or clear detection logs.
+    
+    GET: Retrieve all detection logs with parsed decision details.
+    DELETE: Clear all detection logs from the database.
+    
+    Returns:
+        JSON response with logs list (GET) or success message (DELETE).
+    """
+    if request.method == "DELETE":
         try:
             with get_db_connection() as conn:
                 conn.execute("DELETE FROM detection_logs")
@@ -1241,8 +1208,50 @@ def api_logs():
                 ),
                 500,
             )
-    
-    return jsonify({"success": False, "error": "Method not allowed"}), 405
+
+    # GET method (default)
+    try:
+        with get_db_connection() as conn:
+            logs = conn.execute(
+                """
+                SELECT id, timestamp, confidence, response, image_path,
+                       frame_number, reason, vision_description, decision_details
+                FROM detection_logs
+                ORDER BY timestamp DESC
+            """
+            ).fetchall()
+
+        logs_list = []
+        for log in logs:
+            decision_details = {}
+            if log["decision_details"]:
+                try:
+                    decision_details = json.loads(log["decision_details"])
+                except json.JSONDecodeError:
+                    decision_details = {"raw": log["decision_details"]}
+
+            logs_list.append(
+                {
+                    "id": log["id"],
+                    "timestamp": log["timestamp"],
+                    "confidence": log["confidence"],
+                    "response": log["response"],
+                    "image_path": log["image_path"],
+                    "frame_number": log["frame_number"],
+                    "reason": log["reason"],
+                    "vision_description": log["vision_description"],
+                    "decision_details": decision_details,
+                    "detected": log["confidence"] is not None
+                    and log["confidence"] > 0,
+                }
+            )
+
+        return jsonify({"success": True, "logs": logs_list})
+    except sqlite3.Error as exc:
+        return (
+            jsonify({"success": False, "error": f"Database error: {exc}"}),
+            500,
+        )
 
 
 @app.route("/api/logs/<int:log_id>", methods=["DELETE"])
@@ -1390,26 +1399,20 @@ def api_system_status():
 
 @app.route("/api/system/environment", methods=["GET", "POST"])
 def api_system_environment():
-    """Get or update system environment variables"""
-    if request.method == "GET":
-        try:
-            env_vars = {
-                "CAMERA_INDEX": os.getenv("CAMERA_INDEX", "0"),
-                "OLLAMA_URL": OLLAMA_BASE_URL,
-                "VISION_MODEL": os.getenv("VISION_MODEL", "gemma3:4b"),
-                "DIFF_THRESHOLD": os.getenv("DIFF_THRESHOLD", "0.80"),
-                "CAPTURE_INTERVAL": os.getenv("CAPTURE_INTERVAL", "5"),
-                "LOG_LEVEL": os.getenv("LOG_LEVEL", "INFO"),
-            }
-            return jsonify({"success": True, "environment": env_vars})
-        except Exception as e:
-            return jsonify({"success": False, "error": str(e)})
-
-    elif request.method == "POST":
+    """Get or update system environment variables.
+    
+    GET: Retrieve current environment variable values.
+    POST: Update environment variables (in-memory only, not persisted).
+    
+    Returns:
+        JSON response with environment variables or success message.
+    """
+    if request.method == "POST":
         try:
             data = request.get_json()
-            # Note: This only updates in-memory; for persistence, update .env
-            # file
+            if not isinstance(data, dict):
+                return jsonify({"success": False, "error": "Invalid payload"}), 400
+            # Note: This only updates in-memory; for persistence, update .env file
             for key, value in data.items():
                 os.environ[key] = str(value)
             return jsonify(
@@ -1420,8 +1423,20 @@ def api_system_environment():
             )
         except Exception as e:
             return jsonify({"success": False, "error": str(e)})
-    
-    return jsonify({"success": False, "error": "Method not allowed"}), 405
+
+    # GET method (default)
+    try:
+        env_vars = {
+            "CAMERA_INDEX": os.getenv("CAMERA_INDEX", "0"),
+            "OLLAMA_URL": OLLAMA_BASE_URL,
+            "VISION_MODEL": os.getenv("VISION_MODEL", "gemma3:4b"),
+            "DIFF_THRESHOLD": os.getenv("DIFF_THRESHOLD", "0.80"),
+            "CAPTURE_INTERVAL": os.getenv("CAPTURE_INTERVAL", "5"),
+            "LOG_LEVEL": os.getenv("LOG_LEVEL", "INFO"),
+        }
+        return jsonify({"success": True, "environment": env_vars})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 
 @app.route("/api/system/logging", methods=["GET", "POST"])

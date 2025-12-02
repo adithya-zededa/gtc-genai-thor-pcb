@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-from camera_agent import PackagingBoxAnalyzer
+from agent_runtime.detection import PackagingBoxAnalyzer
 
 
 def test_packaging_analyzer_blank_frame_returns_low_confidence():

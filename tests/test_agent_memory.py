@@ -1,4 +1,5 @@
-from camera_agent import AgentMemory
+from agent_runtime.state import AgentMemory
+from dataclasses import asdict
 
 
 def test_agent_memory_counts_and_summary():
@@ -40,7 +41,7 @@ def test_agent_memory_counts_and_summary():
         }
     )
 
-    snapshot = memory.snapshot()
+    snapshot = asdict(memory.snapshot())
 
     assert snapshot["counts"]["total"] == 3
     assert snapshot["counts"]["detections"] == 2
@@ -69,12 +70,12 @@ def test_agent_memory_resize_preserves_recent_entries():
             }
         )
 
-    snapshot_before = memory.snapshot()
+    snapshot_before = asdict(memory.snapshot())
     assert snapshot_before["counts"]["total"] == 4
 
     memory.resize(2, 1)
 
-    snapshot_after = memory.snapshot()
+    snapshot_after = asdict(memory.snapshot())
     assert snapshot_after["counts"]["total"] == 1
     assert snapshot_after["last_event"]["timestamp"].endswith("10:05:00")
 

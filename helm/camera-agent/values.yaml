@@ -45,7 +45,7 @@ resources:
   limits:
     nvidia.com/gpu: 1
   requests:
-    memory: "4Gi"
+    memory: "25Gi"
     cpu: "2"
 
 # Camera device configuration

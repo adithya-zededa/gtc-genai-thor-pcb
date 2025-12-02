@@ -1,4 +1,13 @@
-"""Inference gateways for vision and decision LLM stages."""
+"""Inference gateways for vision and decision LLM stages.
+
+DEPRECATION NOTICE:
+-------------------
+This module contains the legacy dual-LLM approach (Vision LLM + Decision LLM).
+For new code, use `agent_runtime.unified_vlm.UnifiedVLMClient` instead, which
+combines both stages into a single VLM call for improved latency and simplicity.
+
+This module is kept for backward compatibility but may be removed in future versions.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +16,7 @@ import json
 import logging
 import os
 import time
+import warnings
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import requests
@@ -15,6 +25,13 @@ from pydantic import ValidationError
 from .models import DetectionDecision
 
 logger = logging.getLogger(__name__)
+
+# Emit deprecation warning on import
+warnings.warn(
+    "agent_runtime.inference is deprecated. Use agent_runtime.unified_vlm instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 ollama: Any | None
 try:  # pragma: no cover - optional dependency
@@ -152,7 +169,14 @@ class OllamaVisionClient:
             
         Returns:
             Dict containing the model's response
+            
+        Raises:
+            ValueError: If frame encoding fails
+            requests.RequestException: If the API request fails
         """
+        if frame_array is None:
+            raise ValueError("Frame array cannot be None")
+            
         try:
             import cv2
             
@@ -720,6 +744,12 @@ class DecisionLLM:
 
 
     def wait_for_cooldown(self, elapsed_seconds: float, cooldown_seconds: float) -> None:
+        """Wait for remaining cooldown time.
+        
+        Args:
+            elapsed_seconds: Time already elapsed since last operation.
+            cooldown_seconds: Total cooldown period required.
+        """
         remaining = max(0.0, cooldown_seconds - elapsed_seconds)
         if remaining > 0:
             time.sleep(remaining)

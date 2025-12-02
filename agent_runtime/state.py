@@ -37,17 +37,37 @@ class AgentState:
 
 
 class AgentMemory:
-    """Thread-safe ring buffer with aggregated counters and summaries."""
+    """Thread-safe ring buffer with aggregated counters and summaries.
+    
+    Stores detection events in a fixed-size circular buffer, providing
+    thread-safe access and summary statistics.
+    
+    Attributes:
+        _max_events: Maximum number of events to store.
+        _summary_window: Number of recent events to consider for summaries.
+    """
 
     def __init__(self, max_events: int = 50, summary_window: int = 10) -> None:
+        """Initialize the agent memory.
+        
+        Args:
+            max_events: Maximum number of events to store (min 1).
+            summary_window: Number of events to use for summaries (min 1, max max_events).
+        """
         self._max_events = max(1, int(max_events or 1))
         self._summary_window = max(1, min(self._max_events, int(summary_window or 1)))
         self._events: Deque[Dict[str, Any]] = deque(maxlen=self._max_events)
         self._lock = threading.RLock()
 
     def resize(self, max_events: int, summary_window: int) -> None:
-        new_max = max(1, int(max_events or 1))
-        new_window = max(1, min(new_max, int(summary_window or 1)))
+        """Resize the memory buffer.
+        
+        Args:
+            max_events: New maximum number of events (min 1).
+            summary_window: New summary window size (min 1, max max_events).
+        """
+        new_max = max(1, int(max_events) if max_events else 1)
+        new_window = max(1, min(new_max, int(summary_window) if summary_window else 1))
         with self._lock:
             preserved = list(self._events)[-new_max:]
             self._events = deque(preserved, maxlen=new_max)
@@ -58,6 +78,9 @@ class AgentMemory:
         sanitized = {key: event.get(key) for key in event.keys()}
         with self._lock:
             self._events.append(sanitized)
+
+    # Alias for backward compatibility
+    add_event = append
 
     def list_events(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         with self._lock:

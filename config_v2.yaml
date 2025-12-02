@@ -17,7 +17,7 @@ camera:
 # Unified VLM configuration - single model for both vision and decision
 ollama:
   url: http://localhost:11434
-  vision_model: qwen3-vl:4b
+  vision_model: qwen3-vl:8b
   timeout: 300
 
 # Streamlined detection prompt

@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from camera_monitoring import CameraMonitoringService
+from agent_runtime.monitoring import StreamlinedMonitoringService as CameraMonitoringService
 
 
 class FakePublisher:
@@ -53,15 +53,10 @@ def test_apply_configuration_settings_updates_runtime_parameters():
     config = {
         "camera": {
             "capture_interval": 2.5,
-            "preprocessing": {"diff_threshold": 0.6},
         },
         "advanced": {
             "max_concurrent_analyses": 3,
             "max_pending_analyses": 9,
-            "motion_burst_interval": 0.5,
-            "motion_burst_window": 6.0,
-            "motion_burst_ssim": 0.7,
-            "pending_dedupe_ssim": 0.88,
         },
     }
 
@@ -70,13 +65,8 @@ def test_apply_configuration_settings_updates_runtime_parameters():
     )  # pylint: disable=protected-access
 
     assert service.capture_interval == pytest.approx(2.5)
-    assert service.ssim_threshold == pytest.approx(0.6)
     assert service.analysis_workers == 3
     assert service.max_pending_analyses == 9
-    assert service.motion_burst_interval == pytest.approx(0.5)
-    assert service.motion_burst_window == pytest.approx(6.0)
-    assert service.motion_burst_ssim == pytest.approx(0.7)
-    assert service.pending_similarity_threshold == pytest.approx(0.88)
 
 
 def test_refresh_configuration_uses_agent_defaults(dummy_agent):

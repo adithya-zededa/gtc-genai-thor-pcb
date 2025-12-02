@@ -24,13 +24,27 @@ if TYPE_CHECKING:  # pragma: no cover - static typing only
 
 
 class AlertManager:
-    """Handles alert notifications via email and desktop channels."""
+    """Handles alert notifications via email and desktop channels.
+    
+    Provides methods to send email and desktop notifications based on
+    detection events and configured rules.
+    
+    Attributes:
+        config: The full application configuration.
+        email_config: Email notification settings.
+        desktop_config: Desktop notification settings.
+    """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any]) -> None:
+        """Initialize the alert manager.
+        
+        Args:
+            config: Application configuration dictionary.
+        """
         self.config = config
         notifications = config.get("notifications", {}) if isinstance(config, dict) else {}
-        self.email_config = notifications.get("email", {}) if isinstance(notifications, dict) else {}
-        self.desktop_config = notifications.get("desktop", {}) if isinstance(notifications, dict) else {}
+        self.email_config: Dict[str, Any] = notifications.get("email", {}) if isinstance(notifications, dict) else {}
+        self.desktop_config: Dict[str, Any] = notifications.get("desktop", {}) if isinstance(notifications, dict) else {}
         logger.info("Alert manager initialized")
 
     def refresh_config(self, config: Dict[str, Any]) -> None:

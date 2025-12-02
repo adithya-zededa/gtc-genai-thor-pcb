@@ -343,44 +343,47 @@ class CameraFeedPublisher:
 
     def _publish_frame(self, frame: CameraFrame) -> None:
         """Publish a frame to all subscribers."""
-        subscribers_to_remove = []
+        subscribers_to_remove: list[str] = []
 
         with self._lock:
-            for subscriber_id, queue in self._subscribers.items():
-                try:
-                    # Non-blocking put - drop frame if queue is full
-                    queue.put_nowait(frame)
+            # Create a snapshot of subscribers to avoid modification during iteration
+            subscriber_items = list(self._subscribers.items())
 
-                    # Call callback if provided
-                    callback = self._subscriber_callbacks.get(subscriber_id)
-                    if callback:
-                        try:
-                            callback(frame)
-                        except Exception as e:
-                            logger.error(
-                                f"Error in callback for subscriber '{subscriber_id}': {e}"
-                            )
+        for subscriber_id, queue in subscriber_items:
+            try:
+                # Non-blocking put - drop frame if queue is full
+                queue.put_nowait(frame)
 
-                except Full:
-                    # Queue is full, drop the oldest frame and add new one
+                # Call callback if provided
+                callback = self._subscriber_callbacks.get(subscriber_id)
+                if callback:
                     try:
-                        queue.get_nowait()  # Remove oldest
-                        queue.put_nowait(frame)  # Add newest
-                    except Exception:
-                        pass
-                except Exception as e:
-                    logger.error(
-                        f"Error publishing to subscriber '{subscriber_id}': {e}"
-                    )
-                    subscribers_to_remove.append(subscriber_id)
+                        callback(frame)
+                    except Exception as e:
+                        logger.error(
+                            f"Error in callback for subscriber '{subscriber_id}': {e}"
+                        )
 
-            # Clean up failed subscribers
-            for subscriber_id in subscribers_to_remove:
-                logger.warning(f"Removing failed subscriber: {subscriber_id}")
-                self._subscribers.pop(subscriber_id, None)
-                self._subscriber_callbacks.pop(subscriber_id, None)
+            except Full:
+                # Queue is full, drop the oldest frame and add new one
+                try:
+                    queue.get_nowait()  # Remove oldest
+                    queue.put_nowait(frame)  # Add newest
+                except Exception:
+                    pass
+            except Exception as e:
+                logger.error(
+                    f"Error publishing to subscriber '{subscriber_id}': {e}"
+                )
+                subscribers_to_remove.append(subscriber_id)
 
-            if subscribers_to_remove:
+        # Clean up failed subscribers (now under lock)
+        if subscribers_to_remove:
+            with self._lock:
+                for subscriber_id in subscribers_to_remove:
+                    logger.warning(f"Removing failed subscriber: {subscriber_id}")
+                    self._subscribers.pop(subscriber_id, None)
+                    self._subscriber_callbacks.pop(subscriber_id, None)
                 self.stats["subscribers_count"] = len(self._subscribers)
 
     def get_stats(self) -> Dict[str, Any]:
