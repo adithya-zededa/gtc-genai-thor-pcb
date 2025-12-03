@@ -66,20 +66,6 @@ def safe_float(value: Any, default: float) -> float:
         return default
 
 
-def clamp_value(
-    value: Any,
-    minimum: float,
-    maximum: float,
-    default: float,
-) -> float:
-    """Clamp numeric values to [minimum, maximum] with conversion fallback."""
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return default
-    return max(minimum, min(maximum, numeric))
-
-
 def ensure_directory(path: Path) -> Path:
     """Create a directory path if it does not already exist and return it."""
     path = Path(path).expanduser()
@@ -107,7 +93,6 @@ def dedupe_strings(values: Iterable[str]) -> List[str]:
 
 __all__ = [
     "clamp_float",
-    "clamp_value",
     "coerce_bool",
     "dedupe_strings",
     "ensure_directory",

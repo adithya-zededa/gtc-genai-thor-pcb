@@ -1,0 +1,353 @@
+/* ===================================================================
+   macOS Sequoia × ZEDEDA Hybrid Design System
+   =================================================================== */
+
+/* -------------------------------------------------- */
+/* Color Tokens                                        */
+/* -------------------------------------------------- */
+:root {
+    --z-blue: #007aff;                /* Apple Blue (close to ZEDEDA accent) */
+    --z-blue-hover: #006be6;
+
+    --z-body: #f5f5f7;                /* macOS background */
+    --z-text-primary: #1d1d1f;
+    --z-text-secondary: #6e6e73;
+    --z-text-tertiary: #8e8e93;
+
+    --z-border: rgba(0,0,0,0.12);
+
+    /* Vibrancy layers (Sequoia accurate) */
+    --layer-1: rgba(255,255,255,0.40);  /* Lowest elevation */
+    --layer-2: rgba(255,255,255,0.55);  /* Toolbar */
+    --layer-3: rgba(255,255,255,0.65);  /* Cards */
+
+    /* Blurs */
+    --blur-sm: 12px;
+    --blur-md: 20px;
+    --blur-lg: 30px;
+
+    /* Radius */
+    --radius-xs: 4px;
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+    --shadow-xl: 0 20px 40px rgba(0,0,0,0.15);
+
+    /* Legacy compatibility aliases */
+    --color-bg: var(--z-body);
+    --color-surface: var(--layer-3);
+    --color-surface-elevated: rgba(255,255,255,0.85);
+    --color-border: var(--z-border);
+    --color-border-light: rgba(255,255,255,0.5);
+    --color-text-primary: var(--z-text-primary);
+    --color-text-secondary: var(--z-text-secondary);
+    --color-text-tertiary: var(--z-text-tertiary);
+    --color-accent: var(--z-blue);
+    --color-accent-hover: var(--z-blue-hover);
+}
+
+/* -------------------------------------------------- */
+/* Base                                                */
+/* -------------------------------------------------- */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    color: var(--z-text-primary);
+}
+
+/* -------------------------------------------------- */
+/* Toolbar                                             */
+/* -------------------------------------------------- */
+.toolbar {
+    background: var(--layer-2);
+    backdrop-filter: blur(var(--blur-lg));
+    border-bottom: 1px solid var(--z-border);
+    box-shadow: var(--shadow-sm);
+}
+
+/* -------------------------------------------------- */
+/* Cards / Surfaces                                    */
+/* -------------------------------------------------- */
+.surface {
+    background: var(--layer-3);
+    backdrop-filter: blur(var(--blur-md));
+    border: 1px solid rgba(255,255,255,0.55);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+}
+
+/* -------------------------------------------------- */
+/* Buttons                                             */
+/* -------------------------------------------------- */
+.btn-primary {
+    background: var(--z-blue);
+    color: white;
+    padding: 6px 14px;
+    border-radius: var(--radius-sm);
+    font-weight: 500;
+    transition: background 0.15s ease;
+}
+
+.btn-primary:hover {
+    background: var(--z-blue-hover);
+}
+
+.btn-secondary {
+    background: rgba(0,0,0,0.04);
+    border: 1px solid rgba(0,0,0,0.08);
+    padding: 6px 14px;
+    border-radius: var(--radius-sm);
+}
+
+/* -------------------------------------------------- */
+/* Inputs                                              */
+/* -------------------------------------------------- */
+input, textarea, select {
+    background: rgba(255,255,255,0.85);
+    border: 1px solid var(--z-border);
+    border-radius: var(--radius-sm);
+    padding: 6px 10px;
+    font-size: 14px;
+    transition: border 0.15s, background 0.15s;
+}
+
+input:focus, textarea:focus, select:focus {
+    background: rgba(255,255,255,1);
+    border-color: var(--z-blue);
+    outline: none;
+}
+
+/* -------------------------------------------------- */
+/* macOS Dock                                          */
+/* -------------------------------------------------- */
+.dock {
+    background: var(--layer-2);
+    backdrop-filter: blur(var(--blur-lg));
+    border: 1px solid rgba(255,255,255,0.55);
+    border-radius: 18px;
+    box-shadow: var(--shadow-lg);
+}
+
+.dock-item {
+    font-size: 18px;
+    color: var(--z-text-secondary);
+    padding: 8px 12px;
+    border-radius: 10px;
+    transition: transform .15s, color .15s;
+}
+
+.dock-item:hover {
+    transform: scale(1.10);
+    color: var(--z-blue);
+}
+
+.dock-item.active {
+    color: var(--z-blue);
+}
+
+/* -------------------------------------------------- */
+/* Text helpers                                        */
+/* -------------------------------------------------- */
+.text-secondary {
+    color: var(--z-text-secondary);
+}
+
+/* -------------------------------------------------- */
+/* Tailwind color utilities                            */
+/* -------------------------------------------------- */
+.bg-z-body {
+    background-color: var(--z-body);
+}
+
+.text-z-text-primary {
+    color: var(--z-text-primary);
+}
+
+.text-z-blue {
+    color: var(--z-blue);
+}
+
+/* -------------------------------------------------- */
+/* Toggle Switch (macOS style)                         */
+/* -------------------------------------------------- */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.1);
+    transition: all 0.25s ease;
+    border-radius: 24px;
+}
+
+.toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 2px;
+    bottom: 2px;
+    background: white;
+    transition: all 0.25s ease;
+    border-radius: 50%;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background: var(--z-blue);
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+    transform: translateX(20px);
+}
+
+/* -------------------------------------------------- */
+/* Status Indicators                                   */
+/* -------------------------------------------------- */
+.status-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.status-online {
+    background: #34c759;
+    box-shadow: 0 0 6px rgba(52, 199, 89, 0.5);
+}
+
+.status-offline {
+    background: #ff3b30;
+    box-shadow: 0 0 6px rgba(255, 59, 48, 0.5);
+}
+
+.status-warning {
+    background: #ff9500;
+    box-shadow: 0 0 6px rgba(255, 149, 0, 0.5);
+}
+
+/* -------------------------------------------------- */
+/* Toast Notifications                                 */
+/* -------------------------------------------------- */
+#toast-container {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+/* -------------------------------------------------- */
+/* Loading Overlay                                     */
+/* -------------------------------------------------- */
+#loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.3);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+#loading-overlay.hidden {
+    display: none !important;
+}
+
+#loading-overlay > div {
+    background: var(--layer-3);
+    backdrop-filter: blur(var(--blur-lg));
+    border-radius: var(--radius-xl);
+    padding: 2rem;
+    box-shadow: var(--shadow-xl);
+}
+
+/* -------------------------------------------------- */
+/* Modal styling                                       */
+/* -------------------------------------------------- */
+.modal-overlay {
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(8px);
+}
+
+.surface-glass {
+    background: var(--layer-3);
+    backdrop-filter: blur(var(--blur-lg));
+    border: 1px solid rgba(255,255,255,0.55);
+}
+
+/* -------------------------------------------------- */
+/* Tables                                              */
+/* -------------------------------------------------- */
+table {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+thead th {
+    font-weight: 600;
+    color: var(--z-text-secondary);
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    letter-spacing: 0.04em;
+}
+
+tbody tr {
+    transition: background-color 0.15s ease;
+}
+
+tbody tr:hover {
+    background: rgba(0, 122, 255, 0.04);
+}
+
+/* -------------------------------------------------- */
+/* Scrollbar                                           */
+/* -------------------------------------------------- */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(0,0,0,0.15);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(0,0,0,0.25);
+}
+
+/* -------------------------------------------------- */
+/* Font smoothing                                      */
+/* -------------------------------------------------- */
+* {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}

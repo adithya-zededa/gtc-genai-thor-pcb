@@ -303,7 +303,6 @@ class PackagingBoxAnalyzer:
                     combined_mask = cv2.bitwise_or(combined_mask, mask)
 
                 color_contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                frame_area = float(frame_bgr.shape[0] * frame_bgr.shape[1])
                 for contour in color_contours:
                     if contour is None or len(contour) < self.min_vertices:
                         continue

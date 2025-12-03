@@ -8,7 +8,7 @@ import os
 import smtplib
 from email.message import EmailMessage
 from pathlib import Path
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import Any, Dict, TYPE_CHECKING
 
 from agent_runtime.utils import coerce_bool as _coerce_bool
 

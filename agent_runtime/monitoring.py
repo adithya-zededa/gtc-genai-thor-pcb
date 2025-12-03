@@ -7,22 +7,16 @@ camera feed and runs the unified VLM-based detection pipeline.
 """
 
 import logging
-import os
 import threading
 import time
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor, FIRST_COMPLETED, wait
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Optional, Dict, Callable, Any
 from uuid import uuid4
 
 import cv2
 import numpy as np
-
-try:
-    from skimage.metrics import structural_similarity
-except ImportError:
-    structural_similarity = None
 
 from camera_agent import (
     StreamlinedAgent,
@@ -360,8 +354,6 @@ class StreamlinedMonitoringService:
                 self.stats['processed_frames'] += 1
                 
                 logger.debug(f"🔍 Submitted frame {frame_count} for analysis")
-                
-                prev_frame = frame_obj.raw_frame.copy()
                 
             except Exception as exc:
                 logger.error(f"Monitoring loop error: {exc}")

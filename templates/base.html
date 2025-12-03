@@ -1,802 +1,118 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{% block title %}ZEDEDA Camera Agent{% endblock %}</title>
-    
-    <!-- Tailwind CSS -->
+
+    <!-- Tailwind -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Font Awesome -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
+
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+
     <!-- Socket.IO -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
-    
+
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
-    <!-- Custom CSS -->
-    <style>
-        /* macOS Sequoia-inspired design system */
-        * {
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-        }
 
-        :root {
-            /* Core colors */
-            --color-bg: #f5f5f7;
-            --color-surface: rgba(255, 255, 255, 0.72);
-            --color-surface-elevated: rgba(255, 255, 255, 0.85);
-            --color-border: rgba(0, 0, 0, 0.06);
-            --color-border-light: rgba(255, 255, 255, 0.5);
-            --color-text-primary: #1d1d1f;
-            --color-text-secondary: #86868b;
-            --color-accent: #0071e3;
-            --color-accent-hover: #0077ed;
-            
-            /* Glass effects */
-            --glass-blur: 40px;
-            --glass-saturation: 180%;
-            --glass-brightness: 1.05;
-            
-            /* Shadows */
-            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-            --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
-            --shadow-lg: 0 20px 40px rgba(0, 0, 0, 0.12), 0 8px 16px rgba(0, 0, 0, 0.08);
-            --shadow-xl: 0 30px 60px rgba(0, 0, 0, 0.16), 0 12px 24px rgba(0, 0, 0, 0.08);
-            
-            /* Radius */
-            --radius-sm: 8px;
-            --radius-md: 12px;
-            --radius-lg: 16px;
-            --radius-xl: 20px;
-            --radius-2xl: 24px;
-        }
+    <!-- macOS Sequoia × ZEDEDA Design System -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/sequoia-zededa.css') }}" />
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-            background: var(--color-bg);
-            background-image: 
-                radial-gradient(ellipse 80% 50% at 50% -20%, rgba(120, 119, 198, 0.15), transparent),
-                radial-gradient(ellipse 60% 40% at 100% 0%, rgba(59, 130, 246, 0.08), transparent),
-                radial-gradient(ellipse 60% 40% at 0% 100%, rgba(167, 139, 250, 0.08), transparent);
-            background-attachment: fixed;
-            letter-spacing: -0.015em;
-            color: var(--color-text-primary);
-            min-height: 100vh;
-        }
-
-        /* Glassmorphic header */
-        header {
-            background: rgba(255, 255, 255, 0.72);
-            backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)) brightness(var(--glass-brightness));
-            -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)) brightness(var(--glass-brightness));
-            border-bottom: 0.5px solid rgba(0, 0, 0, 0.1);
-            box-shadow: 0 0.5px 0 rgba(255, 255, 255, 0.5) inset;
-        }
-
-        /* Glassmorphic surface cards */
-        .surface {
-            background: var(--color-surface);
-            backdrop-filter: blur(20px) saturate(150%);
-            -webkit-backdrop-filter: blur(20px) saturate(150%);
-            border: 0.5px solid var(--color-border);
-            border-radius: var(--radius-xl);
-            box-shadow: 
-                var(--shadow-md),
-                inset 0 0.5px 0 rgba(255, 255, 255, 0.6);
-            transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-        }
-
-        .surface:hover {
-            background: var(--color-surface-elevated);
-            box-shadow: 
-                var(--shadow-lg),
-                inset 0 0.5px 0 rgba(255, 255, 255, 0.7);
-            transform: translateY(-1px);
-        }
-
-        section.surface {
-            box-shadow: 
-                var(--shadow-sm),
-                inset 0 0.5px 0 rgba(255, 255, 255, 0.5);
-        }
-
-        section.surface:hover {
-            box-shadow: 
-                var(--shadow-md),
-                inset 0 0.5px 0 rgba(255, 255, 255, 0.6);
-        }
-        
-        /* Enhanced card styling */
-        .bg-white {
-            background: var(--color-surface);
-            backdrop-filter: blur(16px) saturate(140%);
-            -webkit-backdrop-filter: blur(16px) saturate(140%);
-            border: 0.5px solid var(--color-border);
-        }
-        
-        .shadow-md {
-            box-shadow: var(--shadow-md);
-        }
-        
-        .rounded-lg {
-            border-radius: var(--radius-lg);
-        }
-        
-        .rounded-xl {
-            border-radius: var(--radius-xl);
-        }
-        
-        /* macOS-style buttons */
-        button, .btn {
-            font-weight: 500;
-            transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-            border: none;
-            cursor: pointer;
-            border-radius: var(--radius-sm);
-            letter-spacing: -0.01em;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        button:active, .btn:active {
-            transform: scale(0.97);
-        }
-        
-        /* Primary button (blue) - macOS style */
-        .bg-blue-500, button.bg-blue-500 {
-            background: linear-gradient(180deg, #4da3ff 0%, #0071e3 50%, #0068d4 100%);
-            box-shadow: 
-                0 0.5px 0 rgba(255, 255, 255, 0.25) inset,
-                0 -0.5px 0 rgba(0, 0, 0, 0.1) inset,
-                0 1px 3px rgba(0, 113, 227, 0.3),
-                0 4px 12px rgba(0, 113, 227, 0.15);
-        }
-        
-        .bg-blue-500:hover {
-            background: linear-gradient(180deg, #5aabff 0%, #0077ed 50%, #006fde 100%);
-            box-shadow: 
-                0 0.5px 0 rgba(255, 255, 255, 0.3) inset,
-                0 -0.5px 0 rgba(0, 0, 0, 0.1) inset,
-                0 2px 6px rgba(0, 113, 227, 0.4),
-                0 6px 16px rgba(0, 113, 227, 0.2);
-        }
-        
-        /* Red button (destructive) */
-        .bg-red-500, button.bg-red-500 {
-            background: linear-gradient(180deg, #ff6b6b 0%, #ff3b30 50%, #e8352a 100%);
-            box-shadow: 
-                0 0.5px 0 rgba(255, 255, 255, 0.25) inset,
-                0 -0.5px 0 rgba(0, 0, 0, 0.1) inset,
-                0 1px 3px rgba(255, 59, 48, 0.3),
-                0 4px 12px rgba(255, 59, 48, 0.15);
-        }
-        
-        .bg-red-500:hover {
-            background: linear-gradient(180deg, #ff7a7a 0%, #ff453a 50%, #f03d32 100%);
-            box-shadow: 
-                0 0.5px 0 rgba(255, 255, 255, 0.3) inset,
-                0 -0.5px 0 rgba(0, 0, 0, 0.1) inset,
-                0 2px 6px rgba(255, 59, 48, 0.4),
-                0 6px 16px rgba(255, 59, 48, 0.2);
-        }
-        
-        /* Orange button (warning/secondary action) */
-        .bg-orange-500, button.bg-orange-500 {
-            background: linear-gradient(180deg, #ffb347 0%, #ff9500 50%, #e88600 100%);
-            box-shadow: 
-                0 0.5px 0 rgba(255, 255, 255, 0.25) inset,
-                0 -0.5px 0 rgba(0, 0, 0, 0.1) inset,
-                0 1px 3px rgba(255, 149, 0, 0.3),
-                0 4px 12px rgba(255, 149, 0, 0.15);
-        }
-        
-        .bg-orange-500:hover {
-            background: linear-gradient(180deg, #ffc060 0%, #ffa00a 50%, #f09000 100%);
-            box-shadow: 
-                0 0.5px 0 rgba(255, 255, 255, 0.3) inset,
-                0 -0.5px 0 rgba(0, 0, 0, 0.1) inset,
-                0 2px 6px rgba(255, 149, 0, 0.4),
-                0 6px 16px rgba(255, 149, 0, 0.2);
-        }
-        
-        /* Green button (success) */
-        .bg-green-500, button.bg-green-500 {
-            background: linear-gradient(180deg, #5fd97e 0%, #34c759 50%, #2eb350 100%);
-            box-shadow: 
-                0 0.5px 0 rgba(255, 255, 255, 0.25) inset,
-                0 -0.5px 0 rgba(0, 0, 0, 0.1) inset,
-                0 1px 3px rgba(52, 199, 89, 0.3),
-                0 4px 12px rgba(52, 199, 89, 0.15);
-        }
-        
-        .bg-green-500:hover {
-            background: linear-gradient(180deg, #6ee08d 0%, #40d066 50%, #38c45a 100%);
-            box-shadow: 
-                0 0.5px 0 rgba(255, 255, 255, 0.3) inset,
-                0 -0.5px 0 rgba(0, 0, 0, 0.1) inset,
-                0 2px 6px rgba(52, 199, 89, 0.4),
-                0 6px 16px rgba(52, 199, 89, 0.2);
-        }
-        
-        /* Secondary button (gray/outline) */
-        button.border-gray-300, button.border-slate-200 {
-            background: linear-gradient(180deg, #ffffff 0%, #f8f8fa 100%);
-            box-shadow: 
-                0 0.5px 0 rgba(255, 255, 255, 0.8) inset,
-                0 -0.5px 0 rgba(0, 0, 0, 0.05) inset,
-                0 1px 3px rgba(0, 0, 0, 0.06);
-            border: 0.5px solid rgba(0, 0, 0, 0.12);
-        }
-        
-        button.border-gray-300:hover, button.border-slate-200:hover {
-            background: linear-gradient(180deg, #fafafa 0%, #f0f0f2 100%);
-            box-shadow: 
-                0 0.5px 0 rgba(255, 255, 255, 0.8) inset,
-                0 -0.5px 0 rgba(0, 0, 0, 0.05) inset,
-                0 2px 6px rgba(0, 0, 0, 0.08);
-            border-color: rgba(0, 0, 0, 0.15);
-        }
-        
-        /* Status indicators with glow */
-        .status-indicator {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 8px;
-            position: relative;
-        }
-        
-        .status-online { 
-            background: linear-gradient(180deg, #5fd97e 0%, #34c759 100%);
-            box-shadow: 0 0 8px rgba(52, 199, 89, 0.5);
-        }
-        
-        .status-offline { 
-            background: linear-gradient(180deg, #ff6b6b 0%, #ff3b30 100%);
-            box-shadow: 0 0 8px rgba(255, 59, 48, 0.5);
-        }
-        
-        .status-warning { 
-            background: linear-gradient(180deg, #ffb347 0%, #ff9500 100%);
-            box-shadow: 0 0 8px rgba(255, 149, 0, 0.5);
-        }
-        
-        .notification-badge {
-            position: absolute;
-            top: -8px;
-            right: -8px;
-            background: linear-gradient(180deg, #ff6b6b 0%, #ff3b30 100%);
-            color: white;
-            border-radius: 50%;
-            width: 20px;
-            height: 20px;
-            font-size: 11px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 600;
-            box-shadow: 0 2px 8px rgba(255, 59, 48, 0.4);
-        }
-        
-        /* macOS-style toggle switch */
-        .toggle-switch {
-            position: relative;
-            display: inline-block;
-            width: 51px;
-            height: 31px;
-        }
-        
-        .toggle-switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-        
-        .toggle-slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: linear-gradient(180deg, #e8e8ed 0%, #dcdce2 100%);
-            transition: all 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-            border-radius: 16px;
-            box-shadow: 
-                inset 0 1px 3px rgba(0, 0, 0, 0.1),
-                0 1px 0 rgba(255, 255, 255, 0.5);
-        }
-        
-        .toggle-slider:before {
-            position: absolute;
-            content: "";
-            height: 27px;
-            width: 27px;
-            left: 2px;
-            bottom: 2px;
-            background: linear-gradient(180deg, #ffffff 0%, #f5f5f7 100%);
-            transition: all 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-            border-radius: 50%;
-            box-shadow: 
-                0 2px 4px rgba(0, 0, 0, 0.15),
-                0 3px 8px rgba(0, 0, 0, 0.08),
-                inset 0 0.5px 0 rgba(255, 255, 255, 0.8);
-        }
-        
-        .toggle-switch input:checked + .toggle-slider {
-            background: linear-gradient(180deg, #5fd97e 0%, #34c759 100%);
-            box-shadow: 
-                inset 0 1px 2px rgba(0, 0, 0, 0.1),
-                0 0 12px rgba(52, 199, 89, 0.3);
-        }
-        
-        .toggle-switch input:focus + .toggle-slider {
-            box-shadow: 0 0 0 4px rgba(52, 199, 89, 0.15);
-        }
-        
-        .toggle-switch input:checked + .toggle-slider:before {
-            transform: translateX(20px);
-        }
-        
-        .toggle-switch .toggle-slider.disabled {
-            cursor: not-allowed;
-            opacity: 0.5;
-        }
-        
-        /* Floating bottom navigation - Enhanced glass effect */
-        .nav-shell {
-            position: fixed;
-            bottom: 24px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 100%;
-            max-width: 620px;
-            padding: 0 1.5rem;
-            z-index: 40;
-            pointer-events: none;
-        }
-
-        .nav-island {
-            position: relative;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0;
-            padding: 0.5rem;
-            background: rgba(255, 255, 255, 0.72);
-            border: 0.5px solid rgba(255, 255, 255, 0.65);
-            border-radius: 22px;
-            backdrop-filter: blur(50px) saturate(200%) brightness(1.02);
-            -webkit-backdrop-filter: blur(50px) saturate(200%) brightness(1.02);
-            box-shadow: 
-                0 25px 50px rgba(0, 0, 0, 0.12),
-                0 10px 20px rgba(0, 0, 0, 0.06),
-                0 4px 8px rgba(0, 0, 0, 0.04),
-                inset 0 1px 0 rgba(255, 255, 255, 0.8),
-                inset 0 -1px 0 rgba(0, 0, 0, 0.02);
-            pointer-events: auto;
-            overflow: visible;
-        }
-
-        .nav-links {
-            position: relative;
-            display: flex;
-            align-items: center;
-            gap: 0.125rem;
-        }
-
-        .nav-item {
-            position: relative;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 0.1875rem;
-            width: 4.25rem;
-            height: 3.25rem;
-            padding: 0.375rem 0;
-            font-size: 0.6875rem;
-            font-weight: 500;
-            letter-spacing: -0.01em;
-            color: var(--color-text-tertiary);
-            transition: color 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-            z-index: 1;
-            line-height: 1;
-            cursor: pointer;
-            border-radius: 14px;
-            text-decoration: none;
-        }
-
-        .nav-item i {
-            font-size: 1.125rem;
-            transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-        }
-
-        .nav-item:hover {
-            color: var(--color-text-secondary);
-        }
-
-        .nav-item:hover i {
-            transform: scale(1.05);
-        }
-
-        .nav-item[data-active="true"] {
-            color: var(--color-text-primary);
-        }
-
-        .nav-item[data-active="true"] i {
-            color: var(--color-accent);
-        }
-
-        .nav-item[data-active="true"] .nav-label {
-            font-weight: 600;
-        }
-
-        .nav-badge {
-            position: absolute;
-            top: 0.125rem;
-            right: 0.375rem;
-            min-width: 1rem;
-            height: 1rem;
-            padding: 0 0.25rem;
-            border-radius: 9999px;
-            font-size: 0.5625rem;
-            font-weight: 700;
-            background: linear-gradient(180deg, #ff6b47 0%, #ff3b30 100%);
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 2px 6px rgba(255, 59, 48, 0.5);
-            border: 1.5px solid rgba(255, 255, 255, 0.9);
-        }
-
-        .nav-live {
-            position: absolute;
-            top: 0rem;
-            right: 0.125rem;
-            padding: 0.125rem 0.3125rem;
-            border-radius: 9999px;
-            font-size: 0.5rem;
-            letter-spacing: 0.04em;
-            font-weight: 700;
-            background: linear-gradient(180deg, #4cd964 0%, #34c759 100%);
-            color: white;
-            box-shadow: 0 2px 8px rgba(52, 199, 89, 0.5);
-            border: 1.5px solid rgba(255, 255, 255, 0.9);
-            text-transform: uppercase;
-            animation: pulse-live 2s ease-in-out infinite;
-        }
-
-        @keyframes pulse-live {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.85; }
-        }
-
-        #nav-highlight {
-            position: absolute;
-            top: 50%;
-            width: 4.25rem;
-            height: 2.75rem;
-            border-radius: 12px;
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.85) 100%);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border: 0.5px solid rgba(255, 255, 255, 0.8);
-            box-shadow: 
-                0 4px 12px rgba(0, 0, 0, 0.08),
-                0 2px 4px rgba(0, 0, 0, 0.04),
-                inset 0 1px 0 rgba(255, 255, 255, 1),
-                inset 0 -1px 0 rgba(0, 0, 0, 0.02);
-            transition: transform 0.35s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.25s ease, width 0.25s ease;
-            transform: translate(-9999px, -50%);
-            opacity: 0;
-            pointer-events: none;
-            z-index: 0;
-        }
-
-        @media (max-width: 768px) {
-            .nav-island {
-                justify-content: center;
-                gap: 0;
-                padding: 0.375rem;
-                border-radius: 18px;
-            }
-
-            .nav-links {
-                gap: 0;
-            }
-
-            #nav-highlight {
-                width: 3.5rem;
-                height: 2.5rem;
-                border-radius: 10px;
-            }
-
-            .nav-item {
-                width: 3.5rem;
-                height: 2.875rem;
-                font-size: 0.625rem;
-                border-radius: 10px;
-            }
-            
-            .nav-item i {
-                font-size: 1rem;
-            }
-        }
-        
-        /* macOS-style inputs */
-        input[type="text"], 
-        input[type="number"], 
-        input[type="email"], 
-        input[type="password"],
-        textarea,
-        select {
-            background: rgba(255, 255, 255, 0.8);
-            border: 0.5px solid rgba(0, 0, 0, 0.12);
-            border-radius: var(--radius-sm);
-            transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-            box-shadow: 
-                inset 0 1px 2px rgba(0, 0, 0, 0.04),
-                0 1px 0 rgba(255, 255, 255, 0.5);
-        }
-        
-        input:focus, 
-        textarea:focus,
-        select:focus {
-            outline: none;
-            border-color: var(--color-accent);
-            background: rgba(255, 255, 255, 0.95);
-            box-shadow: 
-                inset 0 1px 2px rgba(0, 0, 0, 0.04),
-                0 0 0 3px rgba(0, 113, 227, 0.15);
-        }
-        
-        /* macOS-style range slider */
-        input[type="range"] {
-            -webkit-appearance: none;
-            appearance: none;
-            height: 4px;
-            background: linear-gradient(90deg, var(--color-accent) 0%, #e5e5ea 0%);
-            border-radius: 2px;
-            outline: none;
-        }
-        
-        input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 20px;
-            height: 20px;
-            background: linear-gradient(180deg, #ffffff 0%, #f5f5f7 100%);
-            border: 0.5px solid rgba(0, 0, 0, 0.15);
-            border-radius: 50%;
-            cursor: pointer;
-            box-shadow: 
-                0 2px 4px rgba(0, 0, 0, 0.12),
-                0 4px 8px rgba(0, 0, 0, 0.08),
-                inset 0 0.5px 0 rgba(255, 255, 255, 0.8);
-            transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-        }
-        
-        input[type="range"]::-webkit-slider-thumb:hover {
-            transform: scale(1.08);
-            box-shadow: 
-                0 3px 6px rgba(0, 0, 0, 0.15),
-                0 6px 12px rgba(0, 0, 0, 0.1),
-                inset 0 0.5px 0 rgba(255, 255, 255, 0.8);
-        }
-        
-        input[type="range"]::-moz-range-thumb {
-            width: 20px;
-            height: 20px;
-            background: linear-gradient(180deg, #ffffff 0%, #f5f5f7 100%);
-            border: 0.5px solid rgba(0, 0, 0, 0.15);
-            border-radius: 50%;
-            cursor: pointer;
-            box-shadow: 
-                0 2px 4px rgba(0, 0, 0, 0.12),
-                0 4px 8px rgba(0, 0, 0, 0.08);
-            transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-        }
-        
-        input[type="range"]::-moz-range-thumb:hover {
-            transform: scale(1.08);
-        }
-        
-        /* Enhanced modal styling */
-        .modal-overlay {
-            background: rgba(0, 0, 0, 0.4);
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
-        }
-        
-        /* Toast notifications enhancement */
-        #toast-container > div {
-            backdrop-filter: blur(20px) saturate(180%);
-            -webkit-backdrop-filter: blur(20px) saturate(180%);
-            border: 0.5px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        /* Loading overlay enhancement */
-        #loading-overlay {
-            background: rgba(0, 0, 0, 0.3);
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
-        }
-        
-        #loading-overlay > div {
-            background: var(--color-surface-elevated);
-            backdrop-filter: blur(20px) saturate(180%);
-            -webkit-backdrop-filter: blur(20px) saturate(180%);
-            border: 0.5px solid rgba(255, 255, 255, 0.3);
-            box-shadow: var(--shadow-xl);
-        }
-        
-        /* Table styling improvements */
-        table {
-            border-collapse: separate;
-            border-spacing: 0;
-        }
-        
-        thead {
-            background: rgba(248, 248, 250, 0.9);
-        }
-        
-        thead th {
-            font-weight: 600;
-            color: var(--color-text-secondary);
-            text-transform: uppercase;
-            font-size: 0.7rem;
-            letter-spacing: 0.04em;
-        }
-        
-        tbody tr {
-            transition: background-color 0.15s ease;
-        }
-        
-        tbody tr:hover {
-            background: rgba(0, 113, 227, 0.04);
-        }
-        
-        /* Scrollbar styling */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-        
-        ::-webkit-scrollbar-track {
-            background: transparent;
-        }
-        
-        ::-webkit-scrollbar-thumb {
-            background: rgba(0, 0, 0, 0.15);
-            border-radius: 4px;
-        }
-        
-        ::-webkit-scrollbar-thumb:hover {
-            background: rgba(0, 0, 0, 0.25);
-        }
-    </style>
-    
     {% block extra_head %}{% endblock %}
 </head>
-<body class="min-h-screen">
-    <div class="flex min-h-screen flex-col">
-        <header class="sticky top-0 z-50">
-            <div class="flex items-center justify-between px-6 py-3">
-                <div class="flex items-center gap-4">
-                    <img src="{{ url_for('static', filename='zededa-logo.png') }}" alt="ZEDEDA" class="hidden h-7 w-auto sm:block opacity-90">
-                    <div class="h-6 w-px bg-black/10 hidden sm:block"></div>
-                    <h2 class="text-lg font-semibold tracking-tight" style="color: var(--color-text-primary);">
-                        {% block page_title %}Dashboard{% endblock %}
-                    </h2>
+
+<body class="bg-z-body text-z-text-primary min-h-screen flex flex-col">
+
+    <!-- Top Toolbar (macOS vibrancy) -->
+    <header class="toolbar flex items-center justify-between px-6 h-14 select-none">
+        <div class="flex items-center gap-4">
+            <img src="{{ url_for('static', filename='zededa-logo.png') }}" class="h-6 opacity-95" alt="ZEDEDA" />
+            <h1 class="text-[17px] font-semibold tracking-tight">
+                {% block page_title %}Dashboard{% endblock %}
+            </h1>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <!-- System Status -->
+            <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full surface text-xs">
+                <span class="status-indicator" id="camera-status"></span>
+                <span style="color: var(--z-text-secondary);">Camera</span>
+                <div class="w-px h-3" style="background: var(--z-border);"></div>
+                <span class="status-indicator" id="ollama-status"></span>
+                <span style="color: var(--z-text-secondary);">AI</span>
+                <div class="w-px h-3" style="background: var(--z-border);"></div>
+                <span class="status-indicator" id="monitoring-status"></span>
+                <span style="color: var(--z-text-secondary);">Analysis</span>
+            </div>
+
+            <!-- Monitoring Toggle -->
+            <div class="flex items-center gap-2 px-3 py-1.5 rounded-full surface text-xs">
+                <span id="monitoring-label" style="color: var(--z-text-secondary);">Monitoring</span>
+                <label class="toggle-switch" style="transform: scale(0.8);">
+                    <input type="checkbox" id="monitoring-toggle">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
+            {% block header_controls %}{% endblock %}
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 px-6 py-8 pb-28 max-w-6xl mx-auto w-full space-y-6">
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div class="space-y-3">
+                    {% for message in messages %}
+                        <div class="surface p-4 text-[14px] flex items-center gap-3">
+                            <i class="fa-solid fa-circle-info" style="color: var(--z-blue);"></i>
+                            <span>{{ message }}</span>
+                        </div>
+                    {% endfor %}
                 </div>
+            {% endif %}
+        {% endwith %}
 
-                <div class="flex items-center gap-3">
-                    <!-- System Status Indicators -->
-                    <div class="hidden md:flex items-center gap-2.5 px-3.5 py-1.5 rounded-full" style="background: rgba(0, 0, 0, 0.03); border: 0.5px solid rgba(0, 0, 0, 0.06);">
-                        <div class="flex items-center gap-1.5 text-xs font-medium" style="color: var(--color-text-secondary);">
-                            <span class="status-indicator" id="camera-status"></span>
-                            <span>Camera</span>
-                        </div>
-                        <div class="w-px h-3.5" style="background: rgba(0, 0, 0, 0.1);"></div>
-                        <div class="flex items-center gap-1.5 text-xs font-medium" style="color: var(--color-text-secondary);">
-                            <span class="status-indicator" id="ollama-status"></span>
-                            <span>AI</span>
-                        </div>
-                        <div class="w-px h-3.5" style="background: rgba(0, 0, 0, 0.1);"></div>
-                        <div class="flex items-center gap-1.5 text-xs font-medium" style="color: var(--color-text-secondary);">
-                            <span class="status-indicator" id="monitoring-status"></span>
-                            <span>Analysis</span>
-                        </div>
-                    </div>
+        {% block content %}{% endblock %}
+    </main>
 
-                    <!-- Connection status -->
-                    <div id="connection-status" class="flex items-center px-3 py-1.5 rounded-full text-xs font-medium" style="background: rgba(52, 199, 89, 0.1); border: 0.5px solid rgba(52, 199, 89, 0.2); color: #2d8a47;">
-                        <i class="fas fa-wifi mr-1.5 text-xs"></i>
-                        Connected
-                    </div>
 
-                    <!-- Monitoring control -->
-                    <div class="flex items-center gap-2.5 px-3.5 py-1.5 rounded-full" style="background: var(--color-surface); border: 0.5px solid var(--color-border); box-shadow: var(--shadow-sm);">
-                        <span id="monitoring-label" class="text-xs font-medium" style="color: var(--color-text-secondary);">Monitoring</span>
-                        <label class="toggle-switch" style="transform: scale(0.85);">
-                            <input type="checkbox" id="monitoring-toggle">
-                            <span class="toggle-slider"></span>
-                        </label>
-                    </div>
-                </div>
-            </div>
-        </header>
+    <!-- macOS Dock-style Navigation -->
+    <nav class="dock fixed bottom-6 left-1/2 -translate-x-1/2 flex gap-6 px-5 py-3">
+        <a href="{{ url_for('dashboard') }}" class="dock-item {% if request.endpoint=='dashboard' %}active{% endif %}" title="Dashboard">
+            <i class="fas fa-tachometer-alt"></i>
+        </a>
 
-        <!-- Page content -->
-        <main class="flex-1 px-6 py-10 pb-32">
-            <div class="mx-auto w-full max-w-6xl space-y-8">
-                {% with messages = get_flashed_messages() %}
-                    {% if messages %}
-                        <div class="space-y-3">
-                            {% for message in messages %}
-                                <div class="surface flex items-center px-4 py-3 text-sm text-blue-700">
-                                    <i class="fas fa-info-circle mr-3 text-blue-500"></i>
-                                    <span>{{ message }}</span>
-                                </div>
-                            {% endfor %}
-                        </div>
-                    {% endif %}
-                {% endwith %}
+        <a href="{{ url_for('monitoring') }}" class="dock-item {% if request.endpoint=='monitoring' %}active{% endif %}" title="Monitoring">
+            <i class="fas fa-eye"></i>
+        </a>
 
-                {% block content %}{% endblock %}
-            </div>
-        </main>
-    </div>
+        <a href="{{ url_for('users') }}" class="dock-item {% if request.endpoint=='users' %}active{% endif %}" title="Users">
+            <i class="fas fa-users"></i>
+        </a>
 
-    <div class="nav-shell">
-        <div class="nav-island">
-            <div class="nav-links">
-                <div id="nav-highlight"></div>
-                <a href="{{ url_for('dashboard') }}" class="nav-item" data-active="{{ 'true' if request.endpoint == 'dashboard' else 'false' }}">
-                    <i class="fas fa-tachometer-alt"></i>
-                    <span class="nav-label">Dashboard</span>
-                </a>
-                <a href="{{ url_for('monitoring') }}" class="nav-item" data-active="{{ 'true' if request.endpoint == 'monitoring' else 'false' }}">
-                    <i class="fas fa-eye"></i>
-                    <span class="nav-label">Monitoring</span>
-                    <span id="monitoring-badge" class="nav-live hidden">LIVE</span>
-                </a>
-                <a href="{{ url_for('users') }}" class="nav-item" data-active="{{ 'true' if request.endpoint == 'users' else 'false' }}">
-                    <i class="fas fa-users"></i>
-                    <span class="nav-label">Users</span>
-                </a>
-                <a href="{{ url_for('logs') }}" class="nav-item" data-active="{{ 'true' if request.endpoint == 'logs' else 'false' }}">
-                    <i class="fas fa-list-alt"></i>
-                    <span class="nav-label">Logs</span>
-                    <span id="logs-badge" class="nav-badge hidden">0</span>
-                </a>
-                <a href="{{ url_for('settings') }}" class="nav-item" data-active="{{ 'true' if request.endpoint == 'settings' else 'false' }}">
-                    <i class="fas fa-wrench"></i>
-                    <span class="nav-label">Settings</span>
-                </a>
-            </div>
+        <a href="{{ url_for('logs') }}" class="dock-item {% if request.endpoint=='logs' %}active{% endif %}" title="Logs">
+            <i class="fas fa-list"></i>
+        </a>
+
+        <a href="{{ url_for('settings') }}" class="dock-item {% if request.endpoint=='settings' %}active{% endif %}" title="Settings">
+            <i class="fas fa-wrench"></i>
+        </a>
+    </nav>
+
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="hidden">
+        <div class="text-center">
+            <i class="fas fa-spinner fa-spin text-3xl mb-4" style="color: var(--z-blue);"></i>
+            <p class="text-base font-medium">Loading...</p>
         </div>
     </div>
 
-    <!-- Toast notifications -->
-    <div id="toast-container" class="fixed top-4 right-4 space-y-2 z-50"></div>
-    
-    <!-- Loading overlay -->
-    <div id="loading-overlay" class="fixed inset-0 flex items-center justify-center z-50 hidden" style="background: rgba(0, 0, 0, 0.3); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);">
-        <div class="rounded-2xl p-8 text-center" style="background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border: 0.5px solid rgba(255, 255, 255, 0.3); box-shadow: 0 30px 60px rgba(0, 0, 0, 0.16), 0 12px 24px rgba(0, 0, 0, 0.08);">
-            <i class="fas fa-spinner fa-spin text-3xl mb-4" style="color: var(--color-accent);"></i>
-            <p class="text-base font-medium" style="color: var(--color-text-primary);">Loading...</p>
-        </div>
-    </div>
-    
     <!-- Base JavaScript -->
     <script>
         // Global variables
@@ -808,8 +124,6 @@
             socket = io();
             
             socket.on('connect', function() {
-                updateConnectionStatus(true);
-                // Only show toast on reconnection, not initial connection
                 if (isReconnecting) {
                     showToast('Reconnected to server', 'success');
                 }
@@ -817,7 +131,6 @@
             });
             
             socket.on('disconnect', function() {
-                updateConnectionStatus(false);
                 isReconnecting = true;
                 showToast('Disconnected from server', 'error');
             });
@@ -831,82 +144,43 @@
             });
         }
         
-        // Update connection status
-        function updateConnectionStatus(connected) {
-            const statusEl = document.getElementById('connection-status');
-            if (connected) {
-                statusEl.style.background = 'rgba(52, 199, 89, 0.1)';
-                statusEl.style.border = '0.5px solid rgba(52, 199, 89, 0.2)';
-                statusEl.style.color = '#2d8a47';
-                statusEl.innerHTML = '<i class="fas fa-wifi mr-1.5 text-xs"></i>Connected';
-            } else {
-                statusEl.style.background = 'rgba(255, 59, 48, 0.1)';
-                statusEl.style.border = '0.5px solid rgba(255, 59, 48, 0.2)';
-                statusEl.style.color = '#c9302c';
-                statusEl.innerHTML = '<i class="fas fa-wifi-slash mr-1.5 text-xs"></i>Disconnected';
-            }
-        }
-        
         // Show toast notification
         function showToast(message, type = 'info') {
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
             
             const colors = {
-                'success': { bg: 'rgba(52, 199, 89, 0.95)', shadow: 'rgba(52, 199, 89, 0.3)' },
-                'error': { bg: 'rgba(255, 59, 48, 0.95)', shadow: 'rgba(255, 59, 48, 0.3)' },
-                'warning': { bg: 'rgba(255, 149, 0, 0.95)', shadow: 'rgba(255, 149, 0, 0.3)' },
-                'info': { bg: 'rgba(0, 113, 227, 0.95)', shadow: 'rgba(0, 113, 227, 0.3)' }
+                'success': { bg: 'rgba(52, 199, 89, 0.95)', text: 'white' },
+                'error': { bg: 'rgba(255, 59, 48, 0.95)', text: 'white' },
+                'warning': { bg: 'rgba(255, 149, 0, 0.95)', text: 'white' },
+                'info': { bg: 'rgba(0, 122, 255, 0.95)', text: 'white' }
             };
             
             const color = colors[type] || colors['info'];
             
-            toast.className = 'text-white px-5 py-3 rounded-xl transform transition-all duration-300 translate-x-full';
-            toast.style.cssText = `
-                background: ${color.bg};
-                backdrop-filter: blur(20px) saturate(180%);
-                -webkit-backdrop-filter: blur(20px) saturate(180%);
-                box-shadow: 0 8px 32px ${color.shadow}, 0 4px 12px rgba(0, 0, 0, 0.1);
-                border: 0.5px solid rgba(255, 255, 255, 0.2);
-                font-weight: 500;
-                font-size: 0.875rem;
-            `;
-            toast.innerHTML = `
-                <div class="flex items-center">
-                    <span>${message}</span>
-                    <button onclick="this.parentElement.parentElement.remove()" class="ml-4 text-white/80 hover:text-white transition-colors">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-            `;
+            toast.className = 'px-4 py-3 rounded-xl text-sm font-medium transform transition-all duration-300 translate-x-full';
+            toast.style.cssText = 'background: ' + color.bg + '; color: ' + color.text + '; backdrop-filter: blur(20px); box-shadow: 0 8px 32px rgba(0,0,0,0.2);';
+            toast.innerHTML = '<div class="flex items-center gap-3"><span>' + message + '</span><button onclick="this.parentElement.parentElement.remove()" class="opacity-70 hover:opacity-100"><i class="fas fa-times"></i></button></div>';
             
             container.appendChild(toast);
             
-            // Animate in
-            setTimeout(() => {
-                toast.classList.remove('translate-x-full');
-            }, 100);
-            
-            // Auto remove after 5 seconds
-            setTimeout(() => {
+            setTimeout(function() { toast.classList.remove('translate-x-full'); }, 50);
+            setTimeout(function() {
                 toast.classList.add('translate-x-full');
-                setTimeout(() => toast.remove(), 300);
+                setTimeout(function() { toast.remove(); }, 300);
             }, 5000);
         }
         
-        // API helper functions
-        async function apiCall(endpoint, options = {}) {
+        // API helper
+        async function apiCall(endpoint, options) {
+            options = options || {};
             try {
                 const response = await fetch(endpoint, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...options.headers
-                    },
-                    ...options
+                    headers: Object.assign({ 'Content-Type': 'application/json' }, options.headers || {}),
+                    method: options.method || 'GET',
+                    body: options.body
                 });
-                
-                const data = await response.json();
-                return data;
+                return await response.json();
             } catch (error) {
                 console.error('API call failed:', error);
                 showToast('API call failed: ' + error.message, 'error');
@@ -914,14 +188,35 @@
             }
         }
         
+        // Show/hide loading overlay
+        function showLoading(show) {
+            var overlay = document.getElementById('loading-overlay');
+            if (show) {
+                overlay.classList.remove('hidden');
+            } else {
+                overlay.classList.add('hidden');
+            }
+        }
+        
+        // Update monitoring status
+        function updateMonitoringStatus(active) {
+            var toggle = document.getElementById('monitoring-toggle');
+            var label = document.getElementById('monitoring-label');
+            var statusIndicator = document.getElementById('monitoring-status');
+            
+            if (toggle) toggle.checked = active;
+            if (label) label.style.color = active ? '#34c759' : 'var(--z-text-secondary)';
+            if (statusIndicator) statusIndicator.className = 'status-indicator ' + (active ? 'status-online' : 'status-offline');
+        }
+        
         // Start monitoring
         async function startMonitoring() {
             showLoading(true);
-            const result = await apiCall('/api/start_monitoring', { method: 'POST' });
+            var result = await apiCall('/api/start_monitoring', { method: 'POST' });
             showLoading(false);
             
             if (result && result.success) {
-                showToast('Monitoring started successfully', 'success');
+                showToast('Monitoring started', 'success');
                 updateMonitoringStatus(true);
             } else {
                 showToast(result ? result.error : 'Failed to start monitoring', 'error');
@@ -931,7 +226,7 @@
         // Stop monitoring
         async function stopMonitoring() {
             showLoading(true);
-            const result = await apiCall('/api/stop_monitoring', { method: 'POST' });
+            var result = await apiCall('/api/stop_monitoring', { method: 'POST' });
             showLoading(false);
             
             if (result && result.success) {
@@ -942,126 +237,28 @@
             }
         }
         
-        // Update monitoring status
-        function updateMonitoringStatus(active) {
-            const badge = document.getElementById('monitoring-badge');
-            const statusIndicator = document.getElementById('monitoring-status');
-            const toggle = document.getElementById('monitoring-toggle');
-            const label = document.getElementById('monitoring-label');
-            
-            // Update toggle switch
-            if (toggle) {
-                toggle.checked = active;
-            }
-            
-            // Update label text and color
-            if (label) {
-                label.textContent = active ? 'Monitoring' : 'Monitoring';
-                label.style.color = active ? '#2d8a47' : 'var(--color-text-secondary)';
-            }
-            
-            // Update badge
-            if (badge) {
-                if (active) {
-                    badge.classList.remove('hidden');
-                } else {
-                    badge.classList.add('hidden');
-                }
-            }
-            
-            // Update status indicator
-            if (statusIndicator) {
-                statusIndicator.className = 'status-indicator ' + (active ? 'status-online' : 'status-offline');
-            }
-        }
-        
-        // Show/hide loading overlay
-        function showLoading(show) {
-            const overlay = document.getElementById('loading-overlay');
-            if (show) {
-                overlay.classList.remove('hidden');
-            } else {
-                overlay.classList.add('hidden');
-            }
-        }
-        
-        // Floating navigation highlight
-        function initBottomNav() {
-            const links = document.querySelector('.nav-links');
-            const highlight = document.getElementById('nav-highlight');
-
-            if (!links || !highlight) {
-                return;
-            }
-
-            const positionHighlight = (immediate = false) => {
-                const activeItem = links.querySelector('.nav-item[data-active="true"]');
-                if (!activeItem) {
-                    highlight.style.opacity = 0;
-                    return;
-                }
-
-                // Use fixed width matching the nav-item width
-                const highlightWidth = activeItem.offsetWidth;
-                const offset = activeItem.offsetLeft;
-                
-                if (immediate) {
-                    // Disable transition temporarily for immediate positioning
-                    highlight.style.transition = 'none';
-                    highlight.style.width = `${highlightWidth}px`;
-                    highlight.style.transform = `translate(${offset}px, -50%)`;
-                    highlight.style.opacity = 1;
-                    
-                    // Re-enable transition after a frame
-                    requestAnimationFrame(() => {
-                        highlight.style.transition = 'transform 0.35s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.25s ease, width 0.25s ease';
-                    });
-                } else {
-                    highlight.style.width = `${highlightWidth}px`;
-                    highlight.style.transform = `translate(${offset}px, -50%)`;
-                    highlight.style.opacity = 1;
-                }
-            };
-
-            // Position immediately on load (no transition), then enable transitions
-            positionHighlight(true);
-            
-            // Reposition on resize with transition
-            window.addEventListener('resize', () => positionHighlight(false));
-        }
-        
         // Update system status
         async function updateSystemStatus() {
-            const status = await apiCall('/api/status');
+            var status = await apiCall('/api/status');
             if (status) {
-                // Update status indicators
                 document.getElementById('camera-status').className = 
                     'status-indicator ' + (status.camera_available ? 'status-online' : 'status-offline');
-                
                 document.getElementById('ollama-status').className = 
                     'status-indicator ' + (status.ollama_available ? 'status-online' : 'status-offline');
-                
                 updateMonitoringStatus(status.monitoring_active);
             }
         }
         
-        // Default event handlers (can be overridden in specific pages)
-        function handleDetectionEvent(data) {
-            // Override in specific pages
-        }
+        // Default event handlers (can be overridden)
+        function handleDetectionEvent(data) {}
+        function handleFrameUpdate(data) {}
         
-        function handleFrameUpdate(data) {
-            // Override in specific pages
-        }
-        
-        // Initialize everything when page loads
+        // Initialize
         document.addEventListener('DOMContentLoaded', function() {
             initSocket();
-            initBottomNav();
             updateSystemStatus();
             
-            // Set up monitoring toggle
-            const monitoringToggle = document.getElementById('monitoring-toggle');
+            var monitoringToggle = document.getElementById('monitoring-toggle');
             if (monitoringToggle) {
                 monitoringToggle.addEventListener('change', function() {
                     if (this.checked) {
@@ -1072,11 +269,11 @@
                 });
             }
             
-            // Update status every 30 seconds
             setInterval(updateSystemStatus, 30000);
         });
     </script>
-    
+
+    <!-- Page-level Scripts -->
     {% block extra_js %}{% endblock %}
 </body>
 </html>

@@ -205,7 +205,7 @@ class StreamlinedAgent:
             return ""
 
     @classmethod
-    def load_config_from_path(cls, path: Optional[str] = None) -> Dict[str, Any]:
+    def load_config_from_path(cls, path: Optional[str | Path] = None) -> Dict[str, Any]:
         """Load configuration from YAML file."""
         target_path = Path(path or DEFAULT_CONFIG_PATH).expanduser()
         if not target_path.exists():
