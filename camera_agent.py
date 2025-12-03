@@ -79,7 +79,11 @@ class CircuitState(Enum):
 
 
 class CircuitBreaker:
-    """Circuit breaker pattern for resilience."""
+    """Circuit breaker pattern for resilience.
+    
+    Protects against cascading failures by temporarily blocking calls
+    to a failing service.
+    """
     
     def __init__(self, failure_threshold: int = 5, recovery_timeout: float = 120.0):
         self.state = CircuitState.CLOSED
@@ -87,10 +91,41 @@ class CircuitBreaker:
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
         self.last_failure_time = 0.0
+        self.total_calls = 0
+        self.successful_calls = 0
         self._lock = threading.Lock()
+
+    @property
+    def is_open(self) -> bool:
+        """Check if circuit is currently open."""
+        with self._lock:
+            return self.state == CircuitState.OPEN
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get circuit breaker statistics."""
+        with self._lock:
+            return {
+                "state": self.state.name,
+                "failure_count": self.failure_count,
+                "failure_threshold": self.failure_threshold,
+                "total_calls": self.total_calls,
+                "successful_calls": self.successful_calls,
+                "success_rate": (
+                    round(self.successful_calls / self.total_calls * 100, 2)
+                    if self.total_calls > 0 else 0.0
+                ),
+            }
+
+    def reset(self) -> None:
+        """Manually reset the circuit breaker to closed state."""
+        with self._lock:
+            self.state = CircuitState.CLOSED
+            self.failure_count = 0
+            logger.info("Circuit breaker manually reset to CLOSED")
 
     def call(self, func, *args, **kwargs):
         with self._lock:
+            self.total_calls += 1
             if self.state == CircuitState.OPEN:
                 if time.time() - self.last_failure_time > self.recovery_timeout:
                     self.state = CircuitState.HALF_OPEN
@@ -101,6 +136,7 @@ class CircuitBreaker:
         try:
             result = func(*args, **kwargs)
             with self._lock:
+                self.successful_calls += 1
                 if self.state != CircuitState.CLOSED:
                     logger.info("Circuit breaker recovering to CLOSED state")
                     self.state = CircuitState.CLOSED
@@ -112,7 +148,9 @@ class CircuitBreaker:
                 self.last_failure_time = time.time()
                 if self.state == CircuitState.HALF_OPEN or self.failure_count >= self.failure_threshold:
                     self.state = CircuitState.OPEN
-                    logger.warning(f"Circuit breaker tripped to OPEN. Error: {e}")
+                    logger.warning(
+                        f"Circuit breaker tripped to OPEN (failures: {self.failure_count}). Error: {e}"
+                    )
             raise
 
 
@@ -224,6 +262,64 @@ class StreamlinedAgent:
         """Return the default configuration."""
         return copy.deepcopy(cls.load_config_from_path())
 
+    @classmethod
+    def validate_config(cls, config: Dict[str, Any]) -> List[str]:
+        """Validate configuration and return a list of warnings/errors.
+        
+        Args:
+            config: Configuration dictionary to validate.
+            
+        Returns:
+            List of validation messages (empty if valid).
+        """
+        issues: List[str] = []
+        
+        if not isinstance(config, dict):
+            issues.append("Configuration must be a dictionary")
+            return issues
+        
+        # Validate camera settings
+        camera_cfg = config.get("camera", {})
+        if isinstance(camera_cfg, dict):
+            interval = camera_cfg.get("capture_interval")
+            if interval is not None:
+                try:
+                    val = float(interval)
+                    if val < 1.0:
+                        issues.append(f"capture_interval ({val}) should be >= 1.0 seconds")
+                except (TypeError, ValueError):
+                    issues.append(f"capture_interval has invalid type: {type(interval).__name__}")
+        
+        # Validate ollama settings
+        ollama_cfg = config.get("ollama", {})
+        if isinstance(ollama_cfg, dict):
+            url = ollama_cfg.get("url")
+            if url and not isinstance(url, str):
+                issues.append(f"ollama.url must be a string, got {type(url).__name__}")
+            
+            timeout = ollama_cfg.get("timeout")
+            if timeout is not None:
+                try:
+                    val = int(timeout)
+                    if val < 10:
+                        issues.append(f"ollama.timeout ({val}) should be >= 10 seconds")
+                except (TypeError, ValueError):
+                    issues.append(f"ollama.timeout has invalid type: {type(timeout).__name__}")
+        
+        # Validate memory settings
+        memory_cfg = config.get("memory", {})
+        if isinstance(memory_cfg, dict):
+            max_events = memory_cfg.get("max_events")
+            if max_events is not None:
+                try:
+                    val = int(max_events)
+                    if val < 1:
+                        issues.append("memory.max_events must be >= 1")
+                except (TypeError, ValueError):
+                    issues.append(f"memory.max_events has invalid type: {type(max_events).__name__}")
+        
+        return issues
+
     def _make_similarity_reference(self, frame: np.ndarray) -> Optional[np.ndarray]:
         """Create a grayscale reference for SSIM comparison."""
         try:
@@ -299,27 +395,49 @@ class StreamlinedAgent:
         self,
         frame: np.ndarray,
         cv_context: Dict[str, Any],
+        max_retries: int = 2,
     ) -> Optional[DetectionResult]:
-        """Run the unified VLM for detection and decision."""
-        try:
-            result = self.circuit_breaker.call(
-                self.vlm_client.analyze_frame,
-                frame,
-                cv_context,
-            )
-            return result
-        except RuntimeError as e:
-            if "Circuit is OPEN" in str(e):
-                logger.warning(
-                    "⚡ VLM circuit breaker is OPEN. Will retry in %ds.",
-                    int(self.circuit_breaker.recovery_timeout)
+        """Run the unified VLM for detection and decision with retry logic.
+        
+        Args:
+            frame: The image frame to analyze.
+            cv_context: Computer vision context from RF-DETR.
+            max_retries: Maximum number of retry attempts.
+            
+        Returns:
+            DetectionResult if successful, None otherwise.
+        """
+        last_error = None
+        
+        for attempt in range(max_retries + 1):
+            try:
+                result = self.circuit_breaker.call(
+                    self.vlm_client.analyze_frame,
+                    frame,
+                    cv_context,
                 )
-            else:
-                logger.error(f"VLM analysis failed: {e}")
-            return None
-        except Exception as e:
-            logger.error(f"VLM analysis failed: {e}")
-            return None
+                return result
+            except RuntimeError as e:
+                if "Circuit is OPEN" in str(e):
+                    logger.warning(
+                        "⚡ VLM circuit breaker is OPEN. Will retry in %ds.",
+                        int(self.circuit_breaker.recovery_timeout)
+                    )
+                    return None  # Don't retry if circuit is open
+                last_error = e
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries:
+                    logger.warning(
+                        "VLM analysis attempt %d/%d failed: %s",
+                        attempt + 1, max_retries + 1, e
+                    )
+                    time.sleep(0.5 * (attempt + 1))  # Exponential backoff
+        
+        if last_error:
+            logger.error(f"VLM analysis failed after {max_retries + 1} attempts: {last_error}")
+            self.last_error = str(last_error)
+        return None
 
     def analyze_frame(
         self,

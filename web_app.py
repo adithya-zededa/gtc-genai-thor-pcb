@@ -108,6 +108,12 @@ def _resolve_request_timeout() -> float:
 
 REQUEST_TIMEOUT = _resolve_request_timeout()
 
+# Rate limiting for expensive operations
+_last_camera_check = 0.0
+_last_camera_status = False
+_camera_check_interval = 2.0  # seconds
+_camera_check_lock = threading.Lock()
+
 
 def _ollama_endpoint(path: str) -> str:
     base = OLLAMA_BASE_URL.rstrip("/")
@@ -393,10 +399,13 @@ class WebCameraAgent(StreamlinedMonitoringService):
 
 # Initialize database
 def init_db():
-    """Initialize SQLite database for user management and logs"""
+    """Initialize SQLite database for user management and logs."""
     ensure_database_directory()
     conn = sqlite3.connect(DATABASE_PATH)
     cursor = conn.cursor()
+    
+    # Enable WAL mode for better concurrent access
+    cursor.execute("PRAGMA journal_mode=WAL")
 
     # Users table
     cursor.execute(
@@ -426,6 +435,26 @@ def init_db():
             vision_description TEXT,
             decision_details TEXT
         )
+    """
+    )
+    
+    # Create indexes for frequently queried columns
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_detection_logs_timestamp 
+        ON detection_logs(timestamp DESC)
+    """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_detection_logs_confidence 
+        ON detection_logs(confidence)
+    """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_users_active 
+        ON users(active)
     """
     )
 
@@ -463,11 +492,21 @@ def init_db():
     conn.close()
 
 
-def get_db_connection():
-    """Get database connection"""
+def get_db_connection() -> sqlite3.Connection:
+    """Get database connection with row factory.
+    
+    Returns:
+        sqlite3.Connection: A new database connection.
+        
+    Note:
+        Caller is responsible for closing the connection.
+        Prefer using 'with get_db_connection() as conn:' pattern.
+    """
     ensure_database_directory()
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = sqlite3.connect(DATABASE_PATH, timeout=30.0)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")  # Better concurrent access
+    conn.execute("PRAGMA busy_timeout=30000")  # 30 second timeout
     return conn
 
 
@@ -646,6 +685,72 @@ def dashboard():
     return render_template("dashboard.html")
 
 
+@app.route("/health")
+def health_check():
+    """Health check endpoint for container orchestration.
+    
+    Returns:
+        JSON with health status and component availability.
+    """
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "components": {
+            "database": False,
+            "camera": False,
+            "ollama": False,
+        }
+    }
+    
+    # Check database
+    try:
+        with get_db_connection() as conn:
+            conn.execute("SELECT 1")
+        health_status["components"]["database"] = True
+    except Exception:
+        health_status["status"] = "degraded"
+    
+    # Check camera
+    health_status["components"]["camera"] = check_camera_availability()
+    
+    # Check Ollama
+    health_status["components"]["ollama"] = check_ollama_availability()
+    
+    # Determine overall status
+    if not health_status["components"]["database"]:
+        health_status["status"] = "unhealthy"
+    elif not all(health_status["components"].values()):
+        health_status["status"] = "degraded"
+    
+    status_code = 200 if health_status["status"] != "unhealthy" else 503
+    return jsonify(health_status), status_code
+
+
+@app.route("/ready")
+def readiness_check():
+    """Readiness probe for Kubernetes.
+    
+    Returns:
+        JSON indicating if the service is ready to accept traffic.
+    """
+    is_ready = True
+    details = {}
+    
+    # Check if database is accessible
+    try:
+        with get_db_connection() as conn:
+            conn.execute("SELECT 1")
+        details["database"] = "ok"
+    except Exception as e:
+        is_ready = False
+        details["database"] = str(e)
+    
+    if is_ready:
+        return jsonify({"ready": True, "details": details})
+    else:
+        return jsonify({"ready": False, "details": details}), 503
+
+
 @app.route("/monitoring")
 def monitoring():
     """Live monitoring page"""
@@ -764,7 +869,7 @@ def api_stop_monitoring():
 
 @app.route("/api/status")
 def api_status():
-    """Get system status"""
+    """Get comprehensive system status including circuit breaker state."""
     status = {
         "monitoring_active": (
             camera_agent.is_monitoring if camera_agent else False
@@ -773,8 +878,47 @@ def api_status():
         "ollama_available": check_ollama_availability(),
         "stats": camera_agent._serialize_stats() if camera_agent else {},
     }
+    
+    # Add circuit breaker status if agent is running
+    if camera_agent and camera_agent.agent:
+        agent = camera_agent.agent
+        if hasattr(agent, 'circuit_breaker'):
+            status["circuit_breaker"] = agent.circuit_breaker.get_stats()
+        
+        # Add memory summary
+        if hasattr(agent, '_agent_memory'):
+            memory_snapshot = agent.get_memory_snapshot(limit=5)
+            status["recent_events_count"] = memory_snapshot.get("counts", {}).get("total", 0)
 
     return jsonify(status)
+
+
+@app.route("/api/circuit_breaker/reset", methods=["POST"])
+def api_reset_circuit_breaker():
+    """Reset the circuit breaker to closed state.
+    
+    Use this when the VLM service has recovered and you want to
+    immediately resume analysis without waiting for the recovery timeout.
+    """
+    if not camera_agent or not camera_agent.agent:
+        return jsonify({
+            "success": False,
+            "error": "No active monitoring agent"
+        }), 400
+    
+    agent = camera_agent.agent
+    if not hasattr(agent, 'circuit_breaker'):
+        return jsonify({
+            "success": False,
+            "error": "Circuit breaker not available"
+        }), 400
+    
+    agent.circuit_breaker.reset()
+    return jsonify({
+        "success": True,
+        "message": "Circuit breaker reset to CLOSED state",
+        "stats": agent.circuit_breaker.get_stats()
+    })
 
 
 @app.route("/api/agent/memory")
@@ -1190,11 +1334,15 @@ def api_recent_images():
 def api_logs():
     """Get or clear detection logs.
     
-    GET: Retrieve all detection logs with parsed decision details.
+    GET: Retrieve detection logs with pagination support.
+        Query params:
+            - page: Page number (default: 1)
+            - per_page: Items per page (default: 50, max: 200)
+            - detected_only: If 'true', only show detected events
     DELETE: Clear all detection logs from the database.
     
     Returns:
-        JSON response with logs list (GET) or success message (DELETE).
+        JSON response with logs list and pagination info (GET) or success message (DELETE).
     """
     if request.method == "DELETE":
         try:
@@ -1209,17 +1357,31 @@ def api_logs():
                 500,
             )
 
-    # GET method (default)
+    # GET method with pagination
     try:
+        page = max(1, request.args.get("page", 1, type=int))
+        per_page = min(200, max(1, request.args.get("per_page", 50, type=int)))
+        detected_only = request.args.get("detected_only", "").lower() == "true"
+        offset = (page - 1) * per_page
+        
         with get_db_connection() as conn:
-            logs = conn.execute(
-                """
+            # Get total count for pagination
+            count_query = "SELECT COUNT(*) FROM detection_logs"
+            if detected_only:
+                count_query += " WHERE confidence > 0"
+            total_count = conn.execute(count_query).fetchone()[0]
+            
+            # Build query with filters
+            query = """
                 SELECT id, timestamp, confidence, response, image_path,
                        frame_number, reason, vision_description, decision_details
                 FROM detection_logs
-                ORDER BY timestamp DESC
             """
-            ).fetchall()
+            if detected_only:
+                query += " WHERE confidence > 0"
+            query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+            
+            logs = conn.execute(query, (per_page, offset)).fetchall()
 
         logs_list = []
         for log in logs:
@@ -1246,7 +1408,20 @@ def api_logs():
                 }
             )
 
-        return jsonify({"success": True, "logs": logs_list})
+        total_pages = (total_count + per_page - 1) // per_page if per_page > 0 else 1
+        
+        return jsonify({
+            "success": True,
+            "logs": logs_list,
+            "pagination": {
+                "page": page,
+                "per_page": per_page,
+                "total_count": total_count,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_prev": page > 1,
+            }
+        })
     except sqlite3.Error as exc:
         return (
             jsonify({"success": False, "error": f"Database error: {exc}"}),
@@ -1473,41 +1648,60 @@ def api_system_logging():
 
 @app.route("/api/video_feed")
 def video_feed():
-    """Stream live video frames from camera publisher"""
+    """Stream live video frames from camera publisher.
+    
+    Returns a multipart JPEG stream suitable for <img> tags.
+    Automatically cleans up subscription on client disconnect.
+    """
 
     def generate():
-        # Subscribe to camera feed for streaming
-        subscriber_id = f"video_feed_{id(generate)}"
+        # Use thread ID for unique subscriber identification
+        subscriber_id = f"video_feed_{threading.get_ident()}_{time.time_ns()}"
+        subscribed = False
+        consecutive_failures = 0
+        max_failures = 10
 
         try:
             publisher = get_camera_publisher()
             if not publisher.subscribe(subscriber_id):
+                logger.warning(f"Failed to subscribe video feed: {subscriber_id}")
                 return
+            subscribed = True
 
-            while True:
-                frame_obj = publisher.get_frame(subscriber_id, timeout=1.0)
-                if not frame_obj:
-                    continue
+            while consecutive_failures < max_failures:
+                try:
+                    frame_obj = publisher.get_frame(subscriber_id, timeout=1.0)
+                    if not frame_obj:
+                        consecutive_failures += 1
+                        continue
+                    
+                    consecutive_failures = 0  # Reset on success
 
-                # Yield frame in multipart format
-                yield (
-                    b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n\r\n"
-                    + frame_obj.image_data
-                    + b"\r\n"
-                )
+                    # Yield frame in multipart format
+                    yield (
+                        b"--frame\r\n"
+                        b"Content-Type: image/jpeg\r\n\r\n"
+                        + frame_obj.image_data
+                        + b"\r\n"
+                    )
+                except Exception as frame_err:
+                    logger.debug(f"Frame error in video feed: {frame_err}")
+                    consecutive_failures += 1
+                    time.sleep(0.1)
+                    
         except GeneratorExit:
-            # Client disconnected
+            # Client disconnected - normal cleanup
             pass
         except Exception as e:
-            print(f"Video feed error: {e}")
+            logger.error(f"Video feed error: {e}")
         finally:
             # Cleanup: unsubscribe when done
-            try:
-                publisher = get_camera_publisher()
-                publisher.unsubscribe(subscriber_id)
-            except Exception:
-                pass
+            if subscribed:
+                try:
+                    publisher = get_camera_publisher()
+                    publisher.unsubscribe(subscriber_id)
+                except Exception as cleanup_err:
+                    logger.debug(f"Cleanup error: {cleanup_err}")
 
     return Response(
         generate(), mimetype="multipart/x-mixed-replace; boundary=frame"
@@ -1540,13 +1734,27 @@ def capture_frame():
 
 
 # Helper functions
-def check_camera_availability():
-    """Check if camera is available"""
-    try:
-        publisher = get_camera_publisher()
-        return publisher.camera.isOpened() if publisher.camera else False
-    except Exception:
-        return False
+def check_camera_availability() -> bool:
+    """Check if camera is available with caching to reduce overhead.
+    
+    Returns:
+        bool: True if camera is available, False otherwise.
+    """
+    global _last_camera_check, _last_camera_status
+    
+    current_time = time.time()
+    with _camera_check_lock:
+        if current_time - _last_camera_check < _camera_check_interval:
+            return _last_camera_status
+        
+        try:
+            publisher = get_camera_publisher()
+            _last_camera_status = publisher.camera.isOpened() if publisher.camera else False
+        except Exception:
+            _last_camera_status = False
+        
+        _last_camera_check = current_time
+        return _last_camera_status
 
 
 def check_ollama_availability():
@@ -1704,13 +1912,46 @@ def initialize_camera_publisher():
         return False
 
 
+def graceful_shutdown():
+    """Perform graceful shutdown of all services."""
+    global camera_agent, camera_publisher
+    
+    logger.info("🛑 Initiating graceful shutdown...")
+    
+    # Stop monitoring agent
+    if camera_agent:
+        try:
+            camera_agent.stop_monitoring()
+            logger.info("✅ Monitoring agent stopped")
+        except Exception as e:
+            logger.error(f"Error stopping monitoring agent: {e}")
+    
+    # Stop camera publisher
+    if camera_publisher:
+        try:
+            camera_publisher.stop()
+            logger.info("✅ Camera publisher stopped")
+        except Exception as e:
+            logger.error(f"Error stopping camera publisher: {e}")
+    
+    logger.info("👋 Shutdown complete")
+
+
 if __name__ == "__main__":
+    import signal
+    import atexit
+    
     debug_env = os.getenv("FLASK_DEBUG")
     debug_mode = (
         True
         if debug_env is None
         else debug_env.strip().lower() in {"1", "true", "yes", "on"}
     )
+
+    # Register shutdown handlers
+    atexit.register(graceful_shutdown)
+    signal.signal(signal.SIGTERM, lambda sig, frame: graceful_shutdown())
+    signal.signal(signal.SIGINT, lambda sig, frame: graceful_shutdown())
 
     # Initialize database schema before serving requests
     init_db()
