@@ -56,6 +56,8 @@ spec:
               value: {{ .Values.ollama.visionModel | quote }}
             - name: DECISION_MODEL
               value: {{ .Values.ollama.decisionModel | quote }}
+            - name: OLLAMA_CONTEXT_LENGTH
+              value: {{ .Values.ollama.contextLength | quote }}
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}

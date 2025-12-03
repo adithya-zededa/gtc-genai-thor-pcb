@@ -7,6 +7,10 @@ mkdir -p "$DATA_DIR"
 mkdir -p "${DETECTED_IMAGES_DIR:-$DATA_DIR/detected_images}"
 mkdir -p "${PROCESSED_FRAMES_DIR:-$DATA_DIR/processed_frames}"
 
+# Set Ollama context length (default 32000)
+export OLLAMA_CONTEXT_LENGTH=${OLLAMA_CONTEXT_LENGTH:-32000}
+echo "Ollama context length: $OLLAMA_CONTEXT_LENGTH"
+
 # Start Ollama in the background
 echo "Starting Ollama..."
 ollama serve &

@@ -220,7 +220,20 @@ class StreamlinedAgent:
         # Image saving config
         camera_cfg = config.get("camera", {})
         self.save_images = _coerce_bool(camera_cfg.get("save_detection_images"), False)
-        self.images_dir = Path(camera_cfg.get("detection_image_dir", "detected_images"))
+        
+        # Resolve images directory: prefer DETECTED_IMAGES_DIR env var, fall back to config
+        env_images_dir = os.getenv("DETECTED_IMAGES_DIR")
+        if env_images_dir:
+            self.images_dir = Path(env_images_dir)
+        else:
+            config_images_dir = camera_cfg.get("detection_image_dir", "detected_images")
+            # If relative, make it relative to DATA_DIR
+            data_dir = Path(os.getenv("CAMERA_AGENT_DATA_DIR", "."))
+            images_path = Path(config_images_dir)
+            if not images_path.is_absolute():
+                self.images_dir = data_dir / images_path
+            else:
+                self.images_dir = images_path
         
         if self.save_images:
             self.images_dir.mkdir(parents=True, exist_ok=True)

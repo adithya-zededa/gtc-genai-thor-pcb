@@ -1527,30 +1527,74 @@ def api_export_logs():
 
 @app.route("/api/image/<path:image_path>")
 def api_serve_image(image_path):
-    """Serve detection images"""
+    """Serve detection images.
+    
+    Handles various path formats:
+    - Absolute paths: /app/data/detected_images/image.jpg
+    - Relative paths: detected_images/image.jpg
+    - Filename only: image.jpg
+    """
     try:
         # Sanitize and resolve the image path
         candidate_path = Path(image_path)
-        if not candidate_path.is_absolute():
-            candidate_path = (DATA_DIR / candidate_path).resolve()
-        else:
-            candidate_path = candidate_path.resolve()
-
+        
         # Check if path is within allowed directories
         detected_dir = DETECTED_IMAGES_DIR.resolve()
         processed_dir = PROCESSED_FRAMES_DIR.resolve()
-
-        if not (
-            candidate_path.is_relative_to(detected_dir)
-            or candidate_path.is_relative_to(processed_dir)
-        ):
-            return jsonify({"error": "Access denied"}), 403
-
-        if candidate_path.exists() and candidate_path.is_file():
-            return send_file(candidate_path, mimetype="image/jpeg")
+        
+        # Try multiple resolution strategies
+        paths_to_try = []
+        
+        if candidate_path.is_absolute():
+            # Absolute path - use as-is
+            paths_to_try.append(candidate_path.resolve())
         else:
+            # Relative path - try multiple base directories
+            # 1. Try relative to DATA_DIR first
+            paths_to_try.append((DATA_DIR / candidate_path).resolve())
+            
+            # 2. Try relative to current working directory
+            paths_to_try.append(Path.cwd() / candidate_path)
+            
+            # 3. Try the filename directly in detected_images
+            paths_to_try.append(detected_dir / candidate_path.name)
+            
+            # 4. Try the filename in processed_frames
+            paths_to_try.append(processed_dir / candidate_path.name)
+            
+            # 5. If path starts with 'detected_images/' strip it and try in DETECTED_IMAGES_DIR
+            path_str = str(candidate_path)
+            if path_str.startswith("detected_images/"):
+                stripped = path_str[len("detected_images/"):]
+                paths_to_try.append(detected_dir / stripped)
+            if path_str.startswith("processed_frames/"):
+                stripped = path_str[len("processed_frames/"):]
+                paths_to_try.append(processed_dir / stripped)
+
+        # Find the first valid path
+        resolved_path = None
+        for try_path in paths_to_try:
+            try:
+                resolved = try_path.resolve()
+                if resolved.exists() and resolved.is_file():
+                    # Security check - ensure path is within allowed directories
+                    if (
+                        resolved.is_relative_to(detected_dir)
+                        or resolved.is_relative_to(processed_dir)
+                        or resolved.is_relative_to(DATA_DIR.resolve())
+                    ):
+                        resolved_path = resolved
+                        break
+            except Exception:
+                continue
+
+        if resolved_path:
+            return send_file(resolved_path, mimetype="image/jpeg")
+        else:
+            logger.warning(f"Image not found: {image_path}. Tried paths: {[str(p) for p in paths_to_try[:3]]}")
             return jsonify({"error": "Image not found"}), 404
     except Exception as e:
+        logger.error(f"Error serving image {image_path}: {e}")
         return jsonify({"error": str(e)}), 500
 
 
