@@ -14,7 +14,7 @@ import copy
 import csv
 import io
 from datetime import datetime
-from typing import List, Dict
+from typing import List, Dict, Optional
 from pathlib import Path
 from flask import (
     Flask,
@@ -32,6 +32,7 @@ import threading
 import time
 import requests
 import cv2
+import numpy as np
 
 from camera_agent import StreamlinedAgent, DEFAULT_CONFIG_PATH
 from agent_runtime.utils import (
@@ -42,6 +43,7 @@ from agent_runtime.utils import (
 from agent_runtime.publisher import get_camera_publisher
 from agent_runtime.monitoring import StreamlinedMonitoringService
 from agent_runtime.unified_vlm import UnifiedVLMClient, TaskType, AnalysisResult
+from agent_runtime.email_tools import send_email
 
 # Set up logging
 logging.basicConfig(
@@ -148,6 +150,77 @@ def _coerce_bool_config(value, default: bool = False) -> bool:
     """Convert string/number representations to boolean values."""
     coerced = coerce_bool(value, default)
     return default if coerced is None else coerced
+
+
+def _extract_email_intent(prompt: str) -> Optional[str]:
+    """Extract email address from user prompt if email action is requested.
+    
+    Looks for patterns like:
+    - "send an email to user@example.com"
+    - "email to: user@example.com"
+    - "notify user@example.com"
+    
+    Returns:
+        Email address if found, None otherwise
+    """
+    import re
+    
+    prompt_lower = prompt.lower()
+    # Check for email action keywords
+    email_keywords = ["send email", "send an email", "email to", "notify", "alert"]
+    has_email_intent = any(kw in prompt_lower for kw in email_keywords)
+    
+    if not has_email_intent:
+        return None
+    
+    # Extract email address using regex
+    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+    matches = re.findall(email_pattern, prompt)
+    
+    return matches[0] if matches else None
+
+
+def _execute_email_action(
+    email_to: str,
+    detection_result: "AnalysisResult",
+    user_prompt: str,
+) -> str:
+    """Execute email action based on detection result.
+    
+    Args:
+        email_to: Recipient email address
+        detection_result: The VLM analysis result
+        user_prompt: Original user prompt
+        
+    Returns:
+        Status message from email sending
+    """
+    subject = f"Camera Agent Alert: {detection_result.task_type}"
+    body = f"""Camera Agent Detection Alert
+
+Detection Task: {detection_result.task_type}
+User Query: {user_prompt}
+
+Detection Results:
+- Detected: {detection_result.detected}
+- Confidence: {detection_result.confidence:.2%}
+- Reasoning: {detection_result.reasoning}
+
+Details:
+{json.dumps(detection_result.details, indent=2)}
+
+---
+This is an automated message from Camera Agent.
+"""
+    
+    result = send_email({
+        "to": [email_to],
+        "subject": subject,
+        "body": body,
+    })
+    
+    logger.info("Email sent to %s: %s", email_to, result)
+    return result
 
 
 def ensure_config_directory() -> None:
@@ -1363,21 +1436,33 @@ def api_analyze_prompt():
                 "error": "Custom task requires a custom_prompt"
             }), 400
         
-        # Capture current frame from camera
-        cap = cv2.VideoCapture(_safe_int_env("CAMERA_INDEX", 0))
-        if not cap.isOpened():
+        # Capture current frame from camera publisher (not direct camera access)
+        try:
+            publisher = get_camera_publisher()
+            latest_frame = publisher.get_latest_frame()
+            
+            if not latest_frame or not latest_frame.image_b64:
+                return jsonify({
+                    "success": False,
+                    "error": "No frames available from camera"
+                }), 500
+            
+            # Decode base64 frame to numpy array
+            import base64
+            frame_bytes = base64.b64decode(latest_frame.image_b64)
+            frame_array = np.frombuffer(frame_bytes, dtype=np.uint8)
+            frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
+            
+            if frame is None:
+                return jsonify({
+                    "success": False,
+                    "error": "Failed to decode camera frame"
+                }), 500
+        except Exception as camera_err:
+            logger.error("Camera access failed: %s", camera_err)
             return jsonify({
                 "success": False,
-                "error": "Cannot open camera"
-            }), 500
-        
-        ret, frame = cap.read()
-        cap.release()
-        
-        if not ret or frame is None:
-            return jsonify({
-                "success": False,
-                "error": "Failed to capture frame from camera"
+                "error": f"Camera access failed: {str(camera_err)}"
             }), 500
         
         # Initialize VLM client with configuration
@@ -1413,6 +1498,31 @@ def api_analyze_prompt():
                 "error": "Analysis failed - no result returned"
             }), 500
         
+        # Parse the custom prompt for tool/action intents
+        actions_executed = []
+        if task_type == TaskType.CUSTOM and custom_prompt:
+            # Check for email action intent
+            email_match = _extract_email_intent(custom_prompt)
+            if email_match and result.detected:
+                try:
+                    email_result = _execute_email_action(
+                        email_to=email_match,
+                        detection_result=result,
+                        user_prompt=custom_prompt,
+                    )
+                    actions_executed.append({
+                        "action": "send_email",
+                        "status": "success",
+                        "details": email_result,
+                    })
+                except Exception as email_err:
+                    logger.error("Email action failed: %s", email_err)
+                    actions_executed.append({
+                        "action": "send_email",
+                        "status": "error",
+                        "error": str(email_err),
+                    })
+        
         # Return the analysis result
         return jsonify({
             "success": True,
@@ -1422,6 +1532,7 @@ def api_analyze_prompt():
                 "confidence": result.confidence,
                 "reasoning": result.reasoning,
                 "details": result.details,
+                "actions_executed": actions_executed,
             }
         })
         
