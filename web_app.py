@@ -922,9 +922,19 @@ def api_reset_circuit_breaker():
     })
 
 
-@app.route("/api/agent/memory")
+@app.route("/api/agent/memory", methods=["GET", "DELETE"])
 def api_agent_memory():
     """Expose recent agent memory and summarised activity."""
+    agent = getattr(camera_agent, "agent", None) if camera_agent else None
+    
+    if request.method == "DELETE":
+        # Clear agent memory
+        if agent and hasattr(agent, 'clear_memory'):
+            agent.clear_memory()
+            return jsonify({"success": True, "message": "Agent memory cleared"})
+        return jsonify({"success": True, "message": "No memory to clear"})
+    
+    # GET method
     limit = request.args.get("limit", type=int)
     agent = getattr(camera_agent, "agent", None) if camera_agent else None
 

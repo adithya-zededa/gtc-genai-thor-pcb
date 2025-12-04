@@ -728,41 +728,60 @@
     });
     
     // Live Prompt functionality
+    let currentTaskType = 'package_detection';
+    
     function setupLivePromptHandlers() {
-        const taskTypeSelect = document.getElementById('prompt-task-type');
+        const taskTypeBtns = document.querySelectorAll('.task-type-btn');
+        const customPromptContainer = document.getElementById('custom-prompt-container');
         const customPromptInput = document.getElementById('custom-prompt-input');
-        const sendPromptBtn = document.getElementById('send-prompt');
-        const promptResponse = document.getElementById('prompt-response');
+        const applyPromptBtn = document.getElementById('apply-prompt');
+        const resetPromptBtn = document.getElementById('reset-prompt');
+        const promptStatus = document.getElementById('prompt-status');
+        const enableMemoryContext = document.getElementById('enable-memory-context');
+        const clearMemoryBtn = document.getElementById('clear-memory');
+        const memorySummary = document.getElementById('memory-summary');
         
-        // Show/hide custom prompt based on task type
-        taskTypeSelect.addEventListener('change', function() {
-            const isCustom = this.value === 'custom';
-            customPromptInput.style.display = isCustom ? 'block' : 'none';
-            customPromptInput.placeholder = isCustom 
-                ? 'Enter your custom analysis prompt...' 
-                : 'Optional: Add additional context to the prompt...';
+        // Task type button click handlers
+        taskTypeBtns.forEach(btn => {
+            btn.addEventListener('click', function() {
+                // Remove active state from all buttons
+                taskTypeBtns.forEach(b => {
+                    b.classList.remove('active');
+                    b.style.background = 'var(--color-surface)';
+                    b.style.border = '0.5px solid var(--color-border)';
+                    b.style.color = 'var(--color-text-primary)';
+                });
+                
+                // Add active state to clicked button
+                this.classList.add('active');
+                this.style.background = 'rgba(0, 113, 227, 0.1)';
+                this.style.border = '0.5px solid rgba(0, 113, 227, 0.3)';
+                this.style.color = '#0071e3';
+                
+                currentTaskType = this.dataset.task;
+                
+                // Show/hide custom prompt input
+                if (currentTaskType === 'custom') {
+                    customPromptContainer.classList.remove('hidden');
+                } else {
+                    customPromptContainer.classList.add('hidden');
+                }
+            });
         });
         
-        // Send prompt button handler
-        sendPromptBtn.addEventListener('click', async function() {
-            const taskType = taskTypeSelect.value;
+        // Apply prompt button handler
+        applyPromptBtn.addEventListener('click', async function() {
             const customPrompt = customPromptInput.value.trim();
             
             // Validate custom task has a prompt
-            if (taskType === 'custom' && !customPrompt) {
+            if (currentTaskType === 'custom' && !customPrompt) {
                 showToast('Please enter a custom prompt for analysis', 'warning');
                 return;
             }
             
             // Update UI to show loading state
-            sendPromptBtn.disabled = true;
-            sendPromptBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Analyzing...';
-            promptResponse.innerHTML = `
-                <div class="flex items-center justify-center py-4">
-                    <i class="fas fa-spinner fa-spin text-xl mr-3" style="color: var(--color-primary);"></i>
-                    <span style="color: var(--color-text-secondary);">Analyzing current frame...</span>
-                </div>
-            `;
+            applyPromptBtn.disabled = true;
+            applyPromptBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Applying...';
             
             try {
                 const response = await fetch('/api/analyze_prompt', {
@@ -771,104 +790,136 @@
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        task_type: taskType,
-                        custom_prompt: customPrompt
+                        task_type: currentTaskType,
+                        custom_prompt: customPrompt,
+                        include_memory: enableMemoryContext.checked
                     })
                 });
                 
                 const data = await response.json();
                 
                 if (data.success) {
-                    displayPromptResponse(data.result);
-                    showToast('Analysis complete', 'success');
+                    // Update status badge
+                    updatePromptStatus(currentTaskType);
+                    showToast('Prompt applied successfully', 'success');
+                    
+                    // Display result in a toast or update UI
+                    if (data.result) {
+                        displayAnalysisResult(data.result);
+                    }
                 } else {
-                    promptResponse.innerHTML = `
-                        <div class="p-3 rounded-lg" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3);">
-                            <i class="fas fa-exclamation-circle mr-2" style="color: var(--color-danger);"></i>
-                            <span style="color: var(--color-danger);">${data.error || 'Analysis failed'}</span>
-                        </div>
-                    `;
-                    showToast('Analysis failed', 'error');
+                    showToast(data.error || 'Failed to apply prompt', 'error');
                 }
             } catch (error) {
-                console.error('Prompt analysis error:', error);
-                promptResponse.innerHTML = `
-                    <div class="p-3 rounded-lg" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3);">
-                        <i class="fas fa-exclamation-circle mr-2" style="color: var(--color-danger);"></i>
-                        <span style="color: var(--color-danger);">Failed to connect to analysis service</span>
-                    </div>
-                `;
-                showToast('Connection error', 'error');
+                console.error('Apply prompt error:', error);
+                showToast('Failed to connect to server', 'error');
             } finally {
                 // Reset button state
-                sendPromptBtn.disabled = false;
-                sendPromptBtn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>Analyze';
+                applyPromptBtn.disabled = false;
+                applyPromptBtn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>Apply Prompt';
             }
         });
+        
+        // Reset prompt button handler
+        resetPromptBtn.addEventListener('click', function() {
+            // Reset to package detection
+            currentTaskType = 'package_detection';
+            
+            // Update button states
+            taskTypeBtns.forEach(btn => {
+                if (btn.dataset.task === 'package_detection') {
+                    btn.classList.add('active');
+                    btn.style.background = 'rgba(0, 113, 227, 0.1)';
+                    btn.style.border = '0.5px solid rgba(0, 113, 227, 0.3)';
+                    btn.style.color = '#0071e3';
+                } else {
+                    btn.classList.remove('active');
+                    btn.style.background = 'var(--color-surface)';
+                    btn.style.border = '0.5px solid var(--color-border)';
+                    btn.style.color = 'var(--color-text-primary)';
+                }
+            });
+            
+            // Hide custom prompt and clear it
+            customPromptContainer.classList.add('hidden');
+            customPromptInput.value = '';
+            
+            // Reset status badge
+            updatePromptStatus('package_detection');
+            
+            showToast('Prompt reset to Package Detection', 'info');
+        });
+        
+        // Clear memory button handler
+        clearMemoryBtn.addEventListener('click', async function() {
+            try {
+                const response = await fetch('/api/agent/memory', {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    memorySummary.innerHTML = 'Memory cleared. Start monitoring to collect new observations.';
+                    showToast('Agent memory cleared', 'success');
+                } else {
+                    showToast('Failed to clear memory', 'error');
+                }
+            } catch (error) {
+                console.error('Clear memory error:', error);
+                showToast('Failed to clear memory', 'error');
+            }
+        });
+        
+        // Periodically refresh memory summary
+        setInterval(refreshMemorySummary, 5000);
     }
     
-    // Display the prompt response in a formatted way
-    function displayPromptResponse(result) {
-        const promptResponse = document.getElementById('prompt-response');
-        
-        const taskTypeLabels = {
-            'package_detection': 'Package Detection',
-            'ppe_detection': 'PPE Detection',
-            'person_counting': 'Person Counting',
-            'scene_description': 'Scene Description',
-            'custom': 'Custom Analysis'
+    function updatePromptStatus(taskType) {
+        const promptStatus = document.getElementById('prompt-status');
+        const taskLabels = {
+            'package_detection': { label: 'Package Detection', icon: 'fa-box' },
+            'ppe_detection': { label: 'PPE Detection', icon: 'fa-hard-hat' },
+            'person_counting': { label: 'Person Counting', icon: 'fa-users' },
+            'scene_description': { label: 'Scene Description', icon: 'fa-image' },
+            'custom': { label: 'Custom Query', icon: 'fa-edit' }
         };
         
-        const taskLabel = taskTypeLabels[result.task_type] || result.task_type;
-        const detectedClass = result.detected ? 'var(--color-success)' : 'var(--color-text-secondary)';
-        const detectedIcon = result.detected ? 'fa-check-circle' : 'fa-info-circle';
-        
-        let detailsHtml = '';
-        if (result.details && Object.keys(result.details).length > 0) {
-            detailsHtml = '<div class="mt-3 pt-3" style="border-top: 1px solid var(--color-border);">';
-            detailsHtml += '<p class="text-xs font-medium mb-2" style="color: var(--color-text-secondary);">Details:</p>';
-            detailsHtml += '<div class="grid grid-cols-2 gap-2 text-xs">';
-            for (const [key, value] of Object.entries(result.details)) {
-                const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-                const formattedValue = typeof value === 'object' ? JSON.stringify(value) : value;
-                detailsHtml += `
-                    <div class="p-2 rounded" style="background: var(--color-surface-secondary);">
-                        <span style="color: var(--color-text-secondary);">${formattedKey}:</span>
-                        <span class="font-medium" style="color: var(--color-text-primary);">${formattedValue}</span>
-                    </div>
-                `;
+        const task = taskLabels[taskType] || taskLabels['package_detection'];
+        promptStatus.innerHTML = `<i class="fas ${task.icon} text-xs"></i> ${task.label}`;
+    }
+    
+    function displayAnalysisResult(result) {
+        // Show a detailed toast or update a results section
+        const confidence = (result.confidence * 100).toFixed(1);
+        const status = result.detected ? 'Detected' : 'Not Detected';
+        showToast(`${status} (${confidence}% confidence): ${result.reasoning?.substring(0, 100) || 'Analysis complete'}...`, result.detected ? 'success' : 'info');
+    }
+    
+    async function refreshMemorySummary() {
+        try {
+            const response = await fetch('/api/agent/memory');
+            if (response.ok) {
+                const data = await response.json();
+                const memorySummary = document.getElementById('memory-summary');
+                
+                if (data.entries && data.entries.length > 0) {
+                    const recentEntries = data.entries.slice(-3);
+                    let html = '<div class="space-y-2">';
+                    html += `<p class="font-medium" style="color: var(--color-text-primary);">${data.entries.length} observation${data.entries.length !== 1 ? 's' : ''} in memory</p>`;
+                    html += '<div class="space-y-1">';
+                    recentEntries.forEach(entry => {
+                        const time = new Date(entry.timestamp).toLocaleTimeString();
+                        const status = entry.detected ? '✓' : '○';
+                        html += `<p>${status} ${time}: ${entry.task_type} - ${entry.reasoning?.substring(0, 50) || 'No details'}...</p>`;
+                    });
+                    html += '</div></div>';
+                    memorySummary.innerHTML = html;
+                } else {
+                    memorySummary.innerHTML = 'No memory data yet. Start monitoring to collect observations.';
+                }
             }
-            detailsHtml += '</div></div>';
+        } catch (error) {
+            console.error('Memory refresh error:', error);
         }
-        
-        promptResponse.innerHTML = `
-            <div class="space-y-3">
-                <div class="flex items-center justify-between">
-                    <span class="text-xs font-medium px-2 py-1 rounded" style="background: var(--color-primary); color: white;">
-                        ${taskLabel}
-                    </span>
-                    <span class="text-xs" style="color: var(--color-text-secondary);">
-                        Confidence: ${(result.confidence * 100).toFixed(1)}%
-                    </span>
-                </div>
-                
-                <div class="flex items-start gap-2">
-                    <i class="fas ${detectedIcon} mt-1" style="color: ${detectedClass};"></i>
-                    <div>
-                        <p class="text-sm font-medium" style="color: var(--color-text-primary);">
-                            ${result.detected ? 'Detection Found' : 'No Detection'}
-                        </p>
-                    </div>
-                </div>
-                
-                <div class="p-3 rounded-lg" style="background: var(--color-surface-secondary);">
-                    <p class="text-xs font-medium mb-1" style="color: var(--color-text-secondary);">Analysis:</p>
-                    <p class="text-sm" style="color: var(--color-text-primary);">${result.reasoning || 'No analysis provided'}</p>
-                </div>
-                
-                ${detailsHtml}
-            </div>
-        `;
     }
 </script>
 {% endblock %}
