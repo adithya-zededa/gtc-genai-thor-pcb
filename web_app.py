@@ -41,6 +41,7 @@ from agent_runtime.utils import (
 )
 from agent_runtime.publisher import get_camera_publisher
 from agent_runtime.monitoring import StreamlinedMonitoringService
+from agent_runtime.unified_vlm import UnifiedVLMClient, TaskType, AnalysisResult
 
 # Set up logging
 logging.basicConfig(
@@ -1310,6 +1311,116 @@ def api_test_ollama():
         return jsonify(
             {"success": False, "error": f"Ollama connectivity failed: {exc}"}
         )
+
+
+@app.route("/api/analyze_prompt", methods=["POST"])
+def api_analyze_prompt():
+    """Analyze the current camera frame with a dynamic prompt.
+    
+    Accepts:
+        task_type: One of 'package_detection', 'ppe_detection', 'person_counting', 
+                   'scene_description', 'custom'
+        custom_prompt: Optional custom prompt for analysis (required for 'custom' task)
+    
+    Returns:
+        JSON with analysis result including detected, confidence, reasoning, details
+    """
+    try:
+        data = request.get_json() or {}
+        task_type_str = data.get("task_type", "package_detection")
+        custom_prompt = data.get("custom_prompt", "")
+        
+        # Map string to TaskType enum
+        task_type_map = {
+            "package_detection": TaskType.PACKAGE_DETECTION,
+            "ppe_detection": TaskType.PPE_DETECTION,
+            "person_counting": TaskType.PERSON_COUNTING,
+            "scene_description": TaskType.SCENE_DESCRIPTION,
+            "custom": TaskType.CUSTOM,
+        }
+        
+        task_type = task_type_map.get(task_type_str)
+        if task_type is None:
+            return jsonify({
+                "success": False,
+                "error": f"Invalid task_type: {task_type_str}"
+            }), 400
+        
+        # Validate custom prompt for custom task
+        if task_type == TaskType.CUSTOM and not custom_prompt:
+            return jsonify({
+                "success": False,
+                "error": "Custom task requires a custom_prompt"
+            }), 400
+        
+        # Capture current frame from camera
+        cap = cv2.VideoCapture(_safe_int_env("CAMERA_INDEX", 0))
+        if not cap.isOpened():
+            return jsonify({
+                "success": False,
+                "error": "Cannot open camera"
+            }), 500
+        
+        ret, frame = cap.read()
+        cap.release()
+        
+        if not ret or frame is None:
+            return jsonify({
+                "success": False,
+                "error": "Failed to capture frame from camera"
+            }), 500
+        
+        # Initialize VLM client with configuration
+        try:
+            config = load_camera_config()
+            ollama_cfg = config.get("ollama", {})
+            ollama_url = str(ollama_cfg.get("url", "http://localhost:11434")).rstrip("/")
+            vision_model = str(ollama_cfg.get("vision_model", "qwen3-vl:4b"))
+            timeout = int(ollama_cfg.get("timeout", 300))
+            
+            vlm_client = UnifiedVLMClient(
+                base_url=ollama_url,
+                model=vision_model,
+                timeout=timeout,
+            )
+        except Exception as e:
+            logger.error("Failed to initialize VLM client: %s", e)
+            return jsonify({
+                "success": False,
+                "error": f"Failed to initialize VLM client: {str(e)}"
+            }), 500
+        
+        # Run analysis with the specified task type
+        result = vlm_client.analyze(
+            frame=frame,
+            task_type=task_type,
+            user_query=custom_prompt if task_type == TaskType.CUSTOM else None,
+        )
+        
+        if result is None:
+            return jsonify({
+                "success": False,
+                "error": "Analysis failed - no result returned"
+            }), 500
+        
+        # Return the analysis result
+        return jsonify({
+            "success": True,
+            "result": {
+                "task_type": task_type_str,
+                "detected": result.detected,
+                "confidence": result.confidence,
+                "reasoning": result.reasoning,
+                "details": result.details,
+            }
+        })
+        
+    except Exception as e:
+        logger.exception("Error in analyze_prompt API")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 
 @app.route("/api/recent_images")

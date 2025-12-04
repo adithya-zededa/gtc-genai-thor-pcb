@@ -20,11 +20,15 @@ import os
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 import cv2
 import numpy as np
 import requests
+
+# Type checking import to avoid circular dependency
+if TYPE_CHECKING:
+    from agent_runtime.memory import ConversationalMemory
 
 logger = logging.getLogger(__name__)
 
@@ -475,6 +479,7 @@ class UnifiedVLMClient:
         task_type: TaskType,
         cv_context: Optional[Dict[str, Any]] = None,
         user_query: Optional[str] = None,
+        memory_context: Optional[str] = None,
     ) -> str:
         """Build the prompt for a given task type.
         
@@ -482,6 +487,7 @@ class UnifiedVLMClient:
             task_type: The type of analysis task
             cv_context: Optional context from CV preprocessing
             user_query: Custom query for CUSTOM task type
+            memory_context: Optional context from conversation memory
             
         Returns:
             The complete prompt string
@@ -492,6 +498,10 @@ class UnifiedVLMClient:
             prompt = CUSTOM_QUERY_TEMPLATE.format(user_query=user_query)
         else:
             prompt = TASK_PROMPTS.get(task_type, DEFAULT_DETECTION_PROMPT)
+        
+        # Add memory context if provided (at the beginning for better coherence)
+        if memory_context:
+            prompt = f"Context from previous observations:\n{memory_context}\n\n---\n\n{prompt}"
         
         # Add CV context if provided
         if cv_context:
@@ -577,6 +587,8 @@ class UnifiedVLMClient:
         cv_context: Optional[Dict[str, Any]] = None,
         user_query: Optional[str] = None,
         custom_alert_condition: Optional[Callable[[Dict[str, Any]], bool]] = None,
+        memory: Optional["ConversationalMemory"] = None,
+        include_memory_context: bool = True,
     ) -> Optional[AnalysisResult]:
         """Analyze a frame with dynamic task type selection.
         
@@ -584,6 +596,7 @@ class UnifiedVLMClient:
         - Predefined task types (PACKAGE_DETECTION, PPE_DETECTION, etc.)
         - Custom user queries with arbitrary prompts
         - Custom alert conditions
+        - Memory-enhanced prompts with conversation context
         
         Args:
             frame: OpenCV/numpy array (BGR format)
@@ -591,6 +604,8 @@ class UnifiedVLMClient:
             cv_context: Optional context from CV preprocessing
             user_query: Custom query string (required for CUSTOM task type)
             custom_alert_condition: Optional function to determine alerting
+            memory: Optional ConversationalMemory for context
+            include_memory_context: Whether to include memory context in prompt
             
         Returns:
             AnalysisResult or None if analysis failed
@@ -599,27 +614,53 @@ class UnifiedVLMClient:
             # PPE detection
             result = client.analyze(frame, task_type=TaskType.PPE_DETECTION)
             
-            # Custom query
+            # Custom query with memory
             result = client.analyze(
                 frame,
                 task_type=TaskType.CUSTOM,
-                user_query="Count all vehicles in the parking lot"
+                user_query="Count all vehicles in the parking lot",
+                memory=agent_memory
             )
         """
         effective_task_type = task_type or self.default_task_type
         
+        # Build memory context if available
+        memory_context = None
+        if memory and include_memory_context:
+            try:
+                memory_context = memory.get_context_for_prompt()
+            except Exception as e:
+                logger.warning("Failed to get memory context: %s", e)
+        
         try:
             base64_image = self._encode_frame(frame)
-            prompt = self._build_prompt(effective_task_type, cv_context, user_query)
+            prompt = self._build_prompt(
+                effective_task_type, 
+                cv_context, 
+                user_query,
+                memory_context=memory_context,
+            )
             raw_response = self._send_vlm_request(prompt, base64_image)
             
             # Parse JSON from response
             parsed = self._parse_json_response(raw_response)
             if not parsed:
                 logger.warning("Could not parse VLM response as JSON")
-                return self._create_fallback_analysis_result(
+                result = self._create_fallback_analysis_result(
                     effective_task_type, raw_response
                 )
+                # Record in memory even for fallback
+                if memory:
+                    memory.record_analysis(
+                        task_type=effective_task_type.value,
+                        detected=result.detected,
+                        confidence=result.confidence,
+                        reasoning=result.reasoning,
+                        should_alert=result.should_alert,
+                        details=result.details,
+                        user_prompt=user_query,
+                    )
+                return result
             
             # Extract common fields
             detected = bool(parsed.get("detected", False))
@@ -642,7 +683,7 @@ class UnifiedVLMClient:
                 if bool_field in details:
                     details[bool_field] = self._coerce_bool(details[bool_field])
             
-            return AnalysisResult(
+            result = AnalysisResult(
                 task_type=effective_task_type.value,
                 detected=detected,
                 confidence=confidence,
@@ -651,6 +692,20 @@ class UnifiedVLMClient:
                 raw_response=raw_response,
                 details=details,
             )
+            
+            # Record successful analysis in memory
+            if memory:
+                memory.record_analysis(
+                    task_type=effective_task_type.value,
+                    detected=detected,
+                    confidence=confidence,
+                    reasoning=reasoning,
+                    should_alert=should_alert,
+                    details=details,
+                    user_prompt=user_query,
+                )
+            
+            return result
             
         except requests.exceptions.Timeout:
             logger.error("VLM request timed out after %ds", self.timeout)
