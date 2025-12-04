@@ -2,8 +2,8 @@ apiVersion: v2
 name: camera-agent
 description: ZEDEDA Camera Monitoring Agent - Multi-purpose AI vision analysis
 type: application
-version: 0.7.1
-appVersion: "1.1.1"
+version: 0.7.2
+appVersion: "1.1.2"
 keywords:
   - camera
   - monitoring
