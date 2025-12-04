@@ -238,9 +238,10 @@ CUSTOM_QUERY_TEMPLATE = """Analyze this image based on the following instruction
 
 Respond with ONLY valid JSON (no other text):
 {{
-  "detected": boolean,
+  "detected": boolean (true if the condition in the instructions is met),
   "confidence": number between 0.0 and 1.0,
   "reasoning": "Your analysis and findings",
+  "should_alert": boolean (true if user should be alerted based on the instructions),
   "details": {{any additional structured data}}
 }}
 """
