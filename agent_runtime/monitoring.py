@@ -7,6 +7,7 @@ camera feed and runs the unified VLM-based detection pipeline.
 """
 
 import logging
+import re
 import threading
 import time
 from collections import deque
@@ -27,6 +28,7 @@ from camera_agent import (
 from agent_runtime.unified_vlm import UnifiedVLMClient, TaskType
 from agent_runtime.publisher import get_camera_publisher
 from agent_runtime.state import DetectionEvent
+from agent_runtime.email_tools import send_email
 
 logger = logging.getLogger(__name__)
 
@@ -437,6 +439,16 @@ class StreamlinedMonitoringService:
             logger.warning(f"Image decode error: {e}")
             return None
         
+        # Get current prompt configuration
+        with self._prompt_lock:
+            task_type = self._current_task_type
+            custom_prompt = self._custom_prompt
+        
+        # Use custom analysis if task type is custom with a prompt
+        if task_type == TaskType.CUSTOM and custom_prompt:
+            return agent.analyze_with_prompt(frame, task_type, custom_prompt, metadata)
+        
+        # Otherwise use standard analysis
         return agent.analyze_frame(frame, metadata)
 
     def _drain_results(self, flush: bool = False) -> None:
@@ -501,9 +513,11 @@ class StreamlinedMonitoringService:
         # Record the detection
         self._record_detection(event, metadata)
         
-        # Check if alerts are enabled by user
+        # Check if alerts are enabled by user and get custom prompt
         with self._prompt_lock:
             alerts_enabled = self._alerts_enabled
+            custom_prompt = self._custom_prompt
+            task_type = self._current_task_type
         
         # Update stats and send alerts
         if event.detected:
@@ -513,7 +527,13 @@ class StreamlinedMonitoringService:
             effective_should_alert = event.should_alert and alerts_enabled
             
             if effective_should_alert:
-                if self.agent and self.agent.process_detection(event):
+                # Check for email in custom prompt and send if requested
+                if task_type == TaskType.CUSTOM and custom_prompt:
+                    email_sent = self._send_custom_email_alert(custom_prompt, event)
+                    if email_sent:
+                        self.stats['alerts_sent'] += 1
+                        logger.info("📧 Custom email alert sent")
+                elif self.agent and self.agent.process_detection(event):
                     self.stats['alerts_sent'] += 1
                     logger.info("🔔 Alert sent for detection")
             
@@ -532,6 +552,73 @@ class StreamlinedMonitoringService:
             })
         else:
             logger.debug(f"No detection in frame {frame_num}")
+
+    def _extract_email_from_prompt(self, prompt: str) -> Optional[str]:
+        """Extract email address from a custom prompt.
+        
+        Looks for patterns like:
+        - "send email to user@example.com"
+        - "email user@example.com"
+        - "notify user@example.com"
+        
+        Args:
+            prompt: The custom prompt string.
+            
+        Returns:
+            Email address if found, None otherwise.
+        """
+        # Common email regex pattern
+        email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+        match = re.search(email_pattern, prompt, re.IGNORECASE)
+        if match:
+            return match.group(0)
+        return None
+
+    def _send_custom_email_alert(self, custom_prompt: str, event: DetectionEvent) -> bool:
+        """Send email alert based on custom prompt.
+        
+        Args:
+            custom_prompt: The user's custom prompt containing email.
+            event: The detection event that triggered the alert.
+            
+        Returns:
+            True if email was sent successfully, False otherwise.
+        """
+        email_address = self._extract_email_from_prompt(custom_prompt)
+        if not email_address:
+            logger.warning("No email address found in custom prompt: %s", custom_prompt[:50])
+            return False
+        
+        # Compose email
+        subject = f"[Camera Agent Alert] Detection at {event.timestamp}"
+        body = f"""
+Camera Agent Custom Alert
+
+Custom Query: {custom_prompt}
+
+Detection Details:
+- Timestamp: {event.timestamp}
+- Confidence: {event.confidence:.2f}
+- Description: {event.vision_description or 'N/A'}
+
+This alert was triggered based on your custom monitoring query.
+"""
+        
+        try:
+            result = send_email(
+                to=email_address,
+                subject=subject,
+                body=body,
+            )
+            if result.get("success"):
+                logger.info("📧 Email sent to %s for custom alert", email_address)
+                return True
+            else:
+                logger.error("Failed to send email: %s", result.get("error", "Unknown error"))
+                return False
+        except Exception as e:
+            logger.error("Email sending failed: %s", e)
+            return False
 
     def _serialize_stats(self) -> Dict[str, object]:
         """Serialize stats for API response."""

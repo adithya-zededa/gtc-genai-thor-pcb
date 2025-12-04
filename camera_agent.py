@@ -30,7 +30,7 @@ from agent_runtime.detection import (
 from agent_runtime.state import AgentMemory, DetectionEvent
 from agent_runtime.utils import coerce_bool as _coerce_bool
 from agent_runtime.alerting import AlertManager
-from agent_runtime.unified_vlm import UnifiedVLMClient, DetectionResult
+from agent_runtime.unified_vlm import UnifiedVLMClient, DetectionResult, TaskType
 
 try:
     from skimage.metrics import structural_similarity
@@ -578,6 +578,82 @@ class StreamlinedAgent:
             )
         
         return event
+
+    def analyze_with_prompt(
+        self,
+        frame: np.ndarray,
+        task_type: TaskType,
+        custom_prompt: str = "",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[DetectionEvent]:
+        """Analyze a frame with a specific task type and custom prompt.
+        
+        This method supports dynamic prompt configuration for multi-purpose analysis.
+        
+        Args:
+            frame: The image frame to analyze.
+            task_type: The TaskType enum for the analysis.
+            custom_prompt: Custom user query (required for CUSTOM task type).
+            metadata: Optional frame metadata.
+            
+        Returns:
+            DetectionEvent if analysis succeeds, None otherwise.
+        """
+        metadata = metadata or {}
+        analysis_start = time.time()
+        
+        # For custom prompts, go directly to VLM without RF-DETR
+        if task_type == TaskType.CUSTOM and custom_prompt:
+            try:
+                result = self.circuit_breaker.call(
+                    self.vlm_client.analyze,
+                    frame,
+                    task_type=task_type,
+                    user_query=custom_prompt,
+                    cv_context=None,
+                )
+                
+                if result is None:
+                    return None
+                
+                event = DetectionEvent(
+                    timestamp=datetime.now().isoformat(),
+                    detected=result.detected,
+                    confidence=result.confidence,
+                    primary_label="custom_detection" if result.detected else "no_detection",
+                    vision_description=result.reasoning,
+                    full_response=result.raw_response[:500],
+                    should_alert=result.should_alert,
+                    shipping_label_present=None,
+                    tools_used=["unified_vlm"],
+                    tool_trace=[],
+                    decision_trace={
+                        "classification": "CUSTOM_ANALYSIS",
+                        "task_type": task_type.value,
+                        "custom_prompt": custom_prompt[:100],
+                        "detected": result.detected,
+                        "confidence": result.confidence,
+                        "should_alert": result.should_alert,
+                    },
+                )
+                
+                self._remember_event(event, source="custom_vlm")
+                
+                if result.should_alert:
+                    logger.info(
+                        "🔔 CUSTOM ALERT: %s (Confidence: %.2f)",
+                        result.reasoning[:50] if result.reasoning else "Alert triggered",
+                        result.confidence
+                    )
+                
+                return event
+                
+            except Exception as e:
+                logger.error(f"Custom analysis failed: {e}")
+                return None
+        
+        # For standard task types, use the normal pipeline
+        return self.analyze_frame(frame, metadata)
 
     def process_detection(self, event: DetectionEvent) -> bool:
         """Process detection event and send alerts if needed."""
