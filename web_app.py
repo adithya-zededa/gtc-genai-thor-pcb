@@ -1038,6 +1038,68 @@ def api_agent_memory():
     return jsonify({"success": True, "summary": summary, "memory": snapshot})
 
 
+@app.route("/api/agent/prompt", methods=["GET", "POST"])
+def api_agent_prompt():
+    """Get or set the active monitoring prompt configuration.
+    
+    GET: Returns current task_type, custom_prompt, and alerts_enabled
+    POST: Sets the active prompt for monitoring
+        - task_type: One of package_detection, ppe_detection, person_counting, scene_description, custom
+        - custom_prompt: Required for custom task type
+        - alerts_enabled: Whether to show visual alerts and send notifications
+    """
+    if not camera_agent:
+        return jsonify({"success": False, "error": "Camera agent not available"}), 500
+    
+    if request.method == "GET":
+        config = camera_agent.get_active_prompt_config()
+        return jsonify({"success": True, **config})
+    
+    # POST method - set active prompt
+    data = request.get_json() or {}
+    task_type_str = data.get("task_type", "package_detection")
+    custom_prompt = data.get("custom_prompt", "")
+    alerts_enabled = data.get("alerts_enabled", False)
+    
+    # Map string to TaskType enum
+    task_type_map = {
+        "package_detection": TaskType.PACKAGE_DETECTION,
+        "ppe_detection": TaskType.PPE_DETECTION,
+        "person_counting": TaskType.PERSON_COUNTING,
+        "scene_description": TaskType.SCENE_DESCRIPTION,
+        "custom": TaskType.CUSTOM,
+    }
+    
+    task_type = task_type_map.get(task_type_str)
+    if task_type is None:
+        return jsonify({
+            "success": False,
+            "error": f"Invalid task_type: {task_type_str}"
+        }), 400
+    
+    # Validate custom prompt for custom task
+    if task_type == TaskType.CUSTOM and not custom_prompt:
+        return jsonify({
+            "success": False,
+            "error": "Custom task requires a custom_prompt"
+        }), 400
+    
+    # Set the active prompt
+    camera_agent.set_active_prompt(
+        task_type=task_type,
+        custom_prompt=custom_prompt,
+        alerts_enabled=alerts_enabled,
+    )
+    
+    return jsonify({
+        "success": True,
+        "message": f"Active prompt set to {task_type_str}",
+        "task_type": task_type_str,
+        "custom_prompt": custom_prompt,
+        "alerts_enabled": alerts_enabled,
+    })
+
+
 @app.route("/api/users", methods=["GET", "POST"])
 def api_users():
     """User management API"""

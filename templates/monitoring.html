@@ -207,6 +207,23 @@
             </label>
         </div>
         
+        <!-- Enable Alerts Toggle -->
+        <div class="flex items-center justify-between rounded-xl p-3" style="background: rgba(255, 59, 48, 0.04); border: 0.5px solid rgba(255, 59, 48, 0.15);">
+            <div class="flex items-center gap-3">
+                <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg" style="background: linear-gradient(135deg, rgba(255, 59, 48, 0.1) 0%, rgba(255, 59, 48, 0.05) 100%); color: #ff3b30;">
+                    <i class="fas fa-bell text-sm"></i>
+                </span>
+                <div>
+                    <p class="text-sm font-medium" style="color: var(--color-text-primary);">Enable Alerts</p>
+                    <p class="text-xs" style="color: var(--color-text-secondary);">Show visual alerts and send notifications on detection</p>
+                </div>
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="enable-alerts">
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+        
         <!-- Apply Prompt Button -->
         <div class="flex items-center gap-3">
             <button id="apply-prompt" class="flex-1 inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition" style="background: linear-gradient(180deg, #0071e3 0%, #0077ed 100%); color: white; box-shadow: 0 1px 3px rgba(0, 113, 227, 0.3);">
@@ -381,6 +398,16 @@
         
         const overlay = document.getElementById('detection-overlay');
         const badge = document.getElementById('detection-badge');
+
+        // Check if alerts/overlay should be shown (controlled by user's Enable Alerts toggle)
+        const showOverlay = event.show_overlay === true;
+        
+        if (!showOverlay) {
+            // Don't show visual overlay/badge if alerts are disabled
+            // Still add to timeline for logging purposes
+            addDetectionToTimeline(event);
+            return;
+        }
 
         const labelStatus = event.shipping_label_present === true
             ? 'Shipping label visible'
@@ -738,8 +765,12 @@
         const resetPromptBtn = document.getElementById('reset-prompt');
         const promptStatus = document.getElementById('prompt-status');
         const enableMemoryContext = document.getElementById('enable-memory-context');
+        const enableAlerts = document.getElementById('enable-alerts');
         const clearMemoryBtn = document.getElementById('clear-memory');
         const memorySummary = document.getElementById('memory-summary');
+        
+        // Load current prompt config on page load
+        loadCurrentPromptConfig();
         
         // Task type button click handlers
         taskTypeBtns.forEach(btn => {
@@ -772,6 +803,7 @@
         // Apply prompt button handler
         applyPromptBtn.addEventListener('click', async function() {
             const customPrompt = customPromptInput.value.trim();
+            const alertsEnabled = enableAlerts.checked;
             
             // Validate custom task has a prompt
             if (currentTaskType === 'custom' && !customPrompt) {
@@ -784,6 +816,26 @@
             applyPromptBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Applying...';
             
             try {
+                // First, persist the prompt configuration for continuous monitoring
+                const promptConfigResponse = await fetch('/api/agent/prompt', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        task_type: currentTaskType,
+                        custom_prompt: customPrompt,
+                        alerts_enabled: alertsEnabled
+                    })
+                });
+                
+                const promptConfigData = await promptConfigResponse.json();
+                if (!promptConfigData.success) {
+                    showToast(promptConfigData.error || 'Failed to save prompt configuration', 'error');
+                    return;
+                }
+                
+                // Then run an immediate analysis with the new prompt
                 const response = await fetch('/api/analyze_prompt', {
                     method: 'POST',
                     headers: {
@@ -800,8 +852,8 @@
                 
                 if (data.success) {
                     // Update status badge
-                    updatePromptStatus(currentTaskType);
-                    showToast('Prompt applied successfully', 'success');
+                    updatePromptStatus(currentTaskType, alertsEnabled);
+                    showToast('Prompt applied and saved for monitoring', 'success');
                     
                     // Display result in a toast or update UI
                     if (data.result) {
@@ -821,9 +873,10 @@
         });
         
         // Reset prompt button handler
-        resetPromptBtn.addEventListener('click', function() {
-            // Reset to package detection
+        resetPromptBtn.addEventListener('click', async function() {
+            // Reset to package detection with alerts disabled
             currentTaskType = 'package_detection';
+            enableAlerts.checked = false;
             
             // Update button states
             taskTypeBtns.forEach(btn => {
@@ -844,8 +897,23 @@
             customPromptContainer.classList.add('hidden');
             customPromptInput.value = '';
             
+            // Persist the reset to the backend
+            try {
+                await fetch('/api/agent/prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        task_type: 'package_detection',
+                        custom_prompt: '',
+                        alerts_enabled: false
+                    })
+                });
+            } catch (e) {
+                console.error('Failed to persist reset:', e);
+            }
+            
             // Reset status badge
-            updatePromptStatus('package_detection');
+            updatePromptStatus('package_detection', false);
             
             showToast('Prompt reset to Package Detection', 'info');
         });
@@ -873,7 +941,57 @@
         setInterval(refreshMemorySummary, 5000);
     }
     
-    function updatePromptStatus(taskType) {
+    async function loadCurrentPromptConfig() {
+        try {
+            const response = await fetch('/api/agent/prompt');
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    // Update current task type
+                    currentTaskType = data.task_type || 'package_detection';
+                    
+                    // Update button states
+                    const taskTypeBtns = document.querySelectorAll('.task-type-btn');
+                    taskTypeBtns.forEach(btn => {
+                        if (btn.dataset.task === currentTaskType) {
+                            btn.classList.add('active');
+                            btn.style.background = 'rgba(0, 113, 227, 0.1)';
+                            btn.style.border = '0.5px solid rgba(0, 113, 227, 0.3)';
+                            btn.style.color = '#0071e3';
+                        } else {
+                            btn.classList.remove('active');
+                            btn.style.background = 'var(--color-surface)';
+                            btn.style.border = '0.5px solid var(--color-border)';
+                            btn.style.color = 'var(--color-text-primary)';
+                        }
+                    });
+                    
+                    // Update custom prompt if present
+                    const customPromptInput = document.getElementById('custom-prompt-input');
+                    const customPromptContainer = document.getElementById('custom-prompt-container');
+                    if (data.custom_prompt) {
+                        customPromptInput.value = data.custom_prompt;
+                    }
+                    if (currentTaskType === 'custom') {
+                        customPromptContainer.classList.remove('hidden');
+                    } else {
+                        customPromptContainer.classList.add('hidden');
+                    }
+                    
+                    // Update alerts toggle
+                    const enableAlerts = document.getElementById('enable-alerts');
+                    enableAlerts.checked = data.alerts_enabled || false;
+                    
+                    // Update status badge
+                    updatePromptStatus(currentTaskType, data.alerts_enabled);
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load prompt config:', error);
+        }
+    }
+    
+    function updatePromptStatus(taskType, alertsEnabled = false) {
         const promptStatus = document.getElementById('prompt-status');
         const taskLabels = {
             'package_detection': { label: 'Package Detection', icon: 'fa-box' },
@@ -884,7 +1002,8 @@
         };
         
         const task = taskLabels[taskType] || taskLabels['package_detection'];
-        promptStatus.innerHTML = `<i class="fas ${task.icon} text-xs"></i> ${task.label}`;
+        const alertIcon = alertsEnabled ? '<i class="fas fa-bell text-xs ml-2" style="color: #ff3b30;"></i>' : '';
+        promptStatus.innerHTML = `<i class="fas ${task.icon} text-xs"></i> ${task.label}${alertIcon}`;
     }
     
     function displayAnalysisResult(result) {

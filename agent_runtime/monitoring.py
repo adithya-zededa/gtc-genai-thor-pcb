@@ -24,7 +24,7 @@ from camera_agent import (
     CircuitBreaker,
     DEFAULT_CONFIG_PATH,
 )
-from agent_runtime.unified_vlm import UnifiedVLMClient
+from agent_runtime.unified_vlm import UnifiedVLMClient, TaskType
 from agent_runtime.publisher import get_camera_publisher
 from agent_runtime.state import DetectionEvent
 
@@ -42,6 +42,7 @@ class StreamlinedMonitoringService:
     1. Subscribes to the camera feed publisher
     2. Runs detection analysis on captured frames
     3. Records events and sends alerts
+    4. Supports dynamic prompt/task type changes during monitoring
     """
 
     def __init__(
@@ -59,6 +60,12 @@ class StreamlinedMonitoringService:
         self._publisher_getter = publisher_getter
         self.publisher = None
         self.auto_start_publisher = auto_start_publisher
+        
+        # Dynamic prompt configuration
+        self._current_task_type: TaskType = TaskType.PACKAGE_DETECTION
+        self._custom_prompt: str = ""
+        self._alerts_enabled: bool = False  # Only show alerts when user explicitly requests
+        self._prompt_lock = threading.Lock()
         
         # Timing configuration
         self.last_processed_time = 0.0
@@ -86,6 +93,45 @@ class StreamlinedMonitoringService:
             'analysis_samples': 0,
             'uptime_start': datetime.now().isoformat()
         }
+
+    # Dynamic prompt management
+    def set_active_prompt(
+        self,
+        task_type: TaskType,
+        custom_prompt: str = "",
+        alerts_enabled: bool = False,
+    ) -> None:
+        """Set the active task type and prompt for monitoring.
+        
+        Args:
+            task_type: The TaskType enum value for the analysis task.
+            custom_prompt: Custom prompt for CUSTOM task type.
+            alerts_enabled: Whether to show visual alerts on detection.
+        """
+        with self._prompt_lock:
+            self._current_task_type = task_type
+            self._custom_prompt = custom_prompt
+            self._alerts_enabled = alerts_enabled
+        
+        logger.info(
+            "Active prompt updated: task=%s, alerts=%s, custom=%s",
+            task_type.value,
+            alerts_enabled,
+            custom_prompt[:50] if custom_prompt else "None"
+        )
+
+    def get_active_prompt_config(self) -> Dict[str, Any]:
+        """Get the current prompt configuration.
+        
+        Returns:
+            Dictionary with task_type, custom_prompt, and alerts_enabled.
+        """
+        with self._prompt_lock:
+            return {
+                "task_type": self._current_task_type.value,
+                "custom_prompt": self._custom_prompt,
+                "alerts_enabled": self._alerts_enabled,
+            }
 
     # Hooks for subclasses
     def emit_event(self, event_name: str, payload: Dict[str, Any]) -> None:
@@ -455,23 +501,32 @@ class StreamlinedMonitoringService:
         # Record the detection
         self._record_detection(event, metadata)
         
+        # Check if alerts are enabled by user
+        with self._prompt_lock:
+            alerts_enabled = self._alerts_enabled
+        
         # Update stats and send alerts
         if event.detected:
             self.stats['detections'] += 1
             
-            if event.should_alert:
+            # Only send alerts and show visual indicators if alerts are enabled
+            effective_should_alert = event.should_alert and alerts_enabled
+            
+            if effective_should_alert:
                 if self.agent and self.agent.process_detection(event):
                     self.stats['alerts_sent'] += 1
-                    logger.info("🔔 Alert sent for unlabeled box")
+                    logger.info("🔔 Alert sent for detection")
             
             # Emit event to connected clients
+            # Override should_alert based on user's alerts_enabled preference
             self.emit_event('detection_event', {
                 'event': {
                     'timestamp': event.timestamp,
                     'confidence': event.confidence,
                     'response': event.vision_description[:200] if event.vision_description else "",
                     'shipping_label_present': event.shipping_label_present,
-                    'should_alert': event.should_alert,
+                    'should_alert': effective_should_alert,  # Only true if alerts enabled
+                    'show_overlay': alerts_enabled,  # Frontend uses this to show/hide overlay
                 },
                 'stats': self._serialize_stats(),
             })
