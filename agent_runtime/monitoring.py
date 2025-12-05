@@ -605,17 +605,19 @@ This alert was triggered based on your custom monitoring query.
 """
         
         try:
-            result = send_email(
-                to=email_address,
-                subject=subject,
-                body=body,
-            )
-            if result.get("success"):
+            # send_email takes a payload dict, not keyword arguments
+            result = send_email({
+                "to": email_address,
+                "subject": subject,
+                "body": body,
+            })
+            # send_email returns a string, not a dict
+            if "sent" in result.lower() or "success" in result.lower():
                 logger.info("📧 Email sent to %s for custom alert", email_address)
                 return True
             else:
-                logger.error("Failed to send email: %s", result.get("error", "Unknown error"))
-                return False
+                logger.warning("Email result: %s", result)
+                return "sent" in result.lower()
         except Exception as e:
             logger.error("Email sending failed: %s", e)
             return False
