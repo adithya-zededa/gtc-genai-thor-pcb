@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 import os
 import smtplib
 from email.message import EmailMessage
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,18 @@ def send_email(payload: Dict[str, object]) -> str:
     """Send an email using SMTP credentials provided via environment variables.
     
     Args:
-        payload: Dictionary containing 'to', 'subject', 'body', and optionally 'cc', 'bcc'.
+        payload: Dictionary containing:
+            - 'to': List of recipient emails (required)
+            - 'subject': Email subject line
+            - 'body': Email body text
+            - 'cc': List of CC recipients (optional)
+            - 'bcc': List of BCC recipients (optional)
+            - 'attachments': List of attachment dicts (optional), each with:
+                - 'data': bytes of the file content
+                - 'filename': name for the attachment
+                - 'mime_type': MIME type (optional, will guess from filename)
+            - 'image_data': bytes of image to attach (shorthand for single image)
+            - 'image_filename': filename for the image (default: 'detection.jpg')
         
     Returns:
         Status message indicating success or reason for skipping.
@@ -71,6 +83,41 @@ def send_email(payload: Dict[str, object]) -> str:
         message["Cc"] = ", ".join(cc)
 
     message.set_content(body)
+    
+    # Handle attachments
+    attachments: List[Dict[str, Any]] = list(payload.get("attachments", []))
+    
+    # Handle shorthand image_data parameter
+    image_data = payload.get("image_data")
+    if image_data and isinstance(image_data, bytes):
+        image_filename = str(payload.get("image_filename", "detection.jpg"))
+        attachments.append({
+            "data": image_data,
+            "filename": image_filename,
+            "mime_type": "image/jpeg",
+        })
+    
+    # Attach all files
+    for attachment in attachments:
+        data = attachment.get("data")
+        if not data or not isinstance(data, bytes):
+            continue
+            
+        filename = str(attachment.get("filename", "attachment"))
+        mime_type = attachment.get("mime_type")
+        
+        if not mime_type:
+            mime_type, _ = mimetypes.guess_type(filename)
+            mime_type = mime_type or "application/octet-stream"
+        
+        maintype, subtype = mime_type.split("/", 1)
+        message.add_attachment(
+            data,
+            maintype=maintype,
+            subtype=subtype,
+            filename=filename,
+        )
+        logger.debug("Attached file: %s (%s)", filename, mime_type)
 
     recipients = to + cc + bcc
     logger.info("Sending email to %s with subject '%s'", recipients, subject)

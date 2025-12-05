@@ -111,6 +111,86 @@ def _resolve_request_timeout() -> float:
 
 REQUEST_TIMEOUT = _resolve_request_timeout()
 
+
+def _get_jetson_gpu_stats() -> Optional[Dict]:
+    """Get GPU stats for NVIDIA Jetson platforms using sysfs.
+    
+    On Jetson, GPU and CPU share unified memory, so we report system memory usage.
+    GPU utilization is approximated from frequency scaling (cur_freq vs max_freq).
+    
+    Returns:
+        Dict with GPU stats if on Jetson, None otherwise
+    """
+    try:
+        gpu_devfreq_path = Path("/sys/class/devfreq/17000000.gpu")
+        gpu_thermal_path = None
+        
+        # Find GPU thermal zone
+        thermal_base = Path("/sys/class/thermal")
+        if thermal_base.exists():
+            for zone in thermal_base.iterdir():
+                if not zone.name.startswith("thermal_zone"):
+                    continue
+                type_path = zone / "type"
+                if type_path.exists():
+                    with open(type_path, 'r') as f:
+                        if f.read().strip() == "gpu-thermal":
+                            gpu_thermal_path = zone / "temp"
+                            break
+        
+        # Check if this is a Jetson platform
+        if not gpu_devfreq_path.exists():
+            return None
+        
+        # Get GPU frequency info
+        cur_freq_path = gpu_devfreq_path / "cur_freq"
+        max_freq_path = gpu_devfreq_path / "max_freq"
+        
+        if not cur_freq_path.exists() or not max_freq_path.exists():
+            return None
+        
+        with open(cur_freq_path, 'r') as f:
+            cur_freq = int(f.read().strip())
+        with open(max_freq_path, 'r') as f:
+            max_freq = int(f.read().strip())
+        
+        # Approximate GPU utilization from frequency scaling
+        # Higher frequency typically means higher GPU load
+        gpu_util = round((cur_freq / max_freq) * 100, 1) if max_freq > 0 else 0
+        
+        # Get GPU temperature
+        gpu_temp = None
+        if gpu_thermal_path and gpu_thermal_path.exists():
+            try:
+                with open(gpu_thermal_path, 'r') as f:
+                    # Temperature is in millidegrees Celsius
+                    gpu_temp = round(int(f.read().strip()) / 1000, 1)
+            except (IOError, ValueError):
+                pass
+        
+        # Get system memory (shared with GPU on Jetson)
+        import psutil
+        mem = psutil.virtual_memory()
+        mem_used_mb = round((mem.total - mem.available) / (1024 * 1024), 0)
+        mem_total_mb = round(mem.total / (1024 * 1024), 0)
+        
+        return {
+            "name": "NVIDIA Jetson GPU",
+            "utilization": gpu_util,
+            "memory_used_mb": mem_used_mb,
+            "memory_total_mb": mem_total_mb,
+            "memory_percent": round(mem.percent, 1),
+            "temperature": gpu_temp,
+            "power_watts": None,  # Power info typically requires tegrastats
+            "freq_mhz": round(cur_freq / 1_000_000, 0),
+            "max_freq_mhz": round(max_freq / 1_000_000, 0),
+            "platform": "jetson",
+        }
+    except Exception as e:
+        logger.debug(f"Failed to get Jetson GPU stats: {e}")
+        return None
+
+
 # Rate limiting for expensive operations
 _last_camera_check = 0.0
 _last_camera_status = False
@@ -152,16 +232,17 @@ def _coerce_bool_config(value, default: bool = False) -> bool:
     return default if coerced is None else coerced
 
 
-def _extract_email_intent(prompt: str) -> Optional[str]:
-    """Extract email address from user prompt if email action is requested.
+def _extract_email_intent(prompt: str) -> Optional[List[str]]:
+    """Extract email addresses from user prompt if email action is requested.
     
     Looks for patterns like:
     - "send an email to user@example.com"
     - "email to: user@example.com"
     - "notify user@example.com"
+    - "send an email to user1@example.com and to user2@example.com"
     
     Returns:
-        Email address if found, None otherwise
+        List of email addresses if found, None otherwise
     """
     import re
     
@@ -173,24 +254,26 @@ def _extract_email_intent(prompt: str) -> Optional[str]:
     if not has_email_intent:
         return None
     
-    # Extract email address using regex
+    # Extract all email addresses using regex
     email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
     matches = re.findall(email_pattern, prompt)
     
-    return matches[0] if matches else None
+    return matches if matches else None
 
 
 def _execute_email_action(
-    email_to: str,
+    email_to: List[str],
     detection_result: "AnalysisResult",
     user_prompt: str,
+    image_data: Optional[bytes] = None,
 ) -> str:
     """Execute email action based on detection result.
     
     Args:
-        email_to: Recipient email address
+        email_to: List of recipient email addresses
         detection_result: The VLM analysis result
         user_prompt: Original user prompt
+        image_data: Optional JPEG image bytes to attach
         
     Returns:
         Status message from email sending
@@ -209,15 +292,26 @@ Detection Results:
 Details:
 {json.dumps(detection_result.details, indent=2)}
 
+{"An image of the detection is attached." if image_data else ""}
 ---
 This is an automated message from Camera Agent.
 """
     
-    result = send_email({
-        "to": [email_to],
+    email_payload: Dict[str, Any] = {
+        "to": email_to,
         "subject": subject,
         "body": body,
-    })
+    }
+    
+    # Attach image if provided
+    if image_data and isinstance(image_data, bytes):
+        from datetime import datetime
+        timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        email_payload["image_data"] = image_data
+        email_payload["image_filename"] = f"detection_{timestamp_str}.jpg"
+        logger.debug("Attaching image to email (%d bytes)", len(image_data))
+    
+    result = send_email(email_payload)
     
     logger.info("Email sent to %s: %s", email_to, result)
     return result
@@ -417,13 +511,14 @@ class WebCameraAgent(StreamlinedMonitoringService):
         try:
             conn = get_db_connection()
             decision_details_json = json.dumps(event.decision_trace or {})
+            tool_trace_json = json.dumps(getattr(event, "tool_trace", []) or [])
             cursor = conn.execute(
                 """
                 INSERT INTO detection_logs (
                     timestamp, confidence, response, image_path, frame_number,
-                    reason, vision_description, decision_details
+                    reason, vision_description, decision_details, tool_trace
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     event.timestamp,
@@ -434,6 +529,7 @@ class WebCameraAgent(StreamlinedMonitoringService):
                     frame_metadata.get("reason"),
                     getattr(event, "vision_description", ""),
                     decision_details_json,
+                    tool_trace_json,
                 ),
             )
             conn.commit()
@@ -457,7 +553,9 @@ class WebCameraAgent(StreamlinedMonitoringService):
                     "reason": frame_metadata.get("reason"),
                     "vision_description": getattr(event, "vision_description", ""),
                     "decision_details": event.decision_trace or {},
+                    "tool_trace": getattr(event, "tool_trace", []) or [],
                     "detected": event.confidence is not None and event.confidence > 0,
+                    "agentic_mode": (event.decision_trace or {}).get("classification") == "AGENTIC_ANALYSIS",
                 }
                 self.emit_event("new_log", log_entry)
                 
@@ -543,6 +641,14 @@ def init_db():
     try:
         cursor.execute(
             "ALTER TABLE detection_logs ADD COLUMN decision_details TEXT"
+        )
+    except sqlite3.OperationalError:
+        pass
+    
+    # Add tool_trace column for agentic mode
+    try:
+        cursor.execute(
+            "ALTER TABLE detection_logs ADD COLUMN tool_trace TEXT"
         )
     except sqlite3.OperationalError:
         pass
@@ -944,12 +1050,16 @@ def api_stop_monitoring():
 @app.route("/api/status")
 def api_status():
     """Get comprehensive system status including circuit breaker state."""
+    # Get agentic mode from prompt config
+    prompt_config = camera_agent.get_active_prompt_config() if camera_agent else {}
+    
     status = {
         "monitoring_active": (
             camera_agent.is_monitoring if camera_agent else False
         ),
         "camera_available": check_camera_availability(),
         "ollama_available": check_ollama_availability(),
+        "agentic_mode": prompt_config.get("agentic_mode", False),
         "stats": camera_agent._serialize_stats() if camera_agent else {},
     }
     
@@ -1060,6 +1170,7 @@ def api_agent_prompt():
     task_type_str = data.get("task_type", "package_detection")
     custom_prompt = data.get("custom_prompt", "")
     alerts_enabled = data.get("alerts_enabled", False)
+    agentic_mode = data.get("agentic_mode", False)
     
     # Map string to TaskType enum
     task_type_map = {
@@ -1089,14 +1200,16 @@ def api_agent_prompt():
         task_type=task_type,
         custom_prompt=custom_prompt,
         alerts_enabled=alerts_enabled,
+        agentic_mode=agentic_mode,
     )
     
     return jsonify({
         "success": True,
-        "message": f"Active prompt set to {task_type_str}",
+        "message": f"Active prompt set to {task_type_str}" + (" (agentic mode)" if agentic_mode else ""),
         "task_type": task_type_str,
         "custom_prompt": custom_prompt,
         "alerts_enabled": alerts_enabled,
+        "agentic_mode": agentic_mode,
     })
 
 
@@ -1458,6 +1571,27 @@ def api_test_ollama():
         )
 
 
+@app.route("/api/ollama_models")
+def api_ollama_models():
+    """List available Ollama models (vision-capable only)"""
+    try:
+        response = requests.get(
+            _ollama_endpoint("api/tags"), timeout=REQUEST_TIMEOUT
+        )
+        response.raise_for_status()
+        data = response.json()
+        models = data.get("models", [])
+        # Filter for vision-capable models and extract names
+        vision_keywords = ["llava", "gemma3", "qwen", "minicpm", "llama3.2-vision", "moondream"]
+        vision_models = [
+            m.get("name", "") for m in models
+            if any(kw in m.get("name", "").lower() for kw in vision_keywords)
+        ]
+        return jsonify({"success": True, "models": vision_models})
+    except requests.RequestException as exc:
+        return jsonify({"success": False, "error": str(exc), "models": []})
+
+
 @app.route("/api/analyze_prompt", methods=["POST"])
 def api_analyze_prompt():
     """Analyze the current camera frame with a dynamic prompt.
@@ -1532,7 +1666,8 @@ def api_analyze_prompt():
             config = load_camera_config()
             ollama_cfg = config.get("ollama", {})
             ollama_url = str(ollama_cfg.get("url", "http://localhost:11434")).rstrip("/")
-            vision_model = str(ollama_cfg.get("vision_model", "qwen3-vl:4b"))
+            default_model = os.getenv("VISION_MODEL", "qwen3-vl:4b")
+            vision_model = str(ollama_cfg.get("vision_model", default_model))
             timeout = int(ollama_cfg.get("timeout", 300))
             
             vlm_client = UnifiedVLMClient(
@@ -1571,6 +1706,7 @@ def api_analyze_prompt():
                         email_to=email_match,
                         detection_result=result,
                         user_prompt=custom_prompt,
+                        image_data=frame_bytes,  # Attach the detection image
                     )
                     actions_executed.append({
                         "action": "send_email",
@@ -1604,6 +1740,169 @@ def api_analyze_prompt():
             "success": False,
             "error": str(e)
         }), 500
+
+
+@app.route("/api/analyze_agentic", methods=["POST"])
+def api_analyze_agentic():
+    """Analyze the current camera frame with agentic tool calling.
+    
+    This endpoint enables the LLM to autonomously decide which tools to call
+    based on its analysis of the image. The LLM can send emails, save evidence,
+    log events, and more without explicit instructions.
+    
+    Accepts:
+        task_type: One of 'package_detection', 'ppe_detection', 'person_counting', 
+                   'scene_description', 'custom'
+        custom_prompt: Optional custom prompt for analysis
+        recipients: Optional list of email recipients (uses config default if not provided)
+    
+    Returns:
+        JSON with analysis result and list of tools that were called
+    """
+    from agent_runtime.tools import ToolExecutor
+    
+    try:
+        data = request.get_json() or {}
+        task_type_str = data.get("task_type", "package_detection")
+        # Accept both "prompt" and "custom_prompt" for convenience
+        custom_prompt = data.get("prompt") or data.get("custom_prompt") or ""
+        recipients = data.get("recipients", [])
+        
+        # Map string to TaskType enum
+        task_type_map = {
+            "package_detection": TaskType.PACKAGE_DETECTION,
+            "ppe_detection": TaskType.PPE_DETECTION,
+            "person_counting": TaskType.PERSON_COUNTING,
+            "scene_description": TaskType.SCENE_DESCRIPTION,
+            "custom": TaskType.CUSTOM,
+        }
+        
+        task_type = task_type_map.get(task_type_str)
+        if task_type is None:
+            return jsonify({
+                "success": False,
+                "error": f"Invalid task_type: {task_type_str}"
+            }), 400
+        
+        # Capture current frame from camera publisher
+        try:
+            publisher = get_camera_publisher()
+            latest_frame = publisher.get_latest_frame()
+            
+            if not latest_frame or not latest_frame.image_b64:
+                return jsonify({
+                    "success": False,
+                    "error": "No frames available from camera"
+                }), 500
+            
+            # Decode base64 frame to numpy array
+            import base64
+            frame_bytes = base64.b64decode(latest_frame.image_b64)
+            frame_array = np.frombuffer(frame_bytes, dtype=np.uint8)
+            frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
+            
+            if frame is None:
+                return jsonify({
+                    "success": False,
+                    "error": "Failed to decode camera frame"
+                }), 500
+        except Exception as camera_err:
+            logger.error("Camera access failed: %s", camera_err)
+            return jsonify({
+                "success": False,
+                "error": f"Camera access failed: {str(camera_err)}"
+            }), 500
+        
+        # Initialize VLM client with configuration
+        try:
+            config = load_camera_config()
+            ollama_cfg = config.get("ollama", {})
+            ollama_url = str(ollama_cfg.get("url", "http://localhost:11434")).rstrip("/")
+            default_model = os.getenv("VISION_MODEL", "qwen3-vl:4b")
+            vision_model = str(ollama_cfg.get("vision_model", default_model))
+            timeout = int(ollama_cfg.get("timeout", 300))
+            
+            vlm_client = UnifiedVLMClient(
+                base_url=ollama_url,
+                model=vision_model,
+                timeout=timeout,
+            )
+            
+            # Get recipients from config if not provided
+            if not recipients:
+                email_cfg = config.get("notifications", {}).get("email", {})
+                recipients = email_cfg.get("recipients", [])
+            
+        except Exception as e:
+            logger.error("Failed to initialize VLM client: %s", e)
+            return jsonify({
+                "success": False,
+                "error": f"Failed to initialize VLM client: {str(e)}"
+            }), 500
+        
+        # Create tool executor
+        tool_executor = ToolExecutor()
+        
+        # Run agentic analysis with tool calling
+        result = vlm_client.analyze_with_tools(
+            frame=frame,
+            tool_executor=tool_executor,
+            task_type=task_type,
+            user_query=custom_prompt if custom_prompt else None,
+            recipients=recipients,
+        )
+        
+        if result is None:
+            return jsonify({
+                "success": False,
+                "error": "Agentic analysis failed - no result returned"
+            }), 500
+        
+        # Return the analysis result with tool information
+        return jsonify({
+            "success": True,
+            "result": {
+                "task_type": task_type_str,
+                "analysis": result.analysis.to_dict() if result.analysis else None,
+                "tools_called": result.tool_calls,
+                "tool_results": result.tool_results,
+                "tools_used": result.tools_used,
+                "any_tools_called": result.any_tools_called,
+                "all_tools_succeeded": result.all_tools_succeeded,
+            }
+        })
+        
+    except Exception as e:
+        logger.exception("Error in analyze_agentic API")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route("/api/tools", methods=["GET"])
+def api_list_tools():
+    """List all available tools for agentic analysis.
+    
+    Returns:
+        JSON with list of tool definitions including name, description, and parameters
+    """
+    from agent_runtime.tools import TOOL_REGISTRY
+    
+    tools = []
+    for tool in TOOL_REGISTRY.values():
+        tools.append({
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": tool.parameters,
+            "required_params": tool.required_params,
+        })
+    
+    return jsonify({
+        "success": True,
+        "tools": tools,
+        "count": len(tools),
+    })
 
 
 @app.route("/api/recent_images")
@@ -1668,7 +1967,7 @@ def api_logs():
             # Build query with filters
             query = """
                 SELECT id, timestamp, confidence, response, image_path,
-                       frame_number, reason, vision_description, decision_details
+                       frame_number, reason, vision_description, decision_details, tool_trace
                 FROM detection_logs
             """
             if detected_only:
@@ -1685,7 +1984,17 @@ def api_logs():
                     decision_details = json.loads(log["decision_details"])
                 except json.JSONDecodeError:
                     decision_details = {"raw": log["decision_details"]}
+            
+            tool_trace = []
+            try:
+                tool_trace_raw = log["tool_trace"] if "tool_trace" in log.keys() else None
+                if tool_trace_raw:
+                    tool_trace = json.loads(tool_trace_raw)
+            except (json.JSONDecodeError, KeyError):
+                tool_trace = []
 
+            is_agentic = decision_details.get("classification") == "AGENTIC_ANALYSIS"
+            
             logs_list.append(
                 {
                     "id": log["id"],
@@ -1697,6 +2006,8 @@ def api_logs():
                     "reason": log["reason"],
                     "vision_description": log["vision_description"],
                     "decision_details": decision_details,
+                    "tool_trace": tool_trace,
+                    "agentic_mode": is_agentic,
                     "detected": log["confidence"] is not None
                     and log["confidence"] > 0,
                 }
@@ -1894,9 +2205,10 @@ def api_serve_image(image_path):
 
 @app.route("/api/system/status")
 def api_system_status():
-    """Get system status information"""
+    """Get system status information including GPU metrics"""
     try:
         import psutil
+        import subprocess
 
         status = {
             "cpu_percent": psutil.cpu_percent(interval=1),
@@ -1905,6 +2217,50 @@ def api_system_status():
             "camera_available": check_camera_availability(),
             "ollama_available": check_ollama_availability(),
         }
+        
+        # Get GPU stats for Jetson (using sysfs) or desktop (nvidia-smi)
+        try:
+            gpu_info = _get_jetson_gpu_stats()
+            if gpu_info:
+                status["gpu"] = gpu_info
+            else:
+                # Fall back to nvidia-smi for non-Jetson systems
+                result = subprocess.run(
+                    [
+                        "nvidia-smi",
+                        "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,name",
+                        "--format=csv,noheader,nounits"
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    parts = result.stdout.strip().split(", ")
+                    if len(parts) >= 6:
+                        gpu_util = float(parts[0])
+                        mem_used = float(parts[1])
+                        mem_total = float(parts[2])
+                        temp = float(parts[3])
+                        power = float(parts[4]) if parts[4] != "[N/A]" else None
+                        gpu_name = parts[5]
+                        
+                        status["gpu"] = {
+                            "name": gpu_name,
+                            "utilization": gpu_util,
+                            "memory_used_mb": mem_used,
+                            "memory_total_mb": mem_total,
+                            "memory_percent": round((mem_used / mem_total) * 100, 1) if mem_total > 0 else 0,
+                            "temperature": temp,
+                            "power_watts": power,
+                        }
+                else:
+                    status["gpu"] = None
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+            # GPU stats unavailable
+            status["gpu"] = None
+            logger.debug(f"GPU stats unavailable: {e}")
+        
         return jsonify({"success": True, "status": status})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})

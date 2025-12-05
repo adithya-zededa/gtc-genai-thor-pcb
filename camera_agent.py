@@ -13,7 +13,7 @@ import time
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 from enum import Enum, auto
 from abc import ABC, abstractmethod
 
@@ -23,10 +23,7 @@ import yaml
 from dotenv import load_dotenv
 
 # Agent runtime imports
-from agent_runtime.detection import (
-    PackagingBoxAnalyzer,
-    RFDetrPackageDetector,
-)
+from agent_runtime.detection import RFDetrPackageDetector
 from agent_runtime.state import AgentMemory, DetectionEvent
 from agent_runtime.utils import coerce_bool as _coerce_bool
 from agent_runtime.alerting import AlertManager
@@ -40,7 +37,6 @@ except ImportError:
 # Public exports
 __all__ = [
     'StreamlinedAgent',
-    'MonitorDetectionAgent',  # Backward compatibility
     'RFDetrAdapter',
     'CircuitBreaker',
     'ObjectDetector',
@@ -274,64 +270,6 @@ class StreamlinedAgent:
     def default_config(cls) -> Dict[str, Any]:
         """Return the default configuration."""
         return copy.deepcopy(cls.load_config_from_path())
-
-    @classmethod
-    def validate_config(cls, config: Dict[str, Any]) -> List[str]:
-        """Validate configuration and return a list of warnings/errors.
-        
-        Args:
-            config: Configuration dictionary to validate.
-            
-        Returns:
-            List of validation messages (empty if valid).
-        """
-        issues: List[str] = []
-        
-        if not isinstance(config, dict):
-            issues.append("Configuration must be a dictionary")
-            return issues
-        
-        # Validate camera settings
-        camera_cfg = config.get("camera", {})
-        if isinstance(camera_cfg, dict):
-            interval = camera_cfg.get("capture_interval")
-            if interval is not None:
-                try:
-                    val = float(interval)
-                    if val < 1.0:
-                        issues.append(f"capture_interval ({val}) should be >= 1.0 seconds")
-                except (TypeError, ValueError):
-                    issues.append(f"capture_interval has invalid type: {type(interval).__name__}")
-        
-        # Validate ollama settings
-        ollama_cfg = config.get("ollama", {})
-        if isinstance(ollama_cfg, dict):
-            url = ollama_cfg.get("url")
-            if url and not isinstance(url, str):
-                issues.append(f"ollama.url must be a string, got {type(url).__name__}")
-            
-            timeout = ollama_cfg.get("timeout")
-            if timeout is not None:
-                try:
-                    val = int(timeout)
-                    if val < 10:
-                        issues.append(f"ollama.timeout ({val}) should be >= 10 seconds")
-                except (TypeError, ValueError):
-                    issues.append(f"ollama.timeout has invalid type: {type(timeout).__name__}")
-        
-        # Validate memory settings
-        memory_cfg = config.get("memory", {})
-        if isinstance(memory_cfg, dict):
-            max_events = memory_cfg.get("max_events")
-            if max_events is not None:
-                try:
-                    val = int(max_events)
-                    if val < 1:
-                        issues.append("memory.max_events must be >= 1")
-                except (TypeError, ValueError):
-                    issues.append(f"memory.max_events has invalid type: {type(max_events).__name__}")
-        
-        return issues
 
     def _make_similarity_reference(self, frame: np.ndarray) -> Optional[np.ndarray]:
         """Create a grayscale reference for SSIM comparison."""
@@ -602,58 +540,185 @@ class StreamlinedAgent:
         metadata = metadata or {}
         analysis_start = time.time()
         
-        # For custom prompts, go directly to VLM without RF-DETR
-        if task_type == TaskType.CUSTOM and custom_prompt:
-            try:
-                result = self.circuit_breaker.call(
-                    self.vlm_client.analyze,
-                    frame,
-                    task_type=task_type,
-                    user_query=custom_prompt,
-                    cv_context=None,
-                )
-                
-                if result is None:
-                    return None
-                
-                event = DetectionEvent(
-                    timestamp=datetime.now().isoformat(),
-                    detected=result.detected,
-                    confidence=result.confidence,
-                    primary_label="custom_detection" if result.detected else "no_detection",
-                    vision_description=result.reasoning,
-                    full_response=result.raw_response[:500],
-                    should_alert=result.should_alert,
-                    shipping_label_present=None,
-                    tools_used=["unified_vlm"],
-                    tool_trace=[],
-                    decision_trace={
-                        "classification": "CUSTOM_ANALYSIS",
-                        "task_type": task_type.value,
-                        "custom_prompt": custom_prompt[:100],
-                        "detected": result.detected,
-                        "confidence": result.confidence,
-                        "should_alert": result.should_alert,
-                    },
-                )
-                
-                self._remember_event(event, source="custom_vlm")
-                
-                if result.should_alert:
-                    logger.info(
-                        "🔔 CUSTOM ALERT: %s (Confidence: %.2f)",
-                        result.reasoning[:50] if result.reasoning else "Alert triggered",
-                        result.confidence
-                    )
-                
-                return event
-                
-            except Exception as e:
-                logger.error(f"Custom analysis failed: {e}")
+        # All task types go through VLM for proper analysis and logging
+        try:
+            result = self.circuit_breaker.call(
+                self.vlm_client.analyze,
+                frame,
+                task_type=task_type,
+                user_query=custom_prompt if task_type == TaskType.CUSTOM else None,
+                cv_context=None,
+            )
+            
+            if result is None:
                 return None
+            
+            # Map task type to label
+            task_label_map = {
+                TaskType.PACKAGE_DETECTION: "package_detection",
+                TaskType.PPE_DETECTION: "ppe_detection",
+                TaskType.PERSON_COUNTING: "person_count",
+                TaskType.SCENE_DESCRIPTION: "scene_description",
+                TaskType.CUSTOM: "custom_detection",
+            }
+            primary_label = task_label_map.get(task_type, "detection") if result.detected else "no_detection"
+            
+            event = DetectionEvent(
+                timestamp=datetime.now().isoformat(),
+                detected=result.detected,
+                confidence=result.confidence,
+                primary_label=primary_label,
+                vision_description=result.reasoning,
+                full_response=result.raw_response[:500] if result.raw_response else "",
+                should_alert=result.should_alert,
+                shipping_label_present=None,
+                tools_used=["unified_vlm"],
+                tool_trace=[],
+                decision_trace={
+                    "classification": task_type.value.upper(),
+                    "task_type": task_type.value,
+                    "custom_prompt": custom_prompt[:100] if custom_prompt else "",
+                    "detected": result.detected,
+                    "confidence": result.confidence,
+                    "should_alert": result.should_alert,
+                    "details": result.details if hasattr(result, 'details') else {},
+                },
+            )
+            
+            self._remember_event(event, source=f"{task_type.value}_vlm")
+            
+            if result.should_alert:
+                logger.info(
+                    "🔔 %s ALERT: %s (Confidence: %.2f)",
+                    task_type.value.upper(),
+                    result.reasoning[:50] if result.reasoning else "Alert triggered",
+                    result.confidence
+                )
+            
+            return event
+            
+        except Exception as e:
+            logger.error(f"Analysis failed for {task_type.value}: {e}")
+            return None
+
+    def analyze_agentic(
+        self,
+        frame: np.ndarray,
+        task_type: Optional[TaskType] = None,
+        custom_prompt: Optional[str] = None,
+        recipients: Optional[list] = None,
+    ) -> Optional[DetectionEvent]:
+        """Analyze frame with agentic tool calling.
         
-        # For standard task types, use the normal pipeline
-        return self.analyze_frame(frame, metadata)
+        This method allows the LLM to autonomously decide which tools to call
+        based on its analysis. For example, it may decide to:
+        - Send an alert email if something concerning is detected
+        - Save evidence images for later review
+        - Log events for auditing
+        - Query history for context
+        
+        Args:
+            frame: OpenCV frame to analyze
+            task_type: Type of analysis (defaults to PACKAGE_DETECTION)
+            custom_prompt: Optional custom analysis prompt
+            recipients: Email recipients for alerts (uses config if not provided)
+            
+        Returns:
+            DetectionEvent with tool call information in tool_trace
+        """
+        from agent_runtime.tools import ToolExecutor
+        
+        if self.circuit_breaker.is_open:
+            logger.warning("Circuit breaker is open - skipping agentic analysis")
+            return None
+        
+        effective_task_type = task_type or TaskType.PACKAGE_DETECTION
+        
+        # Get recipients from config if not provided
+        if recipients is None:
+            email_cfg = self.config.get("notifications", {}).get("email", {})
+            recipients = email_cfg.get("recipients", [])
+        
+        # Create tool executor with current context
+        tool_executor = ToolExecutor()
+        
+        try:
+            # Encode frame for tool context
+            _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+            image_bytes = buffer.tobytes()
+            
+            # Run agentic analysis
+            agentic_result = self.vlm_client.analyze_with_tools(
+                frame=frame,
+                tool_executor=tool_executor,
+                task_type=effective_task_type,
+                user_query=custom_prompt,
+                recipients=recipients,
+            )
+            
+            if agentic_result is None or agentic_result.analysis is None:
+                logger.warning("Agentic analysis returned no result")
+                return None
+            
+            analysis = agentic_result.analysis
+            
+            # Build tool trace from results
+            tool_trace = []
+            for i, (call, result) in enumerate(zip(
+                agentic_result.tool_calls, 
+                agentic_result.tool_results
+            )):
+                tool_trace.append({
+                    "step": i + 1,
+                    "tool": call.get("tool", "unknown"),
+                    "arguments": call.get("arguments", {}),
+                    "success": result.get("success", False),
+                    "result": result.get("result", {}),
+                })
+            
+            # Save detection image if enabled
+            image_path = ""
+            if self.save_images and analysis.detected:
+                image_path = self._save_detection_image(frame, analysis)
+            
+            # Create detection event
+            event = DetectionEvent(
+                timestamp=datetime.now().isoformat(),
+                detected=analysis.detected,
+                confidence=analysis.confidence,
+                primary_label=f"{effective_task_type.value}_agentic",
+                vision_description=analysis.reasoning,
+                full_response=analysis.raw_response[:500] if analysis.raw_response else "",
+                should_alert=analysis.should_alert,
+                shipping_label_present=analysis.details.get("shipping_label_present"),
+                image_path=image_path,
+                tools_used=["unified_vlm"] + agentic_result.tools_used,
+                tool_trace=tool_trace,
+                decision_trace={
+                    "classification": "AGENTIC_ANALYSIS",
+                    "task_type": effective_task_type.value,
+                    "detected": analysis.detected,
+                    "confidence": analysis.confidence,
+                    "should_alert": analysis.should_alert,
+                    "tools_called": len(agentic_result.tool_calls),
+                    "all_tools_succeeded": agentic_result.all_tools_succeeded,
+                },
+            )
+            
+            self._remember_event(event, source="agentic")
+            
+            if agentic_result.any_tools_called:
+                logger.info(
+                    "🤖 Agentic analysis called %d tools: %s",
+                    len(agentic_result.tool_calls),
+                    ", ".join(agentic_result.tools_used)
+                )
+            
+            return event
+            
+        except Exception as e:
+            logger.error(f"Agentic analysis failed: {e}")
+            return None
 
     def process_detection(self, event: DetectionEvent) -> bool:
         """Process detection event and send alerts if needed."""
@@ -710,7 +775,3 @@ class StreamlinedAgent:
         self._agent_memory.resize(new_max, new_window)
         
         logger.info("Configuration updated")
-
-
-# Backward compatibility alias
-MonitorDetectionAgent = StreamlinedAgent

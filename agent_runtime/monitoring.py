@@ -7,13 +7,14 @@ camera feed and runs the unified VLM-based detection pipeline.
 """
 
 import logging
+import os
 import re
 import threading
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import Optional, Dict, Callable, Any
+from typing import Optional, Dict, Callable, Any, List
 from uuid import uuid4
 
 import cv2
@@ -67,6 +68,7 @@ class StreamlinedMonitoringService:
         self._current_task_type: TaskType = TaskType.PACKAGE_DETECTION
         self._custom_prompt: str = ""
         self._alerts_enabled: bool = False  # Only show alerts when user explicitly requests
+        self._agentic_mode: bool = False  # Use tool-calling LLM agent
         self._prompt_lock = threading.Lock()
         
         # Timing configuration
@@ -102,6 +104,7 @@ class StreamlinedMonitoringService:
         task_type: TaskType,
         custom_prompt: str = "",
         alerts_enabled: bool = False,
+        agentic_mode: bool = False,
     ) -> None:
         """Set the active task type and prompt for monitoring.
         
@@ -109,16 +112,19 @@ class StreamlinedMonitoringService:
             task_type: The TaskType enum value for the analysis task.
             custom_prompt: Custom prompt for CUSTOM task type.
             alerts_enabled: Whether to show visual alerts on detection.
+            agentic_mode: Whether to use tool-calling LLM agent mode.
         """
         with self._prompt_lock:
             self._current_task_type = task_type
             self._custom_prompt = custom_prompt
             self._alerts_enabled = alerts_enabled
+            self._agentic_mode = agentic_mode
         
         logger.info(
-            "Active prompt updated: task=%s, alerts=%s, custom=%s",
+            "Active prompt updated: task=%s, alerts=%s, agentic=%s, custom=%s",
             task_type.value,
             alerts_enabled,
+            agentic_mode,
             custom_prompt[:50] if custom_prompt else "None"
         )
 
@@ -126,13 +132,14 @@ class StreamlinedMonitoringService:
         """Get the current prompt configuration.
         
         Returns:
-            Dictionary with task_type, custom_prompt, and alerts_enabled.
+            Dictionary with task_type, custom_prompt, alerts_enabled, and agentic_mode.
         """
         with self._prompt_lock:
             return {
                 "task_type": self._current_task_type.value,
                 "custom_prompt": self._custom_prompt,
                 "alerts_enabled": self._alerts_enabled,
+                "agentic_mode": self._agentic_mode,
             }
 
     # Hooks for subclasses
@@ -200,7 +207,8 @@ class StreamlinedMonitoringService:
             # Initialize unified VLM client
             ollama_cfg = config.get("ollama", {})
             ollama_url = str(ollama_cfg.get("url", "http://localhost:11434")).rstrip("/")
-            vision_model = str(ollama_cfg.get("vision_model", "qwen3-vl:4b"))
+            default_model = os.getenv("VISION_MODEL", "qwen3-vl:4b")
+            vision_model = str(ollama_cfg.get("vision_model", default_model))
             timeout = int(ollama_cfg.get("timeout", 300))
             
             # Get custom prompt if configured
@@ -388,7 +396,12 @@ class StreamlinedMonitoringService:
                     'frame_number': frame_count,
                     'timestamp': current_time,
                     'queued_at': current_time,
+                    'image_data': frame_obj.image_data,  # Store for email attachments
                 }
+                
+                # Ensure executor is available
+                if self._analysis_executor is None:
+                    self._ensure_executor()
                 
                 future = self._analysis_executor.submit(
                     self._analyze_frame_task,
@@ -443,13 +456,74 @@ class StreamlinedMonitoringService:
         with self._prompt_lock:
             task_type = self._current_task_type
             custom_prompt = self._custom_prompt
+            agentic_mode = self._agentic_mode
         
-        # Use custom analysis if task type is custom with a prompt
-        if task_type == TaskType.CUSTOM and custom_prompt:
-            return agent.analyze_with_prompt(frame, task_type, custom_prompt, metadata)
+        # Use agentic mode if enabled (LLM decides which tools to call)
+        if agentic_mode:
+            return self._run_agentic_analysis(agent, frame, task_type, custom_prompt, metadata)
         
-        # Otherwise use standard analysis
-        return agent.analyze_frame(frame, metadata)
+        # Use analyze_with_prompt for all task types
+        # This properly handles PPE, Person Counting, Scene Description, and Custom
+        return agent.analyze_with_prompt(frame, task_type, custom_prompt or "", metadata)
+
+    def _run_agentic_analysis(
+        self,
+        agent: StreamlinedAgent,
+        frame: np.ndarray,
+        task_type: TaskType,
+        custom_prompt: str,
+        metadata: Dict,
+    ) -> Optional[DetectionEvent]:
+        """Run agentic analysis with tool calling.
+        
+        The LLM agent decides which tools to call based on its analysis.
+        Tools include: send_alert_email, save_evidence, log_event, etc.
+        
+        Args:
+            agent: The StreamlinedAgent instance.
+            frame: The decoded image frame.
+            task_type: The task type for analysis.
+            custom_prompt: Custom prompt for the analysis.
+            metadata: Frame metadata.
+            
+        Returns:
+            DetectionEvent with tool trace information.
+        """
+        from datetime import datetime
+        
+        try:
+            # Use the agentic analysis method
+            event = agent.analyze_agentic(
+                frame=frame,
+                task_type=task_type,
+                custom_prompt=custom_prompt or None,
+            )
+            
+            if event:
+                # Log tool usage
+                tools_used = event.tools_used or []
+                if tools_used:
+                    logger.info(
+                        "🤖 Agentic analysis completed. Tools called: %s",
+                        ", ".join(tools_used)
+                    )
+                else:
+                    logger.info("🤖 Agentic analysis completed. No tools called.")
+            
+            return event
+            
+        except Exception as e:
+            logger.error("Agentic analysis failed: %s", e)
+            # Return a failed event
+            return DetectionEvent(
+                timestamp=datetime.now().isoformat(),
+                detected=False,
+                confidence=0.0,
+                primary_label="agentic_analysis_failed",
+                vision_description=f"Agentic analysis failed: {e}",
+                full_response="",
+                decision_trace={"error": str(e), "agentic_mode": True},
+            )
 
     def _drain_results(self, flush: bool = False) -> None:
         """Process completed analysis results."""
@@ -529,7 +603,8 @@ class StreamlinedMonitoringService:
             if effective_should_alert:
                 # Check for email in custom prompt and send if requested
                 if task_type == TaskType.CUSTOM and custom_prompt:
-                    email_sent = self._send_custom_email_alert(custom_prompt, event)
+                    # Pass metadata for image attachment
+                    email_sent = self._send_custom_email_alert(custom_prompt, event, metadata)
                     if email_sent:
                         self.stats['alerts_sent'] += 1
                         logger.info("📧 Custom email alert sent")
@@ -553,39 +628,46 @@ class StreamlinedMonitoringService:
         else:
             logger.debug(f"No detection in frame {frame_num}")
 
-    def _extract_email_from_prompt(self, prompt: str) -> Optional[str]:
-        """Extract email address from a custom prompt.
+    def _extract_email_from_prompt(self, prompt: str) -> Optional[List[str]]:
+        """Extract email addresses from a custom prompt.
         
         Looks for patterns like:
         - "send email to user@example.com"
         - "email user@example.com"
         - "notify user@example.com"
+        - "send email to user1@example.com and to user2@example.com"
         
         Args:
             prompt: The custom prompt string.
             
         Returns:
-            Email address if found, None otherwise.
+            List of email addresses if found, None otherwise.
         """
         # Common email regex pattern
         email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-        match = re.search(email_pattern, prompt, re.IGNORECASE)
-        if match:
-            return match.group(0)
+        matches = re.findall(email_pattern, prompt, re.IGNORECASE)
+        if matches:
+            return matches
         return None
 
-    def _send_custom_email_alert(self, custom_prompt: str, event: DetectionEvent) -> bool:
-        """Send email alert based on custom prompt.
+    def _send_custom_email_alert(
+        self, 
+        custom_prompt: str, 
+        event: DetectionEvent, 
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """Send email alert based on custom prompt with optional image attachment.
         
         Args:
-            custom_prompt: The user's custom prompt containing email.
+            custom_prompt: The user's custom prompt containing email(s).
             event: The detection event that triggered the alert.
+            metadata: Optional frame metadata containing image_data for attachment.
             
         Returns:
             True if email was sent successfully, False otherwise.
         """
-        email_address = self._extract_email_from_prompt(custom_prompt)
-        if not email_address:
+        email_addresses = self._extract_email_from_prompt(custom_prompt)
+        if not email_addresses:
             logger.warning("No email address found in custom prompt: %s", custom_prompt[:50])
             return False
         
@@ -602,18 +684,30 @@ Detection Details:
 - Description: {event.vision_description or 'N/A'}
 
 This alert was triggered based on your custom monitoring query.
+
+An image of the detection is attached below.
 """
         
+        # Build email payload
+        email_payload: Dict[str, Any] = {
+            "to": email_addresses,
+            "subject": subject,
+            "body": body,
+        }
+        
+        # Attach the image if available in metadata
+        if metadata and metadata.get('image_data'):
+            image_data = metadata['image_data']
+            if isinstance(image_data, bytes):
+                timestamp_str = event.timestamp.replace(":", "-").replace(" ", "_")[:19]
+                email_payload["image_data"] = image_data
+                email_payload["image_filename"] = f"detection_{timestamp_str}.jpg"
+                logger.debug("Attaching image to email (%d bytes)", len(image_data))
+        
         try:
-            # send_email takes a payload dict, not keyword arguments
-            result = send_email({
-                "to": email_address,
-                "subject": subject,
-                "body": body,
-            })
-            # send_email returns a string, not a dict
+            result = send_email(email_payload)
             if "sent" in result.lower() or "success" in result.lower():
-                logger.info("📧 Email sent to %s for custom alert", email_address)
+                logger.info("📧 Email with image sent to %s for custom alert", email_addresses)
                 return True
             else:
                 logger.warning("Email result: %s", result)

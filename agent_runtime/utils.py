@@ -40,32 +40,6 @@ def clamp_float(
     return max(minimum, min(maximum, numeric))
 
 
-def safe_positive_int(value: Any, default: int) -> int:
-    """Return a positive integer or a fallback default."""
-    try:
-        candidate = int(value)
-        return candidate if candidate > 0 else default
-    except (TypeError, ValueError):
-        return default
-
-
-def safe_positive_float(value: Any, default: float) -> float:
-    """Return a positive float or a fallback default."""
-    try:
-        candidate = float(value)
-        return candidate if candidate > 0 else default
-    except (TypeError, ValueError):
-        return default
-
-
-def safe_float(value: Any, default: float) -> float:
-    """Return a float value or a fallback default."""
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
 def ensure_directory(path: Path) -> Path:
     """Create a directory path if it does not already exist and return it."""
     path = Path(path).expanduser()
@@ -96,7 +70,4 @@ __all__ = [
     "coerce_bool",
     "dedupe_strings",
     "ensure_directory",
-    "safe_float",
-    "safe_positive_float",
-    "safe_positive_int",
 ]

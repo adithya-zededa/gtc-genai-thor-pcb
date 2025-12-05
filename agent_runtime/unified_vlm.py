@@ -91,6 +91,43 @@ class AnalysisResult:
         return self.details.get("no_helmet_count", 0)
 
 
+@dataclass
+class AgenticResult:
+    """Result from an agentic analysis with tool calling.
+    
+    This extends AnalysisResult to include information about
+    tools that were called during the analysis.
+    """
+    
+    analysis: Optional[AnalysisResult]
+    tool_calls: List[Dict[str, Any]] = field(default_factory=list)
+    tool_results: List[Dict[str, Any]] = field(default_factory=list)
+    raw_response: str = ""
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "analysis": self.analysis.to_dict() if self.analysis else None,
+            "tool_calls": self.tool_calls,
+            "tool_results": self.tool_results,
+            "raw_response": self.raw_response,
+        }
+    
+    @property
+    def tools_used(self) -> List[str]:
+        """Get list of tool names that were called."""
+        return [tc.get("tool", "") for tc in self.tool_calls]
+    
+    @property
+    def any_tools_called(self) -> bool:
+        """Check if any tools were called."""
+        return len(self.tool_calls) > 0
+    
+    @property
+    def all_tools_succeeded(self) -> bool:
+        """Check if all tool calls succeeded."""
+        return all(r.get("success", False) for r in self.tool_results)
+
+
 # Legacy alias for backward compatibility
 @dataclass
 class DetectionResult:
@@ -434,17 +471,42 @@ class UnifiedVLMClient:
         text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
         text = text.strip()
         
-        # Remove markdown code blocks
-        if text.startswith("```"):
+        # Remove markdown code blocks (but not tool_call blocks)
+        if text.startswith("```json"):
+            # Extract just the JSON part
+            match = re.search(r'```json\s*(.*?)\s*```', text, re.DOTALL)
+            if match:
+                text = match.group(1).strip()
+        elif text.startswith("```") and not text.startswith("```tool_call"):
             lines = text.split("\n")
             lines = [l for l in lines if not l.strip().startswith("```")]
             text = "\n".join(lines).strip()
         
-        # Find JSON object
+        # For agentic responses, extract only the first JSON object (before tool_call blocks)
+        tool_call_start = text.find("```tool_call")
+        if tool_call_start > 0:
+            text = text[:tool_call_start].strip()
+        
+        # Find the first complete JSON object using bracket matching
         start_idx = text.find("{")
-        end_idx = text.rfind("}")
-        if start_idx == -1 or end_idx == -1 or end_idx < start_idx:
+        if start_idx == -1:
             logger.warning("No JSON object found in response: %s", text[:200])
+            return None
+        
+        # Find matching closing brace
+        depth = 0
+        end_idx = -1
+        for i, char in enumerate(text[start_idx:], start=start_idx):
+            if char == '{':
+                depth += 1
+            elif char == '}':
+                depth -= 1
+                if depth == 0:
+                    end_idx = i
+                    break
+        
+        if end_idx == -1:
+            logger.warning("No matching closing brace in response: %s", text[:200])
             return None
         
         json_str = text[start_idx:end_idx + 1]
@@ -853,3 +915,175 @@ class UnifiedVLMClient:
             should_alert=result.should_alert,
             raw_response=result.raw_response,
         )
+
+    def analyze_with_tools(
+        self,
+        frame: np.ndarray,
+        tool_executor: "ToolExecutor",
+        task_type: Optional[TaskType] = None,
+        cv_context: Optional[Dict[str, Any]] = None,
+        user_query: Optional[str] = None,
+        max_tool_rounds: int = 3,
+        recipients: Optional[List[str]] = None,
+    ) -> "AgenticResult":
+        """Analyze a frame with tool-calling capability.
+        
+        This method allows the LLM to decide which tools to invoke based on
+        its analysis of the image. The LLM can call multiple tools and the
+        results are collected and returned.
+        
+        Args:
+            frame: OpenCV/numpy array (BGR format)
+            tool_executor: ToolExecutor instance with available tools
+            task_type: Type of analysis to perform
+            cv_context: Optional context from CV preprocessing
+            user_query: Custom query string
+            max_tool_rounds: Maximum rounds of tool calling (prevents infinite loops)
+            recipients: Default email recipients for alerts
+            
+        Returns:
+            AgenticResult with analysis and tool call results
+            
+        Example:
+            from agent_runtime.tools import ToolExecutor
+            
+            executor = ToolExecutor()
+            result = client.analyze_with_tools(
+                frame,
+                executor,
+                task_type=TaskType.PACKAGE_DETECTION,
+                recipients=["ops@example.com"]
+            )
+            
+            if result.tool_calls:
+                print(f"Agent called {len(result.tool_calls)} tools")
+        """
+        from agent_runtime.tools import ToolExecutor as TE, ToolCall, AgenticResult
+        
+        # If user_query is provided, use CUSTOM task type to use the user's prompt
+        if user_query:
+            effective_task_type = TaskType.CUSTOM
+        else:
+            effective_task_type = task_type or self.default_task_type
+        
+        # Encode image once
+        base64_image = self._encode_frame(frame)
+        image_bytes = self._frame_to_bytes(frame)
+        
+        # Update executor context with image data and recipients
+        tool_executor.update_context(
+            image_data=image_bytes,
+            recipients=recipients or [],
+        )
+        
+        # Build the agentic prompt - for custom queries, use a special format that allows tool calling
+        if effective_task_type == TaskType.CUSTOM:
+            # For custom queries in agentic mode, don't use the restrictive JSON-only template
+            agentic_base = f"""Analyze this image based on the following instructions:
+
+{user_query}
+
+First, provide your analysis as JSON:
+{{
+  "detected": boolean (true if the condition in the instructions is met),
+  "confidence": number between 0.0 and 1.0,
+  "reasoning": "Your analysis and findings",
+  "should_alert": boolean (true if action should be taken),
+  "details": {{any additional structured data}}
+}}
+
+Then, if the user's instructions require an action (like sending an email), you MUST use the tools below to complete that action."""
+        else:
+            agentic_base = self._build_prompt(effective_task_type, cv_context, user_query)
+        
+        tools_prompt = tool_executor.get_tools_prompt()
+        
+        agentic_prompt = f"""{agentic_base}
+
+---
+
+{tools_prompt}
+
+IMPORTANT: Follow the user's instructions exactly. If they ask you to send an email to a specific address, use THAT EXACT address in the tool call. If the user says to do something when a condition is met, and the condition IS met, you MUST call the appropriate tool.
+
+After your JSON analysis, if the condition in the user's instructions is met, call the appropriate tools to complete the action.
+"""
+        
+        all_tool_calls: List[ToolCall] = []
+        all_tool_results: List[Dict[str, Any]] = []
+        analysis_result: Optional[AnalysisResult] = None
+        
+        for round_num in range(max_tool_rounds):
+            # Send request to VLM
+            raw_response = self._send_vlm_request(agentic_prompt, base64_image)
+            
+            # Parse the analysis result (first round only)
+            if round_num == 0:
+                parsed = self._parse_json_response(raw_response)
+                if parsed:
+                    detected = bool(parsed.get("detected", False))
+                    confidence = float(parsed.get("confidence", 0.5))
+                    reasoning = str(parsed.get("reasoning", raw_response[:200]))
+                    
+                    # For custom prompts in agentic mode, use should_alert from parsed response
+                    # since the VLM is instructed to set it based on user conditions
+                    if effective_task_type == TaskType.CUSTOM:
+                        should_alert = bool(parsed.get("should_alert", detected))
+                    else:
+                        alert_fn = ALERT_CONDITIONS.get(effective_task_type, _default_alert_condition)
+                        should_alert = alert_fn(parsed)
+                    
+                    details = {k: v for k, v in parsed.items() 
+                              if k not in ("detected", "confidence", "reasoning")}
+                    
+                    analysis_result = AnalysisResult(
+                        task_type=effective_task_type.value,
+                        detected=detected,
+                        confidence=confidence,
+                        reasoning=reasoning,
+                        should_alert=should_alert,
+                        raw_response=raw_response,
+                        details=details,
+                    )
+                else:
+                    analysis_result = self._create_fallback_analysis_result(
+                        effective_task_type, raw_response
+                    )
+            
+            # Parse tool calls from response
+            tool_calls = tool_executor.parse_tool_calls(raw_response)
+            
+            if not tool_calls:
+                # No more tool calls, we're done
+                break
+            
+            # Execute tool calls
+            results = tool_executor.execute_all(tool_calls)
+            all_tool_calls.extend(tool_calls)
+            all_tool_results.extend([r.to_dict() for r in results])
+            
+            # Build follow-up prompt with tool results
+            results_text = "\n".join([
+                f"Tool '{r.tool_name}' result: {json.dumps(r.result)}"
+                for r in results
+            ])
+            
+            agentic_prompt = f"""Previous tool calls completed:
+
+{results_text}
+
+Based on these results, do you need to take any additional actions?
+If yes, make more tool calls. If no, summarize what was done.
+"""
+        
+        return AgenticResult(
+            analysis=analysis_result,
+            tool_calls=[{"tool": tc.tool_name, "arguments": tc.arguments} for tc in all_tool_calls],
+            tool_results=all_tool_results,
+            raw_response=raw_response if 'raw_response' in dir() else "",
+        )
+
+    def _frame_to_bytes(self, frame: np.ndarray) -> bytes:
+        """Convert numpy frame to JPEG bytes."""
+        _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        return buffer.tobytes()
