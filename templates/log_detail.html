@@ -247,30 +247,6 @@
                                 </div>
                             {% endif %}
 
-                            {% if decision.rf_detr_analysis %}
-                                {% set rfdetr = decision.rf_detr_analysis %}
-                                <div>
-                                    <p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color: var(--color-text-secondary);">RF-DETR Detection</p>
-                                    <div class="p-3 rounded-lg text-sm" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
-                                        <p class="mb-2" style="color: var(--color-text-primary);">{{ rfdetr.summary if rfdetr.summary else rfdetr }}</p>
-                                        {% if rfdetr.detections %}
-                                        <div class="mt-2 text-xs">
-                                            <p class="font-medium mb-1" style="color: var(--color-text-secondary);">Detections:</p>
-                                            <div class="space-y-1">
-                                                {% for det in rfdetr.detections %}
-                                                <div class="flex items-center gap-2" style="color: var(--color-text-secondary);">
-                                                    <span class="w-1.5 h-1.5 rounded-full" style="background: #0071e3;"></span>
-                                                    <span>Score: {{ '%.2f'|format(det.score) }}</span>
-                                                    <span>BBox: [{{ det.bbox|join(', ') }}]</span>
-                                                </div>
-                                                {% endfor %}
-                                            </div>
-                                        </div>
-                                        {% endif %}
-                                    </div>
-                                </div>
-                            {% endif %}
-
                             {% if decision.shipping_label_analysis %}
                                 {% set analysis = decision.shipping_label_analysis %}
                                 <div>

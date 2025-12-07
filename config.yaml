@@ -30,10 +30,7 @@ detection:
     \ = false if ANY box lacks a proper shipping label\n- \"shipping_label_present\"\
     \ = true only if ALL boxes have shipping labels  \n- If no boxes visible: detected=false,\
     \ box_count=0, shipping_label_present=null\n"
-analysis:
-  rf_detr:
-    confidence_threshold: 0.3
-    model_path: rf-detr-medium.pth
+analysis: {}
 notifications:
   desktop:
     enabled: true

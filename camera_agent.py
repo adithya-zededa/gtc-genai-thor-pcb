@@ -23,7 +23,6 @@ import yaml
 from dotenv import load_dotenv
 
 # Agent runtime imports
-from agent_runtime.detection import RFDetrPackageDetector
 from agent_runtime.state import AgentMemory, DetectionEvent
 from agent_runtime.utils import coerce_bool as _coerce_bool
 from agent_runtime.alerting import AlertManager
@@ -37,9 +36,7 @@ except ImportError:
 # Public exports
 __all__ = [
     'StreamlinedAgent',
-    'RFDetrAdapter',
     'CircuitBreaker',
-    'ObjectDetector',
     'DEFAULT_CONFIG_PATH',
 ]
 
@@ -150,42 +147,22 @@ class CircuitBreaker:
             raise
 
 
-class ObjectDetector(ABC):
-    """Abstract base class for object detection."""
-    
-    @abstractmethod
-    def analyze(self, frame: np.ndarray) -> Optional[Dict[str, Any]]:
-        pass
-
-
-class RFDetrAdapter(ObjectDetector):
-    """Adapter for RF-DETR package detector."""
-    
-    def __init__(self, config: Dict[str, Any]):
-        self.detector = RFDetrPackageDetector(**config)
-
-    def analyze(self, frame: np.ndarray) -> Optional[Dict[str, Any]]:
-        return self.detector.analyze(frame)
-
-
 class StreamlinedAgent:
     """
     Streamlined detection agent using a single Vision Language Model.
     
-    This agent uses RF-DETR for fast object detection, and a single VLM
-    for both scene understanding and decision-making.
+    This agent uses a VLM for all scene understanding and decision-making,
+    providing flexible multi-purpose analysis without specialized object detectors.
     """
     
     def __init__(
         self,
         config: Dict[str, Any],
         vlm_client: UnifiedVLMClient,
-        detector: Optional[ObjectDetector] = None,
         circuit_breaker: Optional[CircuitBreaker] = None,
     ):
         self.config = config
         self.vlm_client = vlm_client
-        self.detector = detector
         self.circuit_breaker = circuit_breaker or CircuitBreaker()
         self.last_error: Optional[str] = None
         
@@ -208,10 +185,6 @@ class StreamlinedAgent:
         self._last_similarity_frame: Optional[np.ndarray] = None
         self._last_analysis_time = 0.0
         self._ssim_reference_size = (320, 240)
-        
-        # Frame tracking
-        self._no_box_count = 0
-        self._last_no_box_log_time = 0.0
         
         # Image saving config
         camera_cfg = config.get("camera", {})
@@ -326,22 +299,6 @@ class StreamlinedAgent:
         
         return False, None
 
-    def _run_object_detection(self, frame: np.ndarray) -> tuple[int, Optional[str]]:
-        """Run RF-DETR to detect boxes quickly."""
-        if self.detector is None:
-            return 0, None
-        
-        try:
-            result = self.detector.analyze(frame)
-            if result:
-                box_count = int(result.get("box_count", 0) or 0)
-                hint = result.get("summary", "")
-                return box_count, hint
-        except Exception as e:
-            logger.warning(f"Object detection failed: {e}")
-        
-        return 0, None
-
     def _run_vlm_analysis(
         self,
         frame: np.ndarray,
@@ -352,7 +309,7 @@ class StreamlinedAgent:
         
         Args:
             frame: The image frame to analyze.
-            cv_context: Computer vision context from RF-DETR.
+            cv_context: Optional context dictionary (unused in VLM-only mode).
             max_retries: Maximum number of retry attempts.
             
         Returns:
@@ -396,14 +353,12 @@ class StreamlinedAgent:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Optional[DetectionEvent]:
         """
-        Analyze a frame for packaging boxes.
+        Analyze a frame using VLM-only pipeline.
         
         Pipeline:
         1. SSIM check - skip if scene hasn't changed
-        2. RF-DETR - fast object detection
-        3. If no boxes detected, return early
-        4. VLM analysis - combined vision + decision
-        5. Create detection event
+        2. VLM analysis - vision + decision
+        3. Create detection event
         """
         metadata = metadata or {}
         analysis_start = time.time()
@@ -414,56 +369,8 @@ class StreamlinedAgent:
             self._remember_event(cached_event, source="ssim_skip")
             return cached_event
         
-        # 2. Object detection
-        box_count, rfdet_hint = self._run_object_detection(frame)
-        
-        # 3. Fast fail if no boxes
-        if box_count == 0:
-            self._no_box_count += 1
-            time_since_log = analysis_start - self._last_no_box_log_time
-            
-            if time_since_log >= 10.0 or self._no_box_count <= 1:
-                logger.info(
-                    "📦 No boxes detected | Frames analyzed: %d | Monitoring continues",
-                    self._no_box_count
-                )
-                self._last_no_box_log_time = analysis_start
-            
-            event = DetectionEvent(
-                timestamp=datetime.now().isoformat(),
-                detected=False,
-                confidence=0.0,
-                primary_label="scene_clear",
-                vision_description="No packaging boxes detected",
-                full_response=f"Scene clear after {self._no_box_count} frames.",
-                should_alert=False,
-                shipping_label_present=None,
-                tools_used=["rf_detr"],
-                tool_trace=[],
-                decision_trace={
-                    "classification": "SCENE_CLEAR",
-                    "box_count": 0,
-                },
-            )
-            
-            # Update cache
-            self._last_similarity_frame = self._make_similarity_reference(frame)
-            self._last_processed_event = event
-            self._last_analysis_time = analysis_start
-            self._remember_event(event, source="rf_detr")
-            
-            return event
-        
-        # Reset no-box counter
-        if self._no_box_count > 0:
-            logger.info("📦 Box detected after %d clear frames!", self._no_box_count)
-        self._no_box_count = 0
-        
-        # 4. VLM Analysis
-        cv_context = {
-            "packaging_box_count": box_count,
-            "rfdet_hint": rfdet_hint,
-        }
+        # 2. VLM Analysis (no RF-DETR pre-filtering)
+        cv_context = {}  # No pre-detection context needed
         
         vlm_result = self._run_vlm_analysis(frame, cv_context)
         
@@ -471,7 +378,7 @@ class StreamlinedAgent:
             logger.warning("VLM analysis returned None")
             return None
         
-        # 5. Create detection event
+        # 3. Create detection event
         image_path = ""
         if self.save_images and vlm_result.detected:
             image_path = self._save_detection_image(frame, vlm_result)
@@ -486,7 +393,7 @@ class StreamlinedAgent:
             should_alert=vlm_result.should_alert,
             shipping_label_present=vlm_result.shipping_label_present,
             image_path=image_path,
-            tools_used=["rf_detr", "unified_vlm"],
+            tools_used=["unified_vlm"],
             tool_trace=[],
             decision_trace={
                 "classification": "VLM_DECISION",

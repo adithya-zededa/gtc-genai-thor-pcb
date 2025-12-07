@@ -22,7 +22,6 @@ import numpy as np
 
 from camera_agent import (
     StreamlinedAgent,
-    RFDetrAdapter,
     CircuitBreaker,
     DEFAULT_CONFIG_PATH,
 )
@@ -226,21 +225,16 @@ class StreamlinedMonitoringService:
                 self.last_error = f"Cannot connect to Ollama at {ollama_url}"
                 return False
             
-            # Initialize RF-DETR detector
-            rfdet_cfg = config.get("analysis", {}).get("rf_detr", {})
-            detector = RFDetrAdapter(rfdet_cfg)
-            
             # Initialize circuit breaker with higher tolerance
             circuit_breaker = CircuitBreaker(
                 failure_threshold=5,
                 recovery_timeout=120.0,
             )
             
-            # Create agent
+            # Create agent (VLM-only pipeline)
             self.agent = StreamlinedAgent(
                 config=config,
                 vlm_client=vlm_client,
-                detector=detector,
                 circuit_breaker=circuit_breaker,
             )
             
