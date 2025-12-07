@@ -5,7 +5,7 @@ replicaCount: 1
 image:
   repository: adithyazededa/camera-agent
   pullPolicy: Always
-  tag: "1.5.2-gpu"
+  tag: "1.1.7-gpu"
 
 imagePullSecrets: []
 nameOverride: ""
