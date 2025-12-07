@@ -26,6 +26,8 @@ spec:
       {{- if .Values.gpu.runtimeClassName }}
       runtimeClassName: {{ .Values.gpu.runtimeClassName }}
       {{- end }}
+      hostNetwork: {{ .Values.hostNetwork | default false }}
+      dnsPolicy: {{ if .Values.hostNetwork }}ClusterFirstWithHostNet{{ else }}ClusterFirst{{ end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
@@ -81,8 +83,10 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
+            {{- if .Values.camera.enabled }}
             - name: camera-device
               mountPath: {{ .Values.camera.devicePath }}
+            {{- end }}
             {{- if .Values.persistence.ollama.enabled }}
             - name: ollama-data
               mountPath: /root/.ollama
@@ -101,10 +105,12 @@ spec:
               readOnly: true
             {{- end }}
       volumes:
+        {{- if .Values.camera.enabled }}
         - name: camera-device
           hostPath:
             path: {{ .Values.camera.devicePath }}
             type: CharDevice
+        {{- end }}
         {{- if .Values.persistence.ollama.enabled }}
         - name: ollama-data
           persistentVolumeClaim:

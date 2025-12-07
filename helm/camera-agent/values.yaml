@@ -50,6 +50,8 @@ resources:
 
 # Camera device configuration
 camera:
+  # Enable camera device mount (set to false if no camera available)
+  enabled: false
   # Device path on the host
   devicePath: /dev/video0
   # Camera index used by OpenCV
