@@ -15,7 +15,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 from enum import Enum, auto
-from abc import ABC, abstractmethod
 
 import numpy as np
 import cv2
