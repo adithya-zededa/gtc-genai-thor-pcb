@@ -23,23 +23,6 @@ def coerce_bool(value: Any, default: bool | None = False) -> bool | None:
     return default
 
 
-def clamp_float(
-    value: Any,
-    minimum: float = 0.0,
-    maximum: float = 1.0,
-    default: float | None = None,
-) -> float:
-    """Clamp numeric values to the provided range while handling conversion errors."""
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        if default is not None:
-            numeric = default
-        else:
-            numeric = minimum
-    return max(minimum, min(maximum, numeric))
-
-
 def ensure_directory(path: Path) -> Path:
     """Create a directory path if it does not already exist and return it."""
     path = Path(path).expanduser()
@@ -66,7 +49,6 @@ def dedupe_strings(values: Iterable[str]) -> List[str]:
 
 
 __all__ = [
-    "clamp_float",
     "coerce_bool",
     "dedupe_strings",
     "ensure_directory",
