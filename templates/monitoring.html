@@ -44,23 +44,14 @@
                 </div>
             </div>
 
-            <div class="mt-4 flex flex-col gap-3 pt-4 md:flex-row md:items-center md:justify-between" style="border-top: 0.5px solid var(--color-border);">
-                <div class="flex flex-wrap items-center gap-5">
-                    <label class="flex items-center gap-2.5 text-xs" style="color: var(--color-text-secondary);">
-                        <span>Show frame info</span>
-                        <label class="toggle-switch" style="transform: scale(0.8);">
-                            <input type="checkbox" id="show-frame-info">
-                            <span class="toggle-slider"></span>
-                        </label>
+            <div class="mt-4 flex items-center justify-between pt-4" style="border-top: 0.5px solid var(--color-border);">
+                <label class="flex items-center gap-2.5 text-xs" style="color: var(--color-text-secondary);">
+                    <span>Auto refresh</span>
+                    <label class="toggle-switch" style="transform: scale(0.8);">
+                        <input type="checkbox" id="auto-refresh" checked>
+                        <span class="toggle-slider"></span>
                     </label>
-                    <label class="flex items-center gap-2.5 text-xs" style="color: var(--color-text-secondary);">
-                        <span>Auto refresh</span>
-                        <label class="toggle-switch" style="transform: scale(0.8);">
-                            <input type="checkbox" id="auto-refresh" checked>
-                            <span class="toggle-slider"></span>
-                        </label>
-                    </label>
-                </div>
+                </label>
                 <div class="text-xs" style="color: var(--color-text-secondary);">
                     Last update: <span id="last-update">Never</span>
                 </div>
@@ -112,27 +103,17 @@
         </section>
 
         <section class="surface p-5">
-            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Quick Settings</h3>
-            <div class="mt-4 space-y-4 text-sm">
+            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Detection Sensitivity</h3>
+            <div class="mt-4 text-sm">
                 <div>
                     <label class="block text-xs font-medium" style="color: var(--color-text-secondary);">SSIM Threshold</label>
                     <input type="range" id="ssim-threshold" min="0.5" max="1.0" step="0.01" value="0.95" class="mt-2 w-full">
                     <div class="mt-1.5 flex justify-between text-xs" style="color: var(--color-text-secondary);">
-                        <span>0.5 sensitive</span>
+                        <span>Sensitive</span>
                         <span id="ssim-value" class="font-medium" style="color: var(--color-text-primary);">0.95</span>
-                        <span>1.0 conservative</span>
+                        <span>Conservative</span>
                     </div>
                 </div>
-
-                <div>
-                    <label class="block text-xs font-medium" style="color: var(--color-text-secondary);">Recheck Window (seconds)</label>
-                    <input type="number" id="agent-ssim-recheck" min="0" step="0.5" value="4" class="mt-2 w-full rounded-lg px-3 py-2 text-sm" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
-                    <p class="mt-1.5 text-xs" style="color: var(--color-text-secondary);">How long to wait before forcing a fresh decision when frames stay similar.</p>
-                </div>
-
-                <button id="apply-settings" class="w-full rounded-lg px-4 py-2 text-xs font-medium transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary); box-shadow: var(--shadow-sm);">
-                    Apply Settings
-                </button>
             </div>
         </section>
     </div>
@@ -191,22 +172,6 @@
         </div>
         
         <!-- Memory Context Toggle -->
-        <div class="flex items-center justify-between rounded-xl p-3" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
-            <div class="flex items-center gap-3">
-                <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg" style="background: linear-gradient(135deg, rgba(88, 86, 214, 0.1) 0%, rgba(88, 86, 214, 0.05) 100%); color: #5856d6;">
-                    <i class="fas fa-memory text-sm"></i>
-                </span>
-                <div>
-                    <p class="text-sm font-medium" style="color: var(--color-text-primary);">Memory Context</p>
-                    <p class="text-xs" style="color: var(--color-text-secondary);">Include previous observations in analysis</p>
-                </div>
-            </div>
-            <label class="toggle-switch">
-                <input type="checkbox" id="enable-memory-context" checked>
-                <span class="toggle-slider"></span>
-            </label>
-        </div>
-        
         <!-- Enable Alerts Toggle -->
         <div class="flex items-center justify-between rounded-xl p-3" style="background: rgba(255, 59, 48, 0.04); border: 0.5px solid rgba(255, 59, 48, 0.15);">
             <div class="flex items-center gap-3">
@@ -215,7 +180,7 @@
                 </span>
                 <div>
                     <p class="text-sm font-medium" style="color: var(--color-text-primary);">Enable Alerts</p>
-                    <p class="text-xs" style="color: var(--color-text-secondary);">Show visual alerts and send notifications on detection</p>
+                    <p class="text-xs" style="color: var(--color-text-secondary);">Send email notifications on detection</p>
                 </div>
             </div>
             <label class="toggle-switch">
@@ -227,26 +192,13 @@
         <!-- Apply Prompt Button -->
         <div class="flex items-center gap-3">
             <button id="apply-prompt" class="flex-1 inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition" style="background: linear-gradient(180deg, #0071e3 0%, #0077ed 100%); color: white; box-shadow: 0 1px 3px rgba(0, 113, 227, 0.3);">
-                <i class="fas fa-paper-plane"></i>
-                Apply Prompt
+                <i class="fas fa-check"></i>
+                Apply
             </button>
             <button id="reset-prompt" class="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
                 <i class="fas fa-undo"></i>
                 Reset
             </button>
-        </div>
-    </div>
-    
-    <!-- Memory Summary -->
-    <div id="memory-summary-section" class="mt-4 pt-4" style="border-top: 0.5px solid var(--color-border);">
-        <div class="flex items-center justify-between mb-3">
-            <h4 class="text-sm font-medium" style="color: var(--color-text-primary);">Agent Memory</h4>
-            <button id="clear-memory" class="text-xs font-medium transition hover:opacity-70" style="color: #ff3b30;">
-                Clear Memory
-            </button>
-        </div>
-        <div id="memory-summary" class="text-xs rounded-lg p-3" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border); color: var(--color-text-secondary);">
-            No memory data yet. Start monitoring to collect observations.
         </div>
     </div>
 </section>

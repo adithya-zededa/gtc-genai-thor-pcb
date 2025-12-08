@@ -4,170 +4,248 @@
 {% block page_title %}Dashboard{% endblock %}
 
 {% block content %}
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-    <div class="surface p-5">
-        <div class="flex items-center justify-between">
+<!-- Hero Stats Row -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+    <div class="surface p-4 relative overflow-hidden group hover:scale-[1.02] transition-transform">
+        <div class="absolute inset-0 opacity-10" style="background: linear-gradient(135deg, #0071e3 0%, transparent 60%);"></div>
+        <div class="relative flex items-center justify-between">
             <div>
-                <p class="text-xs font-medium uppercase tracking-wide" style="color: var(--color-text-secondary);">Total Frames</p>
-                <p class="mt-2 text-3xl font-semibold" style="color: var(--color-text-primary);" id="total-frames">0</p>
+                <p class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-tertiary);">Total Frames</p>
+                <p class="mt-1.5 text-2xl font-bold tabular-nums" style="color: var(--color-text-primary);" id="total-frames">0</p>
             </div>
-            <span class="inline-flex h-11 w-11 items-center justify-center rounded-xl" style="background: linear-gradient(135deg, rgba(0, 113, 227, 0.1) 0%, rgba(0, 113, 227, 0.05) 100%); color: #0071e3;">
-                <i class="fas fa-camera"></i>
-            </span>
+            <div class="h-10 w-10 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%); box-shadow: 0 4px 12px rgba(0, 113, 227, 0.3);">
+                <i class="fas fa-camera text-white"></i>
+            </div>
         </div>
     </div>
 
-    <div class="surface p-5">
-        <div class="flex items-center justify-between">
+    <div class="surface p-4 relative overflow-hidden group hover:scale-[1.02] transition-transform">
+        <div class="absolute inset-0 opacity-10" style="background: linear-gradient(135deg, #34c759 0%, transparent 60%);"></div>
+        <div class="relative flex items-center justify-between">
             <div>
-                <p class="text-xs font-medium uppercase tracking-wide" style="color: var(--color-text-secondary);">Processed</p>
-                <p class="mt-2 text-3xl font-semibold" style="color: var(--color-text-primary);" id="processed-frames">0</p>
+                <p class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-tertiary);">Processed</p>
+                <p class="mt-1.5 text-2xl font-bold tabular-nums" style="color: var(--color-text-primary);" id="processed-frames">0</p>
             </div>
-            <span class="inline-flex h-11 w-11 items-center justify-center rounded-xl" style="background: linear-gradient(135deg, rgba(52, 199, 89, 0.1) 0%, rgba(52, 199, 89, 0.05) 100%); color: #34c759;">
-                <i class="fas fa-eye"></i>
-            </span>
+            <div class="h-10 w-10 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #34c759 0%, #30b350 100%); box-shadow: 0 4px 12px rgba(52, 199, 89, 0.3);">
+                <i class="fas fa-check text-white"></i>
+            </div>
         </div>
     </div>
 
-    <div class="surface p-5">
-        <div class="flex items-center justify-between">
+    <div class="surface p-4 relative overflow-hidden group hover:scale-[1.02] transition-transform">
+        <div class="absolute inset-0 opacity-10" style="background: linear-gradient(135deg, #ff9500 0%, transparent 60%);"></div>
+        <div class="relative flex items-center justify-between">
             <div>
-                <p class="text-xs font-medium uppercase tracking-wide" style="color: var(--color-text-secondary);">Detections</p>
-                <p class="mt-2 text-3xl font-semibold" style="color: var(--color-text-primary);" id="detections">0</p>
+                <p class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-tertiary);">Detections</p>
+                <p class="mt-1.5 text-2xl font-bold tabular-nums" style="color: var(--color-text-primary);" id="detections">0</p>
             </div>
-            <span class="inline-flex h-11 w-11 items-center justify-center rounded-xl" style="background: linear-gradient(135deg, rgba(255, 149, 0, 0.1) 0%, rgba(255, 149, 0, 0.05) 100%); color: #ff9500;">
-                <i class="fas fa-exclamation-triangle"></i>
-            </span>
+            <div class="h-10 w-10 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #ff9500 0%, #ff6b00 100%); box-shadow: 0 4px 12px rgba(255, 149, 0, 0.3);">
+                <i class="fas fa-exclamation text-white"></i>
+            </div>
         </div>
     </div>
 
-    <div class="surface p-5">
-        <div class="flex items-center justify-between">
+    <div class="surface p-4 relative overflow-hidden group hover:scale-[1.02] transition-transform">
+        <div class="absolute inset-0 opacity-10" style="background: linear-gradient(135deg, #ff3b30 0%, transparent 60%);"></div>
+        <div class="relative flex items-center justify-between">
             <div>
-                <p class="text-xs font-medium uppercase tracking-wide" style="color: var(--color-text-secondary);">Alerts Sent</p>
-                <p class="mt-2 text-3xl font-semibold" style="color: var(--color-text-primary);" id="alerts-sent">0</p>
+                <p class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-tertiary);">Alerts</p>
+                <p class="mt-1.5 text-2xl font-bold tabular-nums" style="color: var(--color-text-primary);" id="alerts-sent">0</p>
             </div>
-            <span class="inline-flex h-11 w-11 items-center justify-center rounded-xl" style="background: linear-gradient(135deg, rgba(255, 59, 48, 0.1) 0%, rgba(255, 59, 48, 0.05) 100%); color: #ff3b30;">
-                <i class="fas fa-envelope"></i>
-            </span>
+            <div class="h-10 w-10 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #ff3b30 0%, #ff2d55 100%); box-shadow: 0 4px 12px rgba(255, 59, 48, 0.3);">
+                <i class="fas fa-bell text-white"></i>
+            </div>
         </div>
     </div>
 </div>
 
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-    <section class="surface p-5">
-        <div class="flex items-center justify-between">
-            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">System Status</h3>
-            <button id="refresh-activity" class="text-xs font-medium transition hover:opacity-70" style="color: var(--color-accent);">Refresh</button>
-        </div>
-        <div class="mt-5 space-y-4 text-sm">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-3">
-                    <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg" style="background: linear-gradient(135deg, rgba(0, 113, 227, 0.1) 0%, rgba(0, 113, 227, 0.05) 100%); color: #0071e3;"><i class="fas fa-video text-sm"></i></span>
-                    <span class="font-medium" style="color: var(--color-text-primary);">Camera</span>
+<!-- System Status & Resources -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+    <!-- Service Health -->
+    <section class="surface overflow-hidden">
+        <div class="px-5 py-4 flex items-center justify-between" style="border-bottom: 0.5px solid var(--color-border);">
+            <div class="flex items-center gap-2">
+                <div class="h-8 w-8 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(52, 199, 89, 0.15) 0%, rgba(52, 199, 89, 0.05) 100%);">
+                    <i class="fas fa-heartbeat text-sm" style="color: #34c759;"></i>
                 </div>
-                <span id="camera-status-text" class="px-2.5 py-1 rounded-full text-xs font-medium" style="background: rgba(0, 0, 0, 0.04); color: var(--color-text-secondary);">Checking...</span>
+                <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Service Health</h3>
             </div>
-            <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-3">
-                    <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg" style="background: linear-gradient(135deg, rgba(88, 86, 214, 0.1) 0%, rgba(88, 86, 214, 0.05) 100%); color: #5856d6;"><i class="fas fa-robot text-sm"></i></span>
-                    <span class="font-medium" style="color: var(--color-text-primary);">Ollama AI</span>
-                </div>
-                <span id="ollama-status-text" class="px-2.5 py-1 rounded-full text-xs font-medium" style="background: rgba(0, 0, 0, 0.04); color: var(--color-text-secondary);">Checking...</span>
-            </div>
-            <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-3">
-                    <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg" style="background: linear-gradient(135deg, rgba(52, 199, 89, 0.1) 0%, rgba(52, 199, 89, 0.05) 100%); color: #34c759;"><i class="fas fa-eye text-sm"></i></span>
-                    <span class="font-medium" style="color: var(--color-text-primary);">Monitoring</span>
-                </div>
-                <div class="flex items-center gap-2">
-                    <span id="agentic-mode-badge" class="hidden px-2 py-0.5 rounded-full text-xs font-medium" style="background: rgba(175, 82, 222, 0.1); color: #af52de;">
-                        <i class="fas fa-robot mr-1"></i>Agentic
-                    </span>
-                    <span id="monitoring-status-text" class="px-2.5 py-1 rounded-full text-xs font-medium" style="background: rgba(0, 0, 0, 0.04); color: var(--color-text-secondary);">Stopped</span>
-                </div>
-            </div>
-        </div>
-        <div class="mt-5 grid grid-cols-2 gap-2">
-            <button id="test-camera" class="inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary); box-shadow: var(--shadow-sm);">
-                <i class="fas fa-camera"></i>
-                Test Camera
+            <button id="refresh-activity" class="px-2.5 py-1.5 rounded-lg text-xs font-medium transition hover:opacity-80" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-secondary);">
+                <i class="fas fa-sync-alt mr-1"></i>Refresh
             </button>
-            <button id="test-ollama" class="inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary); box-shadow: var(--shadow-sm);">
-                <i class="fas fa-robot"></i>
-                Test Ollama
-            </button>
+        </div>
+        <div class="p-5 grid grid-cols-2 gap-3">
+            <div class="flex items-center gap-3 p-3 rounded-xl" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
+                <div class="h-9 w-9 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(52, 199, 89, 0.15) 0%, rgba(52, 199, 89, 0.05) 100%);">
+                    <i class="fas fa-server text-sm" style="color: #34c759;"></i>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Web Server</p>
+                    <p id="web-status" class="text-sm font-semibold" style="color: #34c759;">Running</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3 p-3 rounded-xl" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
+                <div class="h-9 w-9 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(0, 113, 227, 0.15) 0%, rgba(0, 113, 227, 0.05) 100%);">
+                    <i class="fas fa-video text-sm" style="color: #0071e3;"></i>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Camera</p>
+                    <p id="camera-status-text" class="text-sm font-semibold" style="color: var(--color-text-tertiary);">Checking...</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3 p-3 rounded-xl" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
+                <div class="h-9 w-9 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(175, 82, 222, 0.15) 0%, rgba(175, 82, 222, 0.05) 100%);">
+                    <i class="fas fa-brain text-sm" style="color: #af52de;"></i>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Ollama AI</p>
+                    <p id="ollama-status-text" class="text-sm font-semibold" style="color: var(--color-text-tertiary);">Checking...</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3 p-3 rounded-xl" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
+                <div class="h-9 w-9 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(52, 199, 89, 0.15) 0%, rgba(52, 199, 89, 0.05) 100%);">
+                    <i class="fas fa-eye text-sm" style="color: #34c759;"></i>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Monitoring</p>
+                    <div class="flex items-center gap-1.5">
+                        <p id="monitoring-status-text" class="text-sm font-semibold" style="color: var(--color-text-tertiary);">Stopped</p>
+                        <span id="agentic-mode-badge" class="hidden px-1.5 py-0.5 rounded text-xs font-medium" style="background: rgba(175, 82, 222, 0.15); color: #af52de;">AI</span>
+                    </div>
+                </div>
+            </div>
         </div>
     </section>
 
-    <section class="surface p-5">
-        <div class="flex items-center justify-between">
-            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Performance Metrics</h3>
-            <span class="text-xs font-medium uppercase tracking-wide" style="color: var(--color-accent);">Live</span>
+    <!-- System Resources -->
+    <section class="surface overflow-hidden">
+        <div class="px-5 py-4 flex items-center gap-2" style="border-bottom: 0.5px solid var(--color-border);">
+            <div class="h-8 w-8 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(0, 113, 227, 0.15) 0%, rgba(0, 113, 227, 0.05) 100%);">
+                <i class="fas fa-microchip text-sm" style="color: #0071e3;"></i>
+            </div>
+            <div>
+                <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">System Resources</h3>
+                <p id="system-uptime" class="text-xs" style="color: var(--color-text-tertiary);">Uptime: Loading...</p>
+            </div>
         </div>
-        <div class="relative mt-4 h-60">
+        <div class="p-5 space-y-4">
+            <!-- CPU -->
+            <div>
+                <div class="flex items-center justify-between mb-1.5">
+                    <span class="text-xs font-medium" style="color: var(--color-text-secondary);">CPU Usage</span>
+                    <span id="cpu-usage" class="text-xs font-semibold" style="color: var(--color-text-primary);">--%</span>
+                </div>
+                <div class="h-2 rounded-full overflow-hidden" style="background: rgba(0, 0, 0, 0.06);">
+                    <div id="cpu-bar" class="h-full rounded-full transition-all duration-500" style="width: 0%; background: linear-gradient(90deg, #0071e3, #5856d6);"></div>
+                </div>
+            </div>
+            <!-- Memory -->
+            <div>
+                <div class="flex items-center justify-between mb-1.5">
+                    <span class="text-xs font-medium" style="color: var(--color-text-secondary);">Memory Usage</span>
+                    <span id="memory-usage" class="text-xs font-semibold" style="color: var(--color-text-primary);">--%</span>
+                </div>
+                <div class="h-2 rounded-full overflow-hidden" style="background: rgba(0, 0, 0, 0.06);">
+                    <div id="memory-bar" class="h-full rounded-full transition-all duration-500" style="width: 0%; background: linear-gradient(90deg, #34c759, #30d158);"></div>
+                </div>
+            </div>
+            <!-- Disk -->
+            <div>
+                <div class="flex items-center justify-between mb-1.5">
+                    <span class="text-xs font-medium" style="color: var(--color-text-secondary);">Disk Usage</span>
+                    <span id="disk-usage" class="text-xs font-semibold" style="color: var(--color-text-primary);">--%</span>
+                </div>
+                <div class="h-2 rounded-full overflow-hidden" style="background: rgba(0, 0, 0, 0.06);">
+                    <div id="disk-bar" class="h-full rounded-full transition-all duration-500" style="width: 0%; background: linear-gradient(90deg, #ff9500, #ff6b00);"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
+
+<!-- GPU Stats (Shown if GPU available) -->
+<section id="gpu-stats-section" class="surface overflow-hidden mb-6 hidden">
+    <div class="px-5 py-4 flex items-center gap-2" style="border-bottom: 0.5px solid var(--color-border);">
+        <div class="h-8 w-8 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(118, 185, 0, 0.2) 0%, rgba(118, 185, 0, 0.05) 100%);">
+            <i class="fas fa-bolt text-sm" style="color: #76b900;"></i>
+        </div>
+        <div>
+            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">GPU Acceleration</h3>
+            <p id="gpu-name" class="text-xs" style="color: #76b900;">NVIDIA GPU</p>
+        </div>
+    </div>
+    <div class="p-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="p-3 rounded-xl text-center" style="background: linear-gradient(135deg, rgba(118, 185, 0, 0.08) 0%, rgba(118, 185, 0, 0.02) 100%); border: 0.5px solid rgba(118, 185, 0, 0.2);">
+            <p class="text-xs font-medium" style="color: var(--color-text-secondary);">GPU Usage</p>
+            <p id="gpu-usage" class="text-xl font-bold mt-1" style="color: #76b900;">--%</p>
+        </div>
+        <div class="p-3 rounded-xl text-center" style="background: linear-gradient(135deg, rgba(118, 185, 0, 0.08) 0%, rgba(118, 185, 0, 0.02) 100%); border: 0.5px solid rgba(118, 185, 0, 0.2);">
+            <p class="text-xs font-medium" style="color: var(--color-text-secondary);">VRAM Used</p>
+            <p id="gpu-memory" class="text-xl font-bold mt-1" style="color: #76b900;">-- GB</p>
+        </div>
+        <div class="p-3 rounded-xl text-center" style="background: linear-gradient(135deg, rgba(118, 185, 0, 0.08) 0%, rgba(118, 185, 0, 0.02) 100%); border: 0.5px solid rgba(118, 185, 0, 0.2);">
+            <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Temperature</p>
+            <p id="gpu-temp" class="text-xl font-bold mt-1" style="color: #76b900;">--°C</p>
+        </div>
+        <div class="p-3 rounded-xl text-center" style="background: linear-gradient(135deg, rgba(118, 185, 0, 0.08) 0%, rgba(118, 185, 0, 0.02) 100%); border: 0.5px solid rgba(118, 185, 0, 0.2);">
+            <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Power Draw</p>
+            <p id="gpu-power" class="text-xl font-bold mt-1" style="color: #76b900;">-- W</p>
+        </div>
+    </div>
+</section>
+
+<!-- Performance & Agent -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+    <section class="surface p-5">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Performance Metrics</h3>
+            <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium" style="background: rgba(52, 199, 89, 0.1); color: #34c759;">
+                <span class="relative flex h-1.5 w-1.5">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style="background: #34c759;"></span>
+                    <span class="relative inline-flex rounded-full h-1.5 w-1.5" style="background: #34c759;"></span>
+                </span>
+                Live
+            </span>
+        </div>
+        <div class="relative h-56">
             <canvas id="performance-chart"></canvas>
         </div>
     </section>
 
     <section class="surface p-5" id="agent-summary-card">
-        <div class="flex items-center justify-between">
-            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Agent Summary</h3>
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+                <div class="h-7 w-7 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(175, 82, 222, 0.15) 0%, rgba(175, 82, 222, 0.05) 100%);">
+                    <i class="fas fa-robot text-xs" style="color: #af52de;"></i>
+                </div>
+                <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Agent Memory</h3>
+            </div>
             <button id="refresh-summary" class="text-xs font-medium transition hover:opacity-70" style="color: var(--color-accent);">Refresh</button>
         </div>
-        <p id="agent-summary" class="mt-4 text-sm" style="color: var(--color-text-secondary);">Summary not available yet.</p>
-        <div id="agent-memory-list" class="mt-4 space-y-2.5 text-xs" style="color: var(--color-text-secondary);"></div>
+        <p id="agent-summary" class="text-sm mb-4" style="color: var(--color-text-secondary);">Summary not available yet.</p>
+        <div id="agent-memory-list" class="space-y-2 max-h-40 overflow-y-auto"></div>
     </section>
 </div>
 
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-    <section class="surface p-5">
-        <div class="flex items-center justify-between">
-            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Recent Activity</h3>
-            <button id="clear-activity" class="text-xs transition hover:opacity-70" style="color: var(--color-text-secondary);">Clear</button>
-        </div>
-        <div id="activity-feed" class="mt-4 max-h-60 space-y-2.5 overflow-y-auto pr-1">
-            <div class="rounded-xl py-8 text-center" style="border: 1px dashed var(--color-border); background: rgba(0, 0, 0, 0.02); color: var(--color-text-secondary);">
-                <i class="fas fa-clock text-2xl mb-2 opacity-60"></i>
-                <p class="text-sm font-medium">No recent activity yet</p>
+<!-- Recent Activity -->
+<section class="surface overflow-hidden">
+    <div class="px-5 py-4 flex items-center justify-between" style="border-bottom: 0.5px solid var(--color-border);">
+        <div class="flex items-center gap-2">
+            <div class="h-8 w-8 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(0, 113, 227, 0.15) 0%, rgba(0, 113, 227, 0.05) 100%);">
+                <i class="fas fa-stream text-sm" style="color: #0071e3;"></i>
             </div>
+            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Recent Activity</h3>
         </div>
-    </section>
-
-    <section class="surface p-5">
-        <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Quick Actions</h3>
-        <div class="mt-4 space-y-2 text-sm font-medium">
-            <a href="{{ url_for('monitoring') }}" class="flex items-center justify-between rounded-xl px-4 py-3 transition" style="border: 0.5px solid transparent; color: var(--color-text-primary);" onmouseover="this.style.background='rgba(0, 113, 227, 0.04)'; this.style.borderColor='rgba(0, 113, 227, 0.1)';" onmouseout="this.style.background='transparent'; this.style.borderColor='transparent';">
-                <span class="flex items-center space-x-3">
-                    <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg" style="background: linear-gradient(135deg, rgba(0, 113, 227, 0.1) 0%, rgba(0, 113, 227, 0.05) 100%); color: #0071e3;"><i class="fas fa-eye text-sm"></i></span>
-                    <span>Open Live Monitoring</span>
-                </span>
-                <i class="fas fa-chevron-right text-xs" style="color: var(--color-text-secondary);"></i>
-            </a>
-            <a href="{{ url_for('settings') }}" class="flex items-center justify-between rounded-xl px-4 py-3 transition" style="border: 0.5px solid transparent; color: var(--color-text-primary);" onmouseover="this.style.background='rgba(52, 199, 89, 0.04)'; this.style.borderColor='rgba(52, 199, 89, 0.1)';" onmouseout="this.style.background='transparent'; this.style.borderColor='transparent';">
-                <span class="flex items-center space-x-3">
-                    <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg" style="background: linear-gradient(135deg, rgba(52, 199, 89, 0.1) 0%, rgba(52, 199, 89, 0.05) 100%); color: #34c759;"><i class="fas fa-wrench text-sm"></i></span>
-                    <span>Adjust Settings</span>
-                </span>
-                <i class="fas fa-chevron-right text-xs" style="color: var(--color-text-secondary);"></i>
-            </a>
-            <a href="{{ url_for('users') }}" class="flex items-center justify-between rounded-xl px-4 py-3 transition" style="border: 0.5px solid transparent; color: var(--color-text-primary);" onmouseover="this.style.background='rgba(90, 200, 250, 0.04)'; this.style.borderColor='rgba(90, 200, 250, 0.1)';" onmouseout="this.style.background='transparent'; this.style.borderColor='transparent';">
-                <span class="flex items-center space-x-3">
-                    <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg" style="background: linear-gradient(135deg, rgba(90, 200, 250, 0.1) 0%, rgba(90, 200, 250, 0.05) 100%); color: #5ac8fa;"><i class="fas fa-users text-sm"></i></span>
-                    <span>Manage Users</span>
-                </span>
-                <i class="fas fa-chevron-right text-xs" style="color: var(--color-text-secondary);"></i>
-            </a>
-            <a href="{{ url_for('logs') }}" class="flex items-center justify-between rounded-xl px-4 py-3 transition" style="border: 0.5px solid transparent; color: var(--color-text-primary);" onmouseover="this.style.background='rgba(255, 149, 0, 0.04)'; this.style.borderColor='rgba(255, 149, 0, 0.1)';" onmouseout="this.style.background='transparent'; this.style.borderColor='transparent';">
-                <span class="flex items-center space-x-3">
-                    <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg" style="background: linear-gradient(135deg, rgba(255, 149, 0, 0.1) 0%, rgba(255, 149, 0, 0.05) 100%); color: #ff9500;"><i class="fas fa-list-alt text-sm"></i></span>
-                    <span>View Detection Logs</span>
-                </span>
-                <i class="fas fa-chevron-right text-xs" style="color: var(--color-text-secondary);"></i>
-            </a>
+        <button id="clear-activity" class="text-xs font-medium transition hover:opacity-70" style="color: var(--color-text-secondary);">Clear</button>
+    </div>
+    <div id="activity-feed" class="p-5 max-h-64 overflow-y-auto space-y-2">
+        <div class="rounded-xl py-10 text-center" style="border: 1px dashed var(--color-border); background: rgba(0, 0, 0, 0.01);">
+            <i class="fas fa-clock text-3xl mb-3 opacity-30" style="color: var(--color-text-tertiary);"></i>
+            <p class="text-sm font-medium" style="color: var(--color-text-secondary);">No recent activity</p>
+            <p class="text-xs mt-1" style="color: var(--color-text-tertiary);">Events will appear here when monitoring starts</p>
         </div>
-    </section>
-</div>
+    </div>
+</section>
 {% endblock %}
 
 {% block extra_js %}
@@ -264,24 +342,20 @@
                 const cameraStatus = document.getElementById('camera-status-text');
                 if (data.camera_available) {
                     cameraStatus.textContent = 'Online';
-                    cameraStatus.style.background = 'rgba(52, 199, 89, 0.1)';
-                    cameraStatus.style.color = '#2d8a47';
+                    cameraStatus.style.color = '#34c759';
                 } else {
                     cameraStatus.textContent = 'Offline';
-                    cameraStatus.style.background = 'rgba(255, 59, 48, 0.1)';
-                    cameraStatus.style.color = '#c9302c';
+                    cameraStatus.style.color = '#ff3b30';
                 }
                 
                 // Ollama status
                 const ollamaStatus = document.getElementById('ollama-status-text');
                 if (data.ollama_available) {
                     ollamaStatus.textContent = 'Online';
-                    ollamaStatus.style.background = 'rgba(52, 199, 89, 0.1)';
-                    ollamaStatus.style.color = '#2d8a47';
+                    ollamaStatus.style.color = '#34c759';
                 } else {
                     ollamaStatus.textContent = 'Offline';
-                    ollamaStatus.style.background = 'rgba(255, 59, 48, 0.1)';
-                    ollamaStatus.style.color = '#c9302c';
+                    ollamaStatus.style.color = '#ff3b30';
                 }
                 
                 // Monitoring status
@@ -289,12 +363,10 @@
                 const agenticBadge = document.getElementById('agentic-mode-badge');
                 if (data.monitoring_active) {
                     monitoringStatus.textContent = 'Active';
-                    monitoringStatus.style.background = 'rgba(52, 199, 89, 0.1)';
-                    monitoringStatus.style.color = '#2d8a47';
+                    monitoringStatus.style.color = '#34c759';
                 } else {
                     monitoringStatus.textContent = 'Stopped';
-                    monitoringStatus.style.background = 'rgba(0, 0, 0, 0.04)';
-                    monitoringStatus.style.color = 'var(--color-text-secondary)';
+                    monitoringStatus.style.color = 'var(--color-text-tertiary)';
                 }
                 
                 // Update agentic mode badge
@@ -309,6 +381,75 @@
                     updateStats(data.stats);
                 }
             });
+
+        // Fetch system resources
+        fetch('/api/system/status')
+            .then(response => response.json())
+            .then(result => {
+                if (!result || !result.success) return;
+                const data = result.data || result;
+
+                // Uptime
+                const uptimeEl = document.getElementById('system-uptime');
+                if (uptimeEl && data.uptime_seconds) {
+                    uptimeEl.textContent = 'Uptime: ' + formatUptime(data.uptime_seconds);
+                }
+
+                // CPU
+                const cpuVal = parseFloat(data.cpu_percent) || 0;
+                const cpuEl = document.getElementById('cpu-usage');
+                const cpuBar = document.getElementById('cpu-bar');
+                if (cpuEl) cpuEl.textContent = cpuVal.toFixed(0) + '%';
+                if (cpuBar) cpuBar.style.width = Math.min(cpuVal, 100) + '%';
+
+                // Memory
+                const memVal = parseFloat(data.memory_percent) || 0;
+                const memEl = document.getElementById('memory-usage');
+                const memBar = document.getElementById('memory-bar');
+                if (memEl) memEl.textContent = memVal.toFixed(0) + '%';
+                if (memBar) memBar.style.width = Math.min(memVal, 100) + '%';
+
+                // Disk
+                const diskVal = parseFloat(data.disk_percent) || 0;
+                const diskEl = document.getElementById('disk-usage');
+                const diskBar = document.getElementById('disk-bar');
+                if (diskEl) diskEl.textContent = diskVal.toFixed(0) + '%';
+                if (diskBar) diskBar.style.width = Math.min(diskVal, 100) + '%';
+
+                // GPU Stats
+                if (data.gpu && data.gpu.available) {
+                    const gpuSection = document.getElementById('gpu-stats-section');
+                    if (gpuSection) gpuSection.classList.remove('hidden');
+
+                    const gpuName = document.getElementById('gpu-name');
+                    if (gpuName && data.gpu.name) gpuName.textContent = data.gpu.name;
+
+                    const gpuUsage = document.getElementById('gpu-usage');
+                    if (gpuUsage) gpuUsage.textContent = (data.gpu.utilization || 0) + '%';
+
+                    const gpuMem = document.getElementById('gpu-memory');
+                    if (gpuMem && data.gpu.memory_used !== undefined && data.gpu.memory_total !== undefined) {
+                        gpuMem.textContent = (data.gpu.memory_used / 1024).toFixed(1) + ' / ' + (data.gpu.memory_total / 1024).toFixed(0) + ' GB';
+                    }
+
+                    const gpuTemp = document.getElementById('gpu-temp');
+                    if (gpuTemp && data.gpu.temperature !== undefined) gpuTemp.textContent = data.gpu.temperature + '°C';
+
+                    const gpuPower = document.getElementById('gpu-power');
+                    if (gpuPower && data.gpu.power_draw !== undefined) gpuPower.textContent = data.gpu.power_draw + ' W';
+                }
+            })
+            .catch(() => {});
+    }
+
+    function formatUptime(seconds) {
+        if (!Number.isFinite(seconds) || seconds < 0) return 'Unavailable';
+        const days = Math.floor(seconds / 86400);
+        const hours = Math.floor((seconds % 86400) / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+        if (hours > 0) return `${hours}h ${minutes}m`;
+        return `${minutes}m`;
     }
 
     function buildMemoryDescription(entry) {
@@ -490,35 +631,6 @@
         activityData = activityData.slice(0, 10);
     }
     
-    // Test functions
-    async function testCamera() {
-        showLoading(true);
-        const result = await apiCall('/api/test_camera');
-        showLoading(false);
-        
-        if (result && result.success) {
-            showToast('Camera test successful', 'success');
-            addActivity('Camera test completed successfully', 'success');
-        } else {
-            showToast(result ? result.error : 'Camera test failed', 'error');
-            addActivity('Camera test failed', 'info');
-        }
-    }
-    
-    async function testOllama() {
-        showLoading(true);
-        const result = await apiCall('/api/test_ollama');
-        showLoading(false);
-        
-        if (result && result.success) {
-            showToast('Ollama connection successful', 'success');
-            addActivity('Ollama connection test successful', 'success');
-        } else {
-            showToast(result ? result.error : 'Ollama connection failed', 'error');
-            addActivity('Ollama connection test failed', 'info');
-        }
-    }
-    
     // Override base handlers
     function handleDetectionEvent(data) {
         const labelStatus = data.event.shipping_label_present === true
@@ -553,12 +665,9 @@
         updateSystemStatusText();
         updateAgentSummary();
         
-        // Set up test buttons
-        document.getElementById('test-camera').addEventListener('click', testCamera);
-        document.getElementById('test-ollama').addEventListener('click', testOllama);
-        
         // Refresh activity button
-        document.getElementById('refresh-activity').addEventListener('click', updateSystemStatusText);
+        const refreshBtn = document.getElementById('refresh-activity');
+        if (refreshBtn) refreshBtn.addEventListener('click', updateSystemStatusText);
 
         const summaryButton = document.getElementById('refresh-summary');
         if (summaryButton) {

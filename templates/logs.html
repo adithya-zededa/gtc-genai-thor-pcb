@@ -4,100 +4,128 @@
 {% block page_title %}Detection Logs{% endblock %}
 
 {% block content %}
-<!-- Filters and Controls -->
-<div class="surface p-5 mb-4">
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Date Range</label>
-            <select id="date-filter" class="w-full px-3 py-2 rounded-lg text-sm" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
-                <option value="today">Today</option>
-                <option value="yesterday">Yesterday</option>
-                <option value="week">Last 7 Days</option>
-                <option value="month">Last 30 Days</option>
-                <option value="all">All Time</option>
-                <option value="custom">Custom Range</option>
-            </select>
-        </div>
-        
-        <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Status</label>
-            <select id="status-filter" class="w-full px-3 py-2 rounded-lg text-sm" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
-                <option value="all">All Events</option>
-                <option value="detected">Detections</option>
-                <option value="no_detection">No Detection</option>
-                <option value="agentic">Agentic Mode</option>
-            </select>
-        </div>
-        
-        <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Search</label>
-            <input type="text" id="search-logs" placeholder="Search descriptions..." 
-                   class="w-full px-3 py-2 rounded-lg text-sm" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
-        </div>
-        
-        <div class="flex items-end space-x-2">
-            <button id="export-logs" class="flex-1 px-4 py-2 rounded-lg text-white text-sm font-medium bg-blue-500">
-                <i class="fas fa-download mr-1.5"></i>Export
-            </button>
-            <button id="clear-logs" class="flex-1 px-4 py-2 rounded-lg text-white text-sm font-medium bg-red-500">
-                <i class="fas fa-trash mr-1.5"></i>Clear
-            </button>
+<!-- Summary Stats - Hero Cards -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+    <div class="surface p-4 relative overflow-hidden group hover:scale-[1.02] transition-transform">
+        <div class="absolute inset-0 opacity-10" style="background: linear-gradient(135deg, #0071e3 0%, transparent 60%);"></div>
+        <div class="relative flex items-center justify-between">
+            <div>
+                <p class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-tertiary);">Total Events</p>
+                <p class="mt-1.5 text-2xl font-bold tabular-nums" style="color: var(--color-text-primary);" id="total-events">0</p>
+            </div>
+            <div class="h-10 w-10 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%); box-shadow: 0 4px 12px rgba(0, 113, 227, 0.3);">
+                <i class="fas fa-list text-white"></i>
+            </div>
         </div>
     </div>
-    
-    <!-- Custom Date Range (Initially Hidden) -->
-    <div id="custom-date-range" class="mt-4 grid grid-cols-2 gap-4 hidden">
-        <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">From Date</label>
-            <input type="datetime-local" id="date-from" 
-                   class="w-full px-3 py-2 rounded-lg text-sm" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+
+    <div class="surface p-4 relative overflow-hidden group hover:scale-[1.02] transition-transform">
+        <div class="absolute inset-0 opacity-10" style="background: linear-gradient(135deg, #ff9500 0%, transparent 60%);"></div>
+        <div class="relative flex items-center justify-between">
+            <div>
+                <p class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-tertiary);">Detections</p>
+                <p class="mt-1.5 text-2xl font-bold tabular-nums" style="color: var(--color-text-primary);" id="total-detections">0</p>
+            </div>
+            <div class="h-10 w-10 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #ff9500 0%, #ff6b00 100%); box-shadow: 0 4px 12px rgba(255, 149, 0, 0.3);">
+                <i class="fas fa-exclamation text-white"></i>
+            </div>
         </div>
-        <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">To Date</label>
-            <input type="datetime-local" id="date-to" 
-                   class="w-full px-3 py-2 rounded-lg text-sm" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+    </div>
+
+    <div class="surface p-4 relative overflow-hidden group hover:scale-[1.02] transition-transform">
+        <div class="absolute inset-0 opacity-10" style="background: linear-gradient(135deg, #34c759 0%, transparent 60%);"></div>
+        <div class="relative flex items-center justify-between">
+            <div>
+                <p class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-tertiary);">Detection Rate</p>
+                <p class="mt-1.5 text-2xl font-bold tabular-nums" style="color: var(--color-text-primary);" id="detection-rate">0%</p>
+            </div>
+            <div class="h-10 w-10 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #34c759 0%, #30b350 100%); box-shadow: 0 4px 12px rgba(52, 199, 89, 0.3);">
+                <i class="fas fa-chart-line text-white"></i>
+            </div>
+        </div>
+    </div>
+
+    <div class="surface p-4 relative overflow-hidden group hover:scale-[1.02] transition-transform">
+        <div class="absolute inset-0 opacity-10" style="background: linear-gradient(135deg, #af52de 0%, transparent 60%);"></div>
+        <div class="relative flex items-center justify-between">
+            <div>
+                <p class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-tertiary);">Agentic Events</p>
+                <p class="mt-1.5 text-2xl font-bold tabular-nums" style="color: var(--color-text-primary);" id="agentic-events">0</p>
+            </div>
+            <div class="h-10 w-10 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #af52de 0%, #9b3fd9 100%); box-shadow: 0 4px 12px rgba(175, 82, 222, 0.3);">
+                <i class="fas fa-robot text-white"></i>
+            </div>
         </div>
     </div>
 </div>
 
-<!-- Summary Stats -->
-<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-    <div class="surface p-5">
-        <div class="flex items-center">
-            <div class="p-3 rounded-xl mr-4" style="background: linear-gradient(135deg, rgba(0, 113, 227, 0.1) 0%, rgba(0, 113, 227, 0.05) 100%);">
-                <i class="fas fa-eye text-lg" style="color: #0071e3;"></i>
+<!-- Filters Section -->
+<section class="surface overflow-hidden mb-6">
+    <div class="px-5 py-4 flex items-center justify-between" style="border-bottom: 0.5px solid var(--color-border);">
+        <div class="flex items-center gap-2">
+            <div class="h-8 w-8 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(0, 113, 227, 0.15) 0%, rgba(0, 113, 227, 0.05) 100%);">
+                <i class="fas fa-filter text-sm" style="color: #0071e3;"></i>
+            </div>
+            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Filters</h3>
+        </div>
+        <div class="flex gap-2">
+            <button id="export-logs" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%);">
+                <i class="fas fa-download mr-1.5"></i>Export
+            </button>
+            <button id="clear-logs" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition" style="background: linear-gradient(135deg, #ff3b30 0%, #ff2d55 100%);">
+                <i class="fas fa-trash mr-1.5"></i>Clear
+            </button>
+        </div>
+    </div>
+    <div class="p-5">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+                <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Date Range</label>
+                <select id="date-filter" class="w-full px-3 py-2 rounded-lg text-sm" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                    <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
+                    <option value="week">Last 7 Days</option>
+                    <option value="month">Last 30 Days</option>
+                    <option value="all">All Time</option>
+                    <option value="custom">Custom Range</option>
+                </select>
+            </div>
+            
+            <div>
+                <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Status</label>
+                <select id="status-filter" class="w-full px-3 py-2 rounded-lg text-sm" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                    <option value="all">All Events</option>
+                    <option value="detected">Detections Only</option>
+                    <option value="no_detection">No Detection</option>
+                    <option value="agentic">Agentic Mode</option>
+                </select>
+            </div>
+            
+            <div>
+                <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Search</label>
+                <div class="relative">
+                    <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-xs" style="color: var(--color-text-tertiary);"></i>
+                    <input type="text" id="search-logs" placeholder="Search descriptions..." 
+                           class="w-full pl-9 pr-3 py-2 rounded-lg text-sm" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                </div>
+            </div>
+        </div>
+        
+        <!-- Custom Date Range (Initially Hidden) -->
+        <div id="custom-date-range" class="mt-4 grid grid-cols-2 gap-4 hidden">
+            <div>
+                <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">From Date</label>
+                <input type="datetime-local" id="date-from" 
+                       class="w-full px-3 py-2 rounded-lg text-sm" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
             </div>
             <div>
-                <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Total Events</p>
-                <p class="text-2xl font-semibold mt-0.5" style="color: var(--color-text-primary);" id="total-events">0</p>
+                <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">To Date</label>
+                <input type="datetime-local" id="date-to" 
+                       class="w-full px-3 py-2 rounded-lg text-sm" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
             </div>
         </div>
     </div>
-    
-    <div class="surface p-5">
-        <div class="flex items-center">
-            <div class="p-3 rounded-xl mr-4" style="background: linear-gradient(135deg, rgba(52, 199, 89, 0.1) 0%, rgba(52, 199, 89, 0.05) 100%);">
-                <i class="fas fa-desktop text-lg" style="color: #34c759;"></i>
-            </div>
-            <div>
-                <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Detections</p>
-                <p class="text-2xl font-semibold mt-0.5" style="color: var(--color-text-primary);" id="total-detections">0</p>
-            </div>
-        </div>
-    </div>
-    
-    <div class="surface p-5">
-        <div class="flex items-center">
-            <div class="p-3 rounded-xl mr-4" style="background: linear-gradient(135deg, rgba(255, 149, 0, 0.1) 0%, rgba(255, 149, 0, 0.05) 100%);">
-                <i class="fas fa-percentage text-lg" style="color: #ff9500;"></i>
-            </div>
-            <div>
-                <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Detection Rate</p>
-                <p class="text-2xl font-semibold mt-0.5" style="color: var(--color-text-primary);" id="detection-rate">0%</p>
-            </div>
-        </div>
-    </div>
-</div>
+</section>
 
 <!-- Logs Table -->
 <div class="surface overflow-hidden">
