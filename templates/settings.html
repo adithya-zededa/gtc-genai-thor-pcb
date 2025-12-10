@@ -145,82 +145,6 @@
         </div>
     </section>
 
-    <!-- Agentic Mode -->
-    <section class="surface overflow-hidden">
-        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
-            <div class="flex items-center justify-between">
-                <div>
-                    <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">
-                        <i class="fas fa-robot mr-2" style="color: #af52de;"></i>Agentic Mode
-                    </h3>
-                    <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">Enable autonomous AI agent with tool calling capabilities</p>
-                </div>
-                <label class="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" id="agentic-mode-toggle" class="sr-only peer">
-                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-purple-600"></div>
-                </label>
-            </div>
-        </div>
-        <div class="p-5">
-            <div class="grid gap-4 md:grid-cols-2">
-                <div>
-                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Task Type</label>
-                    <select id="agentic-task-type" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
-                        <option value="package_detection">Package Detection</option>
-                        <option value="safety_monitoring">Safety Monitoring</option>
-                        <option value="quality_inspection">Quality Inspection</option>
-                        <option value="label_verification">Label Verification</option>
-                        <option value="custom" selected>Custom</option>
-                    </select>
-                </div>
-                <div class="flex items-center gap-4">
-                    <label class="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" id="agentic-alerts-enabled" checked class="w-4 h-4 rounded border-gray-300">
-                        <span class="text-xs font-medium" style="color: var(--color-text-secondary);">Enable Alerts</span>
-                    </label>
-                </div>
-            </div>
-            <div class="mt-4">
-                <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Custom Prompt</label>
-                <textarea id="agentic-custom-prompt" rows="4" class="w-full px-3 py-2 text-sm rounded-lg font-mono" style="background: var(--color-surface); border: 0.5px solid var(--color-border);" placeholder="e.g., Send an email to alerts@company.com if you see any safety violations..."></textarea>
-                <p class="text-xs mt-2" style="color: var(--color-text-tertiary);">
-                    <i class="fas fa-info-circle mr-1"></i>
-                    In agentic mode, the AI can autonomously call tools like <code>send_alert_email</code>, <code>save_evidence</code>, and <code>log_event</code>.
-                </p>
-            </div>
-            <div class="mt-4 flex gap-3">
-                <button id="save-agentic-config" class="px-4 py-2 text-xs font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #af52de 0%, #9b3fd9 100%);">
-                    <i class="fas fa-save mr-1.5"></i>Save & Apply
-                </button>
-                <button id="test-agentic-prompt" class="px-4 py-2 text-xs font-medium rounded-lg transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
-                    <i class="fas fa-flask mr-1.5"></i>Test with Image
-                </button>
-            </div>
-            
-            <!-- Agentic Status Display -->
-            <div id="agentic-status-panel" class="mt-4 p-4 rounded-xl hidden" style="background: rgba(175, 82, 222, 0.05); border: 0.5px solid rgba(175, 82, 222, 0.2);">
-                <div class="flex items-center gap-2 mb-2">
-                    <i class="fas fa-robot" style="color: #af52de;"></i>
-                    <span class="text-sm font-medium" style="color: var(--color-text-primary);">Agentic Mode Active</span>
-                </div>
-                <div id="agentic-config-display" class="text-xs" style="color: var(--color-text-secondary);">
-                    <!-- Configuration will be shown here -->
-                </div>
-            </div>
-            
-            <!-- Available Tools Display -->
-            <div class="mt-4 p-4 rounded-xl" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
-                <div class="flex items-center gap-2 mb-3">
-                    <i class="fas fa-tools" style="color: var(--color-text-secondary);"></i>
-                    <span class="text-sm font-medium" style="color: var(--color-text-primary);">Available Tools</span>
-                </div>
-                <div id="tools-list" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    <div class="text-xs" style="color: var(--color-text-tertiary);">Loading tools...</div>
-                </div>
-            </div>
-        </div>
-    </section>
-
     <!-- Email Recipients -->
     <section class="surface overflow-hidden">
         <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
@@ -1015,156 +939,6 @@ async function saveAllSettings() {
     }
 }
 
-// ==================== AGENTIC MODE ====================
-
-async function loadAgenticConfig() {
-    try {
-        const result = await apiCall('/api/agent/prompt');
-        if (result) {
-            const toggle = document.getElementById('agentic-mode-toggle');
-            const taskType = document.getElementById('agentic-task-type');
-            const customPrompt = document.getElementById('agentic-custom-prompt');
-            const alertsEnabled = document.getElementById('agentic-alerts-enabled');
-            
-            if (toggle) toggle.checked = result.agentic_mode || false;
-            if (taskType) taskType.value = result.task_type || 'custom';
-            if (customPrompt) customPrompt.value = result.custom_prompt || '';
-            if (alertsEnabled) alertsEnabled.checked = result.alerts_enabled !== false;
-            
-            updateAgenticStatusPanel();
-        }
-    } catch (error) {
-        console.error('Failed to load agentic config:', error);
-    }
-}
-
-async function loadAvailableTools() {
-    try {
-        const result = await apiCall('/api/tools');
-        const container = document.getElementById('tools-list');
-        if (!container) return;
-        
-        if (result && result.tools && result.tools.length > 0) {
-            container.innerHTML = result.tools.map(tool => `
-                <div class="flex items-center gap-2 px-3 py-2 rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
-                    <i class="fas fa-${getToolIcon(tool.name)}" style="color: #af52de; width: 16px;"></i>
-                    <div>
-                        <div class="text-xs font-medium" style="color: var(--color-text-primary);">${tool.name}</div>
-                        <div class="text-xs" style="color: var(--color-text-tertiary);">${tool.description.substring(0, 40)}...</div>
-                    </div>
-                </div>
-            `).join('');
-        } else {
-            container.innerHTML = '<div class="text-xs" style="color: var(--color-text-tertiary);">No tools available</div>';
-        }
-    } catch (error) {
-        console.error('Failed to load tools:', error);
-    }
-}
-
-function getToolIcon(toolName) {
-    const icons = {
-        'send_alert_email': 'envelope',
-        'save_evidence': 'camera',
-        'log_event': 'file-alt',
-        'notify_desktop': 'bell',
-        'query_history': 'history',
-        'analyze_trend': 'chart-line'
-    };
-    return icons[toolName] || 'wrench';
-}
-
-function updateAgenticStatusPanel() {
-    const panel = document.getElementById('agentic-status-panel');
-    const configDisplay = document.getElementById('agentic-config-display');
-    const toggle = document.getElementById('agentic-mode-toggle');
-    
-    if (panel && toggle) {
-        if (toggle.checked) {
-            panel.classList.remove('hidden');
-            const taskType = document.getElementById('agentic-task-type')?.value || 'custom';
-            const customPrompt = document.getElementById('agentic-custom-prompt')?.value || 'No custom prompt set';
-            const alertsEnabled = document.getElementById('agentic-alerts-enabled')?.checked;
-            
-            configDisplay.innerHTML = `
-                <div class="grid gap-1">
-                    <div><strong>Task:</strong> ${taskType}</div>
-                    <div><strong>Alerts:</strong> ${alertsEnabled ? 'Enabled' : 'Disabled'}</div>
-                    <div><strong>Prompt:</strong> ${customPrompt.substring(0, 50)}${customPrompt.length > 50 ? '...' : ''}</div>
-                </div>
-            `;
-        } else {
-            panel.classList.add('hidden');
-        }
-    }
-}
-
-async function saveAgenticConfig() {
-    const toggle = document.getElementById('agentic-mode-toggle');
-    const taskType = document.getElementById('agentic-task-type');
-    const customPrompt = document.getElementById('agentic-custom-prompt');
-    const alertsEnabled = document.getElementById('agentic-alerts-enabled');
-    
-    const config = {
-        agentic_mode: toggle?.checked || false,
-        task_type: taskType?.value || 'custom',
-        custom_prompt: customPrompt?.value || '',
-        alerts_enabled: alertsEnabled?.checked !== false
-    };
-    
-    showToast('Saving agentic configuration...', 'info');
-    
-    try {
-        const result = await apiCall('/api/agent/prompt', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(config)
-        });
-        
-        if (result && result.success !== false) {
-            showToast('Agentic configuration saved!', 'success');
-            updateAgenticStatusPanel();
-        } else {
-            showToast(result?.error || 'Failed to save agentic config', 'error');
-        }
-    } catch (error) {
-        showToast('Error saving agentic config: ' + error.message, 'error');
-    }
-}
-
-async function testAgenticPrompt() {
-    const customPrompt = document.getElementById('agentic-custom-prompt')?.value;
-    if (!customPrompt) {
-        showToast('Please enter a custom prompt first', 'warning');
-        return;
-    }
-    
-    showToast('Testing agentic prompt with latest frame...', 'info');
-    
-    try {
-        const result = await apiCall('/api/analyze_agentic', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ custom_prompt: customPrompt })
-        });
-        
-        if (result) {
-            let message = `Analysis: ${result.analysis?.reasoning || 'No reasoning'}`;
-            if (result.tool_calls && result.tool_calls.length > 0) {
-                message += ` | Tools called: ${result.tool_calls.map(t => t.tool).join(', ')}`;
-            }
-            showToast(message, result.analysis?.detected ? 'success' : 'info');
-            
-            // Show detailed result in console for debugging
-            console.log('Agentic test result:', result);
-        } else {
-            showToast('No result from agentic analysis', 'warning');
-        }
-    } catch (error) {
-        showToast('Error testing agentic prompt: ' + error.message, 'error');
-    }
-}
-
 document.addEventListener('DOMContentLoaded', () => {
     loadSystemStatus();
     setInterval(loadSystemStatus, 30000);
@@ -1176,10 +950,6 @@ document.addEventListener('DOMContentLoaded', () => {
     loadAvailableModels();
     updateThresholdDisplay();
     updatePromptLength();
-    
-    // Load agentic mode config and tools
-    loadAgenticConfig();
-    loadAvailableTools();
 
     const refreshBtn = document.getElementById('refresh-system-status');
     if (refreshBtn) refreshBtn.addEventListener('click', loadSystemStatus);
@@ -1242,14 +1012,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const saveAllBtn = document.getElementById('save-all-settings');
     if (saveAllBtn) saveAllBtn.addEventListener('click', saveAllSettings);
-    
-    // Agentic mode event listeners
-    const agenticToggle = document.getElementById('agentic-mode-toggle');
-    if (agenticToggle) agenticToggle.addEventListener('change', updateAgenticStatusPanel);
-    const saveAgenticBtn = document.getElementById('save-agentic-config');
-    if (saveAgenticBtn) saveAgenticBtn.addEventListener('click', saveAgenticConfig);
-    const testAgenticBtn = document.getElementById('test-agentic-prompt');
-    if (testAgenticBtn) testAgenticBtn.addEventListener('click', testAgenticPrompt);
 });
 </script>
 {% endblock %}

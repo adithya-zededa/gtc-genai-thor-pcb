@@ -387,12 +387,14 @@
             .then(response => response.json())
             .then(result => {
                 if (!result || !result.success) return;
-                const data = result.data || result;
+                const data = result.status || result.data || result;
 
                 // Uptime
                 const uptimeEl = document.getElementById('system-uptime');
                 if (uptimeEl && data.uptime_seconds) {
                     uptimeEl.textContent = 'Uptime: ' + formatUptime(data.uptime_seconds);
+                } else if (uptimeEl) {
+                    uptimeEl.textContent = 'Uptime: Active';
                 }
 
                 // CPU

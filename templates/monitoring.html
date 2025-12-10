@@ -119,86 +119,78 @@
     </div>
 </div>
 
-<!-- Live Prompt Section -->
-<section class="surface p-5 mb-6">
-    <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">
-                <i class="fas fa-brain mr-2" style="color: #5856d6;"></i>
-                Live Agent Prompt
-            </h3>
-            <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">
-                Dynamically change what the agent looks for without stopping monitoring.
-            </p>
-        </div>
-        <div class="flex items-center gap-2">
-            <span id="prompt-status" class="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium" style="background: rgba(52, 199, 89, 0.1); border: 0.5px solid rgba(52, 199, 89, 0.2); color: #2d8a47;">
-                <i class="fas fa-box text-xs"></i>
-                Package Detection
-            </span>
-        </div>
-    </div>
-    
-    <div class="mt-4 space-y-4">
-        <!-- Task Type Selector -->
-        <div>
-            <label class="block text-xs font-medium mb-2" style="color: var(--color-text-secondary);">Task Type</label>
-            <div class="flex flex-wrap gap-2">
-                <button class="task-type-btn active px-3 py-2 rounded-lg text-xs font-medium transition" data-task="package_detection" style="background: rgba(0, 113, 227, 0.1); border: 0.5px solid rgba(0, 113, 227, 0.3); color: #0071e3;">
-                    <i class="fas fa-box mr-1.5"></i>Package Detection
-                </button>
-                <button class="task-type-btn px-3 py-2 rounded-lg text-xs font-medium transition" data-task="ppe_detection" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
-                    <i class="fas fa-hard-hat mr-1.5"></i>PPE Detection
-                </button>
-                <button class="task-type-btn px-3 py-2 rounded-lg text-xs font-medium transition" data-task="person_counting" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
-                    <i class="fas fa-users mr-1.5"></i>Person Counting
-                </button>
-                <button class="task-type-btn px-3 py-2 rounded-lg text-xs font-medium transition" data-task="scene_description" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
-                    <i class="fas fa-image mr-1.5"></i>Scene Description
-                </button>
-                <button class="task-type-btn px-3 py-2 rounded-lg text-xs font-medium transition" data-task="custom" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
-                    <i class="fas fa-edit mr-1.5"></i>Custom Query
-                </button>
+<!-- Agentic Mode Section -->
+<section class="surface overflow-hidden mb-6">
+    <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
+        <div class="flex items-center justify-between">
+            <div>
+                <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">
+                    <i class="fas fa-robot mr-2" style="color: #af52de;"></i>Agentic Mode
+                </h3>
+                <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">Enable autonomous AI agent with tool calling capabilities</p>
             </div>
-        </div>
-        
-        <!-- Custom Prompt Input -->
-        <div id="custom-prompt-container" class="hidden">
-            <label class="block text-xs font-medium mb-2" style="color: var(--color-text-secondary);">Custom Prompt</label>
-            <textarea id="custom-prompt-input" rows="3" placeholder="Describe what you want the agent to detect or analyze..." class="w-full rounded-lg px-3 py-2 text-sm resize-none" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);"></textarea>
-            <p class="mt-1.5 text-xs" style="color: var(--color-text-secondary);">
-                Example: "Count all people wearing blue shirts" or "Detect any vehicles in the parking area"
-            </p>
-        </div>
-        
-        <!-- Memory Context Toggle -->
-        <!-- Enable Alerts Toggle -->
-        <div class="flex items-center justify-between rounded-xl p-3" style="background: rgba(255, 59, 48, 0.04); border: 0.5px solid rgba(255, 59, 48, 0.15);">
-            <div class="flex items-center gap-3">
-                <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg" style="background: linear-gradient(135deg, rgba(255, 59, 48, 0.1) 0%, rgba(255, 59, 48, 0.05) 100%); color: #ff3b30;">
-                    <i class="fas fa-bell text-sm"></i>
-                </span>
-                <div>
-                    <p class="text-sm font-medium" style="color: var(--color-text-primary);">Enable Alerts</p>
-                    <p class="text-xs" style="color: var(--color-text-secondary);">Send email notifications on detection</p>
-                </div>
-            </div>
-            <label class="toggle-switch">
-                <input type="checkbox" id="enable-alerts">
-                <span class="toggle-slider"></span>
+            <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="agentic-mode-toggle" class="sr-only peer">
+                <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-purple-600"></div>
             </label>
         </div>
+    </div>
+    <div class="p-5">
+        <div class="grid gap-4 md:grid-cols-2">
+            <div>
+                <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Task Type</label>
+                <select id="agentic-task-type" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                    <option value="package_detection">Package Detection</option>
+                    <option value="safety_monitoring">Safety Monitoring</option>
+                    <option value="quality_inspection">Quality Inspection</option>
+                    <option value="label_verification">Label Verification</option>
+                    <option value="custom" selected>Custom</option>
+                </select>
+            </div>
+            <div class="flex items-center gap-4">
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="agentic-alerts-enabled" checked class="w-4 h-4 rounded border-gray-300">
+                    <span class="text-xs font-medium" style="color: var(--color-text-secondary);">Enable Alerts</span>
+                </label>
+            </div>
+        </div>
+        <div class="mt-4">
+            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Custom Prompt</label>
+            <textarea id="agentic-custom-prompt" rows="4" class="w-full px-3 py-2 text-sm rounded-lg font-mono" style="background: var(--color-surface); border: 0.5px solid var(--color-border);" placeholder="e.g., Send an email to alerts@company.com if you see any safety violations..."></textarea>
+            <p class="text-xs mt-2" style="color: var(--color-text-tertiary);">
+                <i class="fas fa-info-circle mr-1"></i>
+                In agentic mode, the AI can autonomously call tools like <code>send_alert_email</code>, <code>save_evidence</code>, and <code>log_event</code>.
+            </p>
+        </div>
+        <div class="mt-4 flex gap-3">
+            <button id="save-agentic-config" class="px-4 py-2 text-xs font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #af52de 0%, #9b3fd9 100%);">
+                <i class="fas fa-save mr-1.5"></i>Save & Apply
+            </button>
+            <button id="test-agentic-prompt" class="px-4 py-2 text-xs font-medium rounded-lg transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
+                <i class="fas fa-flask mr-1.5"></i>Test with Image
+            </button>
+        </div>
         
-        <!-- Apply Prompt Button -->
-        <div class="flex items-center gap-3">
-            <button id="apply-prompt" class="flex-1 inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition" style="background: linear-gradient(180deg, #0071e3 0%, #0077ed 100%); color: white; box-shadow: 0 1px 3px rgba(0, 113, 227, 0.3);">
-                <i class="fas fa-check"></i>
-                Apply
-            </button>
-            <button id="reset-prompt" class="inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
-                <i class="fas fa-undo"></i>
-                Reset
-            </button>
+        <!-- Agentic Status Display -->
+        <div id="agentic-status-panel" class="mt-4 p-4 rounded-xl hidden" style="background: rgba(175, 82, 222, 0.05); border: 0.5px solid rgba(175, 82, 222, 0.2);">
+            <div class="flex items-center gap-2 mb-2">
+                <i class="fas fa-robot" style="color: #af52de;"></i>
+                <span class="text-sm font-medium" style="color: var(--color-text-primary);">Agentic Mode Active</span>
+            </div>
+            <div id="agentic-config-display" class="text-xs" style="color: var(--color-text-secondary);">
+                <!-- Configuration will be shown here -->
+            </div>
+        </div>
+        
+        <!-- Available Tools Display -->
+        <div class="mt-4 p-4 rounded-xl" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
+            <div class="flex items-center gap-2 mb-3">
+                <i class="fas fa-tools" style="color: var(--color-text-secondary);"></i>
+                <span class="text-sm font-medium" style="color: var(--color-text-primary);">Available Tools</span>
+            </div>
+            <div id="tools-list" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <div class="text-xs" style="color: var(--color-text-tertiary);">Loading tools...</div>
+            </div>
         </div>
     </div>
 </section>
@@ -701,296 +693,174 @@
                     .catch(error => console.error('Stats refresh error:', error));
             }
         }, 2000); // Every 2 seconds
-        
-        // Live Prompt handlers
-        setupLivePromptHandlers();
     });
     
-    // Live Prompt functionality
-    let currentTaskType = 'package_detection';
-    
-    function setupLivePromptHandlers() {
-        const taskTypeBtns = document.querySelectorAll('.task-type-btn');
-        const customPromptContainer = document.getElementById('custom-prompt-container');
-        const customPromptInput = document.getElementById('custom-prompt-input');
-        const applyPromptBtn = document.getElementById('apply-prompt');
-        const resetPromptBtn = document.getElementById('reset-prompt');
-        const promptStatus = document.getElementById('prompt-status');
-        const enableMemoryContext = document.getElementById('enable-memory-context');
-        const enableAlerts = document.getElementById('enable-alerts');
-        const clearMemoryBtn = document.getElementById('clear-memory');
-        const memorySummary = document.getElementById('memory-summary');
-        
-        // Load current prompt config on page load
-        loadCurrentPromptConfig();
-        
-        // Task type button click handlers
-        taskTypeBtns.forEach(btn => {
-            btn.addEventListener('click', function() {
-                // Remove active state from all buttons
-                taskTypeBtns.forEach(b => {
-                    b.classList.remove('active');
-                    b.style.background = 'var(--color-surface)';
-                    b.style.border = '0.5px solid var(--color-border)';
-                    b.style.color = 'var(--color-text-primary)';
-                });
-                
-                // Add active state to clicked button
-                this.classList.add('active');
-                this.style.background = 'rgba(0, 113, 227, 0.1)';
-                this.style.border = '0.5px solid rgba(0, 113, 227, 0.3)';
-                this.style.color = '#0071e3';
-                
-                currentTaskType = this.dataset.task;
-                
-                // Show/hide custom prompt input
-                if (currentTaskType === 'custom') {
-                    customPromptContainer.classList.remove('hidden');
-                } else {
-                    customPromptContainer.classList.add('hidden');
-                }
-            });
-        });
-        
-        // Apply prompt button handler
-        applyPromptBtn.addEventListener('click', async function() {
-            const customPrompt = customPromptInput.value.trim();
-            const alertsEnabled = enableAlerts.checked;
-            
-            // Validate custom task has a prompt
-            if (currentTaskType === 'custom' && !customPrompt) {
-                showToast('Please enter a custom prompt for analysis', 'warning');
-                return;
-            }
-            
-            // Update UI to show loading state
-            applyPromptBtn.disabled = true;
-            applyPromptBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Applying...';
-            
-            try {
-                // First, persist the prompt configuration for continuous monitoring
-                const promptConfigResponse = await fetch('/api/agent/prompt', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        task_type: currentTaskType,
-                        custom_prompt: customPrompt,
-                        alerts_enabled: alertsEnabled
-                    })
-                });
-                
-                const promptConfigData = await promptConfigResponse.json();
-                if (!promptConfigData.success) {
-                    showToast(promptConfigData.error || 'Failed to save prompt configuration', 'error');
-                    return;
-                }
-                
-                // Then run an immediate analysis with the new prompt
-                const response = await fetch('/api/analyze_prompt', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        task_type: currentTaskType,
-                        custom_prompt: customPrompt,
-                        include_memory: enableMemoryContext.checked
-                    })
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    // Update status badge
-                    updatePromptStatus(currentTaskType, alertsEnabled);
-                    showToast('Prompt applied and saved for monitoring', 'success');
-                    
-                    // Display result in a toast or update UI
-                    if (data.result) {
-                        displayAnalysisResult(data.result);
-                    }
-                } else {
-                    showToast(data.error || 'Failed to apply prompt', 'error');
-                }
-            } catch (error) {
-                console.error('Apply prompt error:', error);
-                showToast('Failed to connect to server', 'error');
-            } finally {
-                // Reset button state
-                applyPromptBtn.disabled = false;
-                applyPromptBtn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>Apply Prompt';
-            }
-        });
-        
-        // Reset prompt button handler
-        resetPromptBtn.addEventListener('click', async function() {
-            // Reset to package detection with alerts disabled
-            currentTaskType = 'package_detection';
-            enableAlerts.checked = false;
-            
-            // Update button states
-            taskTypeBtns.forEach(btn => {
-                if (btn.dataset.task === 'package_detection') {
-                    btn.classList.add('active');
-                    btn.style.background = 'rgba(0, 113, 227, 0.1)';
-                    btn.style.border = '0.5px solid rgba(0, 113, 227, 0.3)';
-                    btn.style.color = '#0071e3';
-                } else {
-                    btn.classList.remove('active');
-                    btn.style.background = 'var(--color-surface)';
-                    btn.style.border = '0.5px solid var(--color-border)';
-                    btn.style.color = 'var(--color-text-primary)';
-                }
-            });
-            
-            // Hide custom prompt and clear it
-            customPromptContainer.classList.add('hidden');
-            customPromptInput.value = '';
-            
-            // Persist the reset to the backend
-            try {
-                await fetch('/api/agent/prompt', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        task_type: 'package_detection',
-                        custom_prompt: '',
-                        alerts_enabled: false
-                    })
-                });
-            } catch (e) {
-                console.error('Failed to persist reset:', e);
-            }
-            
-            // Reset status badge
-            updatePromptStatus('package_detection', false);
-            
-            showToast('Prompt reset to Package Detection', 'info');
-        });
-        
-        // Clear memory button handler
-        clearMemoryBtn.addEventListener('click', async function() {
-            try {
-                const response = await fetch('/api/agent/memory', {
-                    method: 'DELETE'
-                });
-                
-                if (response.ok) {
-                    memorySummary.innerHTML = 'Memory cleared. Start monitoring to collect new observations.';
-                    showToast('Agent memory cleared', 'success');
-                } else {
-                    showToast('Failed to clear memory', 'error');
-                }
-            } catch (error) {
-                console.error('Clear memory error:', error);
-                showToast('Failed to clear memory', 'error');
-            }
-        });
-        
-        // Periodically refresh memory summary
-        setInterval(refreshMemorySummary, 5000);
-    }
-    
-    async function loadCurrentPromptConfig() {
+    // Agentic Mode Functions
+    async function loadAgenticConfig() {
         try {
-            const response = await fetch('/api/agent/prompt');
-            if (response.ok) {
-                const data = await response.json();
-                if (data.success) {
-                    // Update current task type
-                    currentTaskType = data.task_type || 'package_detection';
-                    
-                    // Update button states
-                    const taskTypeBtns = document.querySelectorAll('.task-type-btn');
-                    taskTypeBtns.forEach(btn => {
-                        if (btn.dataset.task === currentTaskType) {
-                            btn.classList.add('active');
-                            btn.style.background = 'rgba(0, 113, 227, 0.1)';
-                            btn.style.border = '0.5px solid rgba(0, 113, 227, 0.3)';
-                            btn.style.color = '#0071e3';
-                        } else {
-                            btn.classList.remove('active');
-                            btn.style.background = 'var(--color-surface)';
-                            btn.style.border = '0.5px solid var(--color-border)';
-                            btn.style.color = 'var(--color-text-primary)';
-                        }
-                    });
-                    
-                    // Update custom prompt if present
-                    const customPromptInput = document.getElementById('custom-prompt-input');
-                    const customPromptContainer = document.getElementById('custom-prompt-container');
-                    if (data.custom_prompt) {
-                        customPromptInput.value = data.custom_prompt;
-                    }
-                    if (currentTaskType === 'custom') {
-                        customPromptContainer.classList.remove('hidden');
-                    } else {
-                        customPromptContainer.classList.add('hidden');
-                    }
-                    
-                    // Update alerts toggle
-                    const enableAlerts = document.getElementById('enable-alerts');
-                    enableAlerts.checked = data.alerts_enabled || false;
-                    
-                    // Update status badge
-                    updatePromptStatus(currentTaskType, data.alerts_enabled);
-                }
+            const result = await fetch('/api/agent/prompt').then(r => r.json());
+            if (result && result.success !== false) {
+                const toggle = document.getElementById('agentic-mode-toggle');
+                const taskType = document.getElementById('agentic-task-type');
+                const customPrompt = document.getElementById('agentic-custom-prompt');
+                const alertsEnabled = document.getElementById('agentic-alerts-enabled');
+                
+                if (toggle) toggle.checked = result.agentic_mode || false;
+                if (taskType) taskType.value = result.task_type || 'custom';
+                if (customPrompt) customPrompt.value = result.custom_prompt || '';
+                if (alertsEnabled) alertsEnabled.checked = result.alerts_enabled !== false;
+                
+                updateAgenticStatusPanel();
+            } else {
+                console.warn('Failed to load agentic config:', result?.error);
             }
         } catch (error) {
-            console.error('Failed to load prompt config:', error);
+            console.error('Error loading agentic config:', error);
         }
     }
-    
-    function updatePromptStatus(taskType, alertsEnabled = false) {
-        const promptStatus = document.getElementById('prompt-status');
-        const taskLabels = {
-            'package_detection': { label: 'Package Detection', icon: 'fa-box' },
-            'ppe_detection': { label: 'PPE Detection', icon: 'fa-hard-hat' },
-            'person_counting': { label: 'Person Counting', icon: 'fa-users' },
-            'scene_description': { label: 'Scene Description', icon: 'fa-image' },
-            'custom': { label: 'Custom Query', icon: 'fa-edit' }
+
+    async function loadAvailableTools() {
+        try {
+            const result = await fetch('/api/tools').then(r => r.json());
+            const container = document.getElementById('tools-list');
+            if (!container) return;
+            
+            if (result && result.tools && result.tools.length > 0) {
+                container.innerHTML = result.tools.map(tool => `
+                    <div class="flex items-center gap-2 px-3 py-2 rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                        <i class="fas fa-${getToolIcon(tool.name)}" style="color: #af52de; width: 16px;"></i>
+                        <div>
+                            <div class="text-xs font-medium" style="color: var(--color-text-primary);">${tool.name}</div>
+                            <div class="text-xs" style="color: var(--color-text-tertiary);">${tool.description.substring(0, 40)}...</div>
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                container.innerHTML = '<div class="text-xs" style="color: var(--color-text-tertiary);">No tools available</div>';
+            }
+        } catch (error) {
+            console.error('Failed to load tools:', error);
+        }
+    }
+
+    function getToolIcon(toolName) {
+        const icons = {
+            'send_alert_email': 'envelope',
+            'save_evidence': 'camera',
+            'log_event': 'file-alt',
+            'notify_desktop': 'bell',
+            'query_history': 'history',
+            'analyze_trend': 'chart-line'
+        };
+        return icons[toolName] || 'wrench';
+    }
+
+    function updateAgenticStatusPanel() {
+        const panel = document.getElementById('agentic-status-panel');
+        const configDisplay = document.getElementById('agentic-config-display');
+        const toggle = document.getElementById('agentic-mode-toggle');
+        
+        if (panel && toggle) {
+            if (toggle.checked) {
+                panel.classList.remove('hidden');
+                const taskType = document.getElementById('agentic-task-type')?.value || 'custom';
+                const customPrompt = document.getElementById('agentic-custom-prompt')?.value || 'No custom prompt set';
+                const alertsEnabled = document.getElementById('agentic-alerts-enabled')?.checked;
+                
+                configDisplay.innerHTML = `
+                    <div class="grid gap-1">
+                        <div><strong>Task:</strong> ${taskType}</div>
+                        <div><strong>Alerts:</strong> ${alertsEnabled ? 'Enabled' : 'Disabled'}</div>
+                        <div><strong>Prompt:</strong> ${customPrompt.substring(0, 50)}${customPrompt.length > 50 ? '...' : ''}</div>
+                    </div>
+                `;
+            } else {
+                panel.classList.add('hidden');
+            }
+        }
+    }
+
+    async function saveAgenticConfig() {
+        const toggle = document.getElementById('agentic-mode-toggle');
+        const taskType = document.getElementById('agentic-task-type');
+        const customPrompt = document.getElementById('agentic-custom-prompt');
+        const alertsEnabled = document.getElementById('agentic-alerts-enabled');
+        
+        const config = {
+            agentic_mode: toggle?.checked || false,
+            task_type: taskType?.value || 'custom',
+            custom_prompt: customPrompt?.value || '',
+            alerts_enabled: alertsEnabled?.checked !== false
         };
         
-        const task = taskLabels[taskType] || taskLabels['package_detection'];
-        const alertIcon = alertsEnabled ? '<i class="fas fa-bell text-xs ml-2" style="color: #ff3b30;"></i>' : '';
-        promptStatus.innerHTML = `<i class="fas ${task.icon} text-xs"></i> ${task.label}${alertIcon}`;
-    }
-    
-    function displayAnalysisResult(result) {
-        // Show a detailed toast or update a results section
-        const confidence = (result.confidence * 100).toFixed(1);
-        const status = result.detected ? 'Detected' : 'Not Detected';
-        showToast(`${status} (${confidence}% confidence): ${result.reasoning?.substring(0, 100) || 'Analysis complete'}...`, result.detected ? 'success' : 'info');
-    }
-    
-    async function refreshMemorySummary() {
+        showToast('Saving agentic configuration...', 'info');
+        
         try {
-            const response = await fetch('/api/agent/memory');
-            if (response.ok) {
-                const data = await response.json();
-                const memorySummary = document.getElementById('memory-summary');
-                
-                if (data.entries && data.entries.length > 0) {
-                    const recentEntries = data.entries.slice(-3);
-                    let html = '<div class="space-y-2">';
-                    html += `<p class="font-medium" style="color: var(--color-text-primary);">${data.entries.length} observation${data.entries.length !== 1 ? 's' : ''} in memory</p>`;
-                    html += '<div class="space-y-1">';
-                    recentEntries.forEach(entry => {
-                        const time = new Date(entry.timestamp).toLocaleTimeString();
-                        const status = entry.detected ? '✓' : '○';
-                        html += `<p>${status} ${time}: ${entry.task_type} - ${entry.reasoning?.substring(0, 50) || 'No details'}...</p>`;
-                    });
-                    html += '</div></div>';
-                    memorySummary.innerHTML = html;
-                } else {
-                    memorySummary.innerHTML = 'No memory data yet. Start monitoring to collect observations.';
-                }
+            const result = await fetch('/api/agent/prompt', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config)
+            }).then(r => r.json());
+            
+            if (result && result.success !== false) {
+                showToast('Agentic configuration saved and applied!', 'success');
+                updateAgenticStatusPanel();
+                loadAgenticConfig();
+            } else {
+                showToast(result?.error || 'Failed to save agentic config', 'error');
             }
         } catch (error) {
-            console.error('Memory refresh error:', error);
+            console.error('Error in saveAgenticConfig:', error);
+            showToast('Error saving agentic config: ' + error.message, 'error');
         }
     }
+
+    async function testAgenticPrompt() {
+        const customPrompt = document.getElementById('agentic-custom-prompt')?.value;
+        if (!customPrompt || customPrompt.trim() === '') {
+            showToast('Please enter a custom prompt first', 'warning');
+            return;
+        }
+        
+        showToast('Testing agentic prompt with latest frame...', 'info');
+        
+        try {
+            const result = await fetch('/api/analyze_agentic', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ custom_prompt: customPrompt })
+            }).then(r => r.json());
+            
+            if (result && result.success !== false) {
+                let message = `Analysis: ${result.analysis?.reasoning || result.reasoning || 'No reasoning provided'}`;
+                if (result.tool_calls && result.tool_calls.length > 0) {
+                    message += ` | Tools called: ${result.tool_calls.map(t => t.tool).join(', ')}`;
+                }
+                const detected = result.analysis?.detected || result.detected || false;
+                showToast(message, detected ? 'success' : 'info');
+                
+                console.log('Agentic test result:', result);
+            } else {
+                showToast(result?.error || 'Test failed - check console for details', 'error');
+                console.error('Agentic test error:', result);
+            }
+        } catch (error) {
+            console.error('Error in testAgenticPrompt:', error);
+            showToast('Error testing agentic prompt: ' + error.message, 'error');
+        }
+    }
+    
+    // Initialize agentic mode on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        loadAgenticConfig();
+        loadAvailableTools();
+        
+        const agenticToggle = document.getElementById('agentic-mode-toggle');
+        if (agenticToggle) agenticToggle.addEventListener('change', updateAgenticStatusPanel);
+        const saveAgenticBtn = document.getElementById('save-agentic-config');
+        if (saveAgenticBtn) saveAgenticBtn.addEventListener('click', saveAgenticConfig);
+        const testAgenticBtn = document.getElementById('test-agentic-prompt');
+        if (testAgenticBtn) testAgenticBtn.addEventListener('click', testAgenticPrompt);
+    });
 </script>
 {% endblock %}

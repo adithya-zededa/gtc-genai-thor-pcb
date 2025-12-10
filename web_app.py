@@ -210,6 +210,7 @@ socketio = SocketIO(app, cors_allowed_origins=_resolve_socketio_cors())
 # Global variables
 camera_agent = None
 camera_publisher = None  # Global publisher instance for camera viewing
+APP_START_TIME = time.time()  # Track application start time
 CONFIG_PATH = Path(
     os.getenv("CAMERA_AGENT_CONFIG", DEFAULT_CONFIG_PATH)
 ).expanduser()
@@ -2210,12 +2211,16 @@ def api_system_status():
         import psutil
         import subprocess
 
+        # Calculate uptime
+        uptime_seconds = int(time.time() - APP_START_TIME)
+
         status = {
             "cpu_percent": psutil.cpu_percent(interval=1),
             "memory_percent": psutil.virtual_memory().percent,
             "disk_percent": psutil.disk_usage("/").percent,
             "camera_available": check_camera_availability(),
             "ollama_available": check_ollama_availability(),
+            "uptime_seconds": uptime_seconds,
         }
         
         # Get GPU stats for Jetson (using sysfs) or desktop (nvidia-smi)
