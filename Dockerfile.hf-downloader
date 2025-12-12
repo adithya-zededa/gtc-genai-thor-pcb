@@ -1,0 +1,14 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+RUN pip install --no-cache-dir huggingface-hub requests
+
+# Copy downloader script
+COPY download_hf_model.py /app/
+
+# Make it executable
+RUN chmod +x /app/download_hf_model.py
+
+ENTRYPOINT ["python3", "/app/download_hf_model.py"]

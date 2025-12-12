@@ -25,11 +25,18 @@ services:
       - ./config.yaml:/app/config.yaml
       # Persist database
       - ./camera_agent.db:/app/camera_agent.db
+      # Mount custom models directory (create ./models/custom locally first)
+      - ./models:/models
     environment:
       - CAMERA_INDEX=0
       - OLLAMA_URL=http://localhost:11434
       - FLASK_RUN_HOST=0.0.0.0
       - FLASK_RUN_PORT=8080
+      # Custom model settings (set USE_CUSTOM_MODEL=true after downloading model)
+      - USE_CUSTOM_MODEL=false
+      - CUSTOM_MODEL_DIR=/models/custom
+      - VISION_MODEL=qwen3-vl:8b  
+      - OLLAMA_CONTEXT_LENGTH=32768
 
 volumes:
   ollama_data:

@@ -1,0 +1,186 @@
+# Values for deploying Qwen3-VL from Hugging Face
+# This configuration downloads the model from HuggingFace and loads it as a custom model in Ollama
+
+inferenceBackend: "ollama"
+
+# Qwen3-VL Model from Hugging Face
+model:
+  name: "qwen3-vl:8b"
+  version: "1.0.0"
+  huggingface:
+    enabled: true
+    repoId: "unsloth/Qwen3-VL-8B-Instruct-GGUF"
+    token: "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"
+    # Will automatically select Q4_K_M quantization for good balance of size/quality
+    quantization: "Q4_K_M"
+    # Leave filename empty to auto-select based on quantization
+
+# Ollama Server configuration
+ollamaServer:
+  image:
+    repository: ollama/ollama
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  # Hugging Face model downloader
+  modelDownloader:
+    image:
+      repository: adithyazededa/hf-model-downloader
+      tag: "1.0.0"
+      pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 11434
+    targetPort: 11434
+  
+  config:
+    keepAlive: "10m"
+    numParallel: 2
+    debug: false
+  
+  # Model parameters optimized for Qwen3-VL
+  modelConfig:
+    temperature: 0.7
+    topK: 40
+    topP: 0.9
+    numCtx: 32768
+    repeatPenalty: 1.05
+    systemMessage: |
+      You are Qwen3-VL, a vision-language AI assistant. You can analyze images 
+      and provide detailed descriptions, answer questions about visual content,
+      and help with various vision-related tasks.
+  
+  # Don't pull additional models - use custom only
+  pullAdditionalModels: false
+  additionalModels: []
+  
+  livenessProbe:
+    httpGet:
+      path: /api/tags
+      port: http
+    initialDelaySeconds: 120
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 5
+  
+  readinessProbe:
+    httpGet:
+      path: /api/tags
+      port: http
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  # Resources for 8B model with GPU
+  resources:
+    requests:
+      memory: "12Gi"
+      cpu: "4"
+    limits:
+      memory: "24Gi"
+      cpu: "8"
+      nvidia.com/gpu: 1
+
+# GPU configuration
+gpu:
+  enabled: true
+  count: 1
+  runtimeClassName: ""
+
+# Storage configuration
+persistence:
+  ollama:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 50Gi
+  data:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 20Gi
+  sharedStorage:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 30Gi  # Qwen3-VL GGUF models are ~5-8GB
+
+# Camera configuration (for camera-agent)
+camera:
+  enabled: false
+  devicePath: /dev/video0
+  index: 0
+
+# Use the custom Qwen3-VL model
+ollama:
+  visionModel: "qwen3-vl:8b"  # This matches model.name
+  decisionModel: "qwen3-vl:8b"
+  contextLength: "32768"
+
+# Environment variables
+env:
+  FLASK_RUN_HOST: "0.0.0.0"
+  FLASK_RUN_PORT: "8080"
+  OLLAMA_URL: "http://localhost:11434"
+  LOG_LEVEL: "INFO"
+  VISION_MODEL: "qwen3-vl:8b"
+  DECISION_MODEL: "qwen3-vl:8b"
+
+# Security
+securityContext:
+  privileged: true
+
+podSecurityContext: {}
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+imagePullSecrets: []
+replicaCount: 1
+podAnnotations: {}
+
+nodeSelector: {}
+
+tolerations:
+  - key: nvidia.com/gpu
+    operator: Exists
+    effect: NoSchedule
+
+affinity: {}
+
+# Main service (if running camera-agent)
+service:
+  type: NodePort
+  port: 8080
+  nodePort: 30080
+  ollamaPort: 11434
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: camera-agent.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Main app image (camera-agent)
+image:
+  repository: adithyazededa/camera-agent
+  pullPolicy: Always
+  tag: "1.5.6-gpu"
+
+resources:
+  limits:
+    nvidia.com/gpu: 1
+  requests:
+    memory: "8Gi"
+    cpu: "2"
+
+hostNetwork: false

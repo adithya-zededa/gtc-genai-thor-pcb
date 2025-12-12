@@ -1,0 +1,331 @@
+{{- if eq .Values.inferenceBackend "ollama" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "camera-agent.fullname" . }}-ollama-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "camera-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "camera-agent.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ollama-server
+  template:
+    metadata:
+      labels:
+        {{- include "camera-agent.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: ollama-server
+    spec:
+      {{- if .Values.gpu.runtimeClassName }}
+      runtimeClassName: {{ .Values.gpu.runtimeClassName }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+      # Init container 1: Download custom model files from URL
+      - name: model-downloader
+        image: "{{ .Values.ollamaServer.modelDownloader.image.repository }}:{{ .Values.ollamaServer.modelDownloader.image.tag }}"
+        imagePullPolicy: {{ .Values.ollamaServer.modelDownloader.image.pullPolicy }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        {{- if .Values.model.huggingface.enabled }}
+        args:
+        - --repo-id={{ .Values.model.huggingface.repoId }}
+        - --hf-token={{ .Values.model.huggingface.token }}
+        - --output-dir=/app/writable/models
+        {{- if .Values.model.huggingface.filename }}
+        - --filename={{ .Values.model.huggingface.filename }}
+        {{- end }}
+        {{- if .Values.model.huggingface.quantization }}
+        - --quantization={{ .Values.model.huggingface.quantization }}
+        {{- end }}
+        env:
+        - name: HF_TOKEN
+          value: "{{ .Values.model.huggingface.token }}"
+        - name: HF_HUB_ENABLE_HF_TRANSFER
+          value: "1"
+        - name: TMPDIR
+          value: "/app/tmp"
+        {{- else if .Values.model.backendService.baseUrl }}
+        args:
+        - --model-name={{ .Values.model.name }}
+        - --model-version={{ .Values.model.version }}
+        - --backend-base-url={{ .Values.model.backendService.baseUrl }}
+        - --backend-bearer-token={{ .Values.model.backendService.bearerToken }}
+        - --backend-catalog-id={{ .Values.model.backendService.catalogId }}
+        - --output-dir=/app/writable/models
+        - --no-backup
+        env:
+        - name: MODEL_NAME
+          value: "{{ .Values.model.name }}"
+        - name: MODEL_VERSION
+          value: "{{ .Values.model.version }}"
+        - name: BACKEND_BEARER_TOKEN
+          value: "{{ .Values.model.backendService.bearerToken }}"
+        - name: BACKEND_CATALOG_ID
+          value: "{{ .Values.model.backendService.catalogId }}"
+        - name: TMPDIR
+          value: "/app/tmp"
+        - name: TEMP
+          value: "/app/tmp"
+        - name: TMP
+          value: "/app/tmp"
+        - name: INFERENCE_BACKEND
+          value: "{{ .Values.inferenceBackend }}"
+        {{- else }}
+        {{- fail "Model source configuration is required. Please set model.huggingface.enabled or model.backendService.baseUrl" }}
+        {{- end }}
+        volumeMounts:
+        - name: app-writable-volume
+          mountPath: /app/writable
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+      
+      # Init container 2: Copy model files to shared storage
+      - name: model-copier
+        image: busybox:latest
+        command: ["sh", "-c"]
+        args:
+        - |
+          echo "Copying model files from writable directory to shared storage..."
+          echo "Contents of /app/writable/models:"
+          ls -la /app/writable/models/
+          
+          if [ -d "/app/writable/models" ] && [ "$(ls -A /app/writable/models)" ]; then
+            # Copy model files to the custom models directory
+            mkdir -p /models/custom
+            cp -r /app/writable/models/* /models/custom/
+            echo "Model files copy completed successfully"
+            echo "Contents of /models/custom:"
+            ls -la /models/custom/
+            echo ""
+            echo "Custom model files:"
+            find /models/custom -type f
+          else
+            echo "Error: Model directory /app/writable/models is empty or not found"
+            exit 1
+          fi
+        volumeMounts:
+        - name: shared-storage
+          mountPath: /models
+        - name: app-writable-volume
+          mountPath: /app/writable
+      
+      # Init container 3: Create Modelfile and prepare for Ollama
+      - name: modelfile-creator
+        image: busybox:latest
+        command: ["sh", "-c"]
+        args:
+        - |
+          echo "Creating Modelfile for custom model..."
+          MODELFILE_PATH="/models/custom/Modelfile"
+          MODEL_NAME="{{ .Values.model.name }}"
+          
+          # Detect the model file (support various formats)
+          MODEL_FILE=""
+          for ext in gguf bin safetensors pt pth; do
+            FOUND=$(find /models/custom -maxdepth 2 -name "*.$ext" -type f | head -1)
+            if [ -n "$FOUND" ]; then
+              MODEL_FILE="$FOUND"
+              break
+            fi
+          done
+          
+          if [ -z "$MODEL_FILE" ]; then
+            echo "Error: No model file found in /models/custom"
+            exit 1
+          fi
+          
+          echo "Found model file: $MODEL_FILE"
+          
+          # Create Modelfile
+          cat > "$MODELFILE_PATH" << EOF
+          FROM $MODEL_FILE
+          
+          # Model parameters
+          {{- if .Values.ollamaServer.modelConfig.temperature }}
+          PARAMETER temperature {{ .Values.ollamaServer.modelConfig.temperature }}
+          {{- end }}
+          {{- if .Values.ollamaServer.modelConfig.topK }}
+          PARAMETER top_k {{ .Values.ollamaServer.modelConfig.topK }}
+          {{- end }}
+          {{- if .Values.ollamaServer.modelConfig.topP }}
+          PARAMETER top_p {{ .Values.ollamaServer.modelConfig.topP }}
+          {{- end }}
+          {{- if .Values.ollamaServer.modelConfig.numCtx }}
+          PARAMETER num_ctx {{ .Values.ollamaServer.modelConfig.numCtx }}
+          {{- end }}
+          {{- if .Values.ollamaServer.modelConfig.repeatPenalty }}
+          PARAMETER repeat_penalty {{ .Values.ollamaServer.modelConfig.repeatPenalty }}
+          {{- end }}
+          
+          # System message
+          {{- if .Values.ollamaServer.modelConfig.systemMessage }}
+          SYSTEM """{{ .Values.ollamaServer.modelConfig.systemMessage }}"""
+          {{- end }}
+          
+          # Template
+          {{- if .Values.ollamaServer.modelConfig.template }}
+          TEMPLATE """{{ .Values.ollamaServer.modelConfig.template }}"""
+          {{- end }}
+          EOF
+          
+          echo "Modelfile created successfully at $MODELFILE_PATH"
+          echo "Contents of Modelfile:"
+          cat "$MODELFILE_PATH"
+        volumeMounts:
+        - name: shared-storage
+          mountPath: /models
+      
+      containers:
+      # Main Ollama server container
+      - name: ollama-server
+        image: "{{ .Values.ollamaServer.image.repository }}:{{ .Values.ollamaServer.image.tag }}"
+        imagePullPolicy: {{ .Values.ollamaServer.image.pullPolicy }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.ollamaServer.service.targetPort }}
+          protocol: TCP
+        livenessProbe:
+          {{- toYaml .Values.ollamaServer.livenessProbe | nindent 10 }}
+        readinessProbe:
+          {{- toYaml .Values.ollamaServer.readinessProbe | nindent 10 }}
+        env:
+        - name: OLLAMA_HOST
+          value: "0.0.0.0:{{ .Values.ollamaServer.service.targetPort }}"
+        - name: OLLAMA_MODELS
+          value: "/root/.ollama/models"
+        - name: OLLAMA_KEEP_ALIVE
+          value: "{{ .Values.ollamaServer.config.keepAlive | default "5m" }}"
+        - name: OLLAMA_NUM_PARALLEL
+          value: "{{ .Values.ollamaServer.config.numParallel | default "1" }}"
+        {{- if .Values.ollamaServer.config.debug }}
+        - name: OLLAMA_DEBUG
+          value: "1"
+        {{- end }}
+        {{- if .Values.gpu.enabled }}
+        - name: OLLAMA_NUM_GPU
+          value: "{{ .Values.gpu.count | default 1 }}"
+        {{- end }}
+        - name: MODEL_NAME
+          value: "{{ .Values.model.name }}"
+        {{- with .Values.ollamaServer.env }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        volumeMounts:
+        - name: ollama-data
+          mountPath: /root/.ollama
+        - name: shared-storage
+          mountPath: /models
+        - name: app-writable-volume
+          mountPath: /app/writable
+        resources:
+          {{- toYaml .Values.ollamaServer.resources | nindent 12 }}
+      
+      # Sidecar container: Model loader - creates custom model in Ollama
+      - name: model-loader
+        image: "{{ .Values.ollamaServer.image.repository }}:{{ .Values.ollamaServer.image.tag }}"
+        imagePullPolicy: {{ .Values.ollamaServer.image.pullPolicy }}
+        command: ["sh", "-c"]
+        args:
+        - |
+          echo "Waiting for Ollama server to be ready..."
+          for i in $(seq 1 60); do
+            if curl -s http://localhost:{{ .Values.ollamaServer.service.targetPort }}/api/tags > /dev/null 2>&1; then
+              echo "Ollama server is ready"
+              break
+            fi
+            if [ $i -eq 60 ]; then
+              echo "Timeout waiting for Ollama server"
+              exit 1
+            fi
+            echo "Waiting... ($i/60)"
+            sleep 5
+          done
+          
+          MODEL_NAME="{{ .Values.model.name }}"
+          MODELFILE_PATH="/models/custom/Modelfile"
+          
+          echo "Creating custom model '$MODEL_NAME' from Modelfile..."
+          if [ -f "$MODELFILE_PATH" ]; then
+            ollama create "$MODEL_NAME" -f "$MODELFILE_PATH"
+            if [ $? -eq 0 ]; then
+              echo "Custom model '$MODEL_NAME' created successfully"
+            else
+              echo "Failed to create custom model '$MODEL_NAME'"
+              exit 1
+            fi
+          else
+            echo "Error: Modelfile not found at $MODELFILE_PATH"
+            exit 1
+          fi
+          
+          echo "Listing all models:"
+          ollama list
+          
+          {{- if .Values.ollamaServer.pullAdditionalModels }}
+          # Pull additional models if specified
+          echo "Pulling additional models..."
+          {{- range .Values.ollamaServer.additionalModels }}
+          echo "Pulling model: {{ . }}"
+          ollama pull {{ . }}
+          {{- end }}
+          {{- end }}
+          
+          echo "Model loading completed. Keeping sidecar alive..."
+          # Keep the sidecar running to maintain model availability
+          while true; do
+            sleep 3600
+          done
+        env:
+        - name: OLLAMA_HOST
+          value: "http://localhost:{{ .Values.ollamaServer.service.targetPort }}"
+        volumeMounts:
+        - name: ollama-data
+          mountPath: /root/.ollama
+        - name: shared-storage
+          mountPath: /models
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      
+      volumes:
+      - name: shared-storage
+        persistentVolumeClaim:
+          claimName: {{ include "camera-agent.fullname" . }}-shared-storage
+      - name: ollama-data
+        {{- if .Values.persistence.ollama.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ include "camera-agent.fullname" . }}-ollama
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      - name: app-writable-volume
+        emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

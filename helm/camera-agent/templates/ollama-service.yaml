@@ -1,0 +1,23 @@
+{{- if eq .Values.inferenceBackend "ollama" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "camera-agent.fullname" . }}-ollama-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "camera-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama-server
+spec:
+  type: {{ .Values.ollamaServer.service.type }}
+  ports:
+    - port: {{ .Values.ollamaServer.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+      {{- if and (eq .Values.ollamaServer.service.type "NodePort") .Values.ollamaServer.service.nodePort }}
+      nodePort: {{ .Values.ollamaServer.service.nodePort }}
+      {{- end }}
+  selector:
+    {{- include "camera-agent.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama-server
+{{- end }}

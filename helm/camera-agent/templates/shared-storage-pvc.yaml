@@ -1,0 +1,19 @@
+{{- if eq .Values.inferenceBackend "ollama" }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "camera-agent.fullname" . }}-shared-storage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "camera-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: shared-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.persistence.sharedStorage.storageClass }}
+  storageClassName: {{ .Values.persistence.sharedStorage.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.sharedStorage.size }}
+{{- end }}

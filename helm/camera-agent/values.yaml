@@ -59,25 +59,11 @@ camera:
 
 # Ollama configuration
 ollama:
-  # Model to pull on startup
-  visionModel: qwen3-vl:8b
+  # Model to use (no default - must be set)
+  visionModel: ""
+  decisionModel: ""
   # Context length for Ollama models
-  contextLength: "32000"
-
-# Persistence configuration
-persistence:
-  # Ollama models storage
-  ollama:
-    enabled: true
-    storageClass: ""
-    accessMode: ReadWriteOnce
-    size: 50Gi
-  # Application data (detected images, database)
-  data:
-    enabled: true
-    storageClass: ""
-    accessMode: ReadWriteOnce
-    size: 10Gi
+  contextLength: "32768"
 
 # Environment variables
 env:
@@ -106,3 +92,121 @@ gpu:
   # at the Docker level, not via RuntimeClass. Leave empty unless your cluster
   # specifically requires a RuntimeClass for GPU access.
   runtimeClassName: ""
+
+# Inference backend selection: "default" (embedded ollama) or "ollama" (standalone server)
+inferenceBackend: "default"
+
+# Model configuration for custom model loading
+model:
+  name: "custom-model"
+  version: "1.0.0"
+  # Hugging Face model download (preferred method)
+  huggingface:
+    enabled: false
+    repoId: "unsloth/Qwen3-VL-8B-Instruct-GGUF"
+    token: ""
+    # Optional: specific file to download
+    filename: ""
+    # Optional: quantization preference (Q4_K_M, Q5_K_M, Q8_0, etc.)
+    quantization: "Q4_K_M"
+  # Alternative: Custom backend service
+  backendService:
+    # Base URL for model download service
+    baseUrl: ""
+    # Bearer token for authentication
+    bearerToken: ""
+    # Catalog ID for the model
+    catalogId: ""
+
+# Ollama Server configuration (when inferenceBackend: "ollama")
+ollamaServer:
+  image:
+    repository: ollama/ollama
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  # Model downloader init container
+  modelDownloader:
+    image:
+      repository: adithyazededa/hf-model-downloader
+      tag: "1.0.0"
+      pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 11434
+    targetPort: 11434
+    nodePort: null
+  
+  config:
+    keepAlive: "5m"
+    numParallel: 1
+    debug: false
+  
+  # Custom model configuration
+  modelConfig:
+    temperature: 0.7
+    topK: 40
+    topP: 0.9
+    numCtx: 32000
+    repeatPenalty: 1.1
+    systemMessage: "You are a helpful AI assistant."
+    template: null
+  
+  # Additional models to pull after loading custom model
+  pullAdditionalModels: false
+  additionalModels: []
+    # - llama2:7b
+    # - mistral:7b
+  
+  livenessProbe:
+    httpGet:
+      path: /api/tags
+      port: http
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 5
+  
+  readinessProbe:
+    httpGet:
+      path: /api/tags
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  resources:
+    requests:
+      memory: "8Gi"
+      cpu: "2"
+    limits:
+      memory: "16Gi"
+      cpu: "4"
+      nvidia.com/gpu: 1
+  
+  env: []
+    # - name: CUSTOM_ENV
+    #   value: "custom-value"
+
+# Persistence configuration
+persistence:
+  # Ollama models storage
+  ollama:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 50Gi
+  # Application data (detected images, database)
+  data:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 10Gi
+  # Shared storage for model files (used by Ollama server backend)
+  sharedStorage:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 20Gi
