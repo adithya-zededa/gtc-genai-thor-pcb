@@ -54,12 +54,25 @@ spec:
               value: "/app/data/detected_images"
             - name: PROCESSED_FRAMES_DIR
               value: "/app/data/processed_frames"
+            - name: INFERENCE_BACKEND
+              value: {{ .Values.inferenceBackend | quote }}
+            {{- if eq .Values.inferenceBackend "vllm" }}
+            - name: VLLM_URL
+              value: {{ .Values.vllmServer.url | quote }}
+            - name: VISION_MODEL
+              value: {{ .Values.vllmServer.model | quote }}
+            - name: VLLM_TIMEOUT
+              value: {{ .Values.vllmServer.timeout | default 300 | quote }}
+            - name: VLLM_TEMPERATURE
+              value: {{ .Values.vllmServer.temperature | default 0.1 | quote }}
+            {{- else }}
             - name: VISION_MODEL
               value: {{ .Values.ollama.visionModel | quote }}
             - name: DECISION_MODEL
               value: {{ .Values.ollama.decisionModel | quote }}
             - name: OLLAMA_CONTEXT_LENGTH
               value: {{ .Values.ollama.contextLength | quote }}
+            {{- end }}
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}

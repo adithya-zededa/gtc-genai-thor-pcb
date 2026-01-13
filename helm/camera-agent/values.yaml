@@ -93,8 +93,50 @@ gpu:
   # specifically requires a RuntimeClass for GPU access.
   runtimeClassName: ""
 
-# Inference backend selection: "default" (embedded ollama) or "ollama" (standalone server)
-inferenceBackend: "default"
+# Inference backend selection: "vllm" (recommended), "ollama" (standalone server), or "default" (embedded ollama)
+inferenceBackend: "vllm"
+
+# vLLM Server configuration (when inferenceBackend: "vllm")
+vllmServer:
+  # URL to connect to vLLM server
+  url: "http://localhost:8000"
+  # Model to serve - full Hugging Face model name
+  model: "Qwen/Qwen3-VL-8B-Instruct"
+  # Inference timeout in seconds
+  timeout: 300
+  # Temperature for generation
+  temperature: 0.1
+  
+  # If running vLLM as a sidecar or separate deployment
+  image:
+    repository: vllm/vllm-openai
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  # vLLM server arguments
+  args:
+    # GPU memory utilization (0.0 - 1.0)
+    gpuMemoryUtilization: 0.9
+    # Maximum model length
+    maxModelLen: 32768
+    # Trust remote code (required for some models)
+    trustRemoteCode: true
+    # Enable prefix caching
+    enablePrefixCaching: true
+  
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+  
+  resources:
+    requests:
+      memory: "16Gi"
+      cpu: "4"
+    limits:
+      memory: "32Gi"
+      cpu: "8"
+      nvidia.com/gpu: 1
 
 # Model configuration for custom model loading
 model:

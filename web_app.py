@@ -42,7 +42,7 @@ from agent_runtime.utils import (
 )
 from agent_runtime.publisher import get_camera_publisher
 from agent_runtime.monitoring import StreamlinedMonitoringService
-from agent_runtime.unified_vlm import UnifiedVLMClient, TaskType, AnalysisResult
+from agent_runtime.unified_vlm import UnifiedVLMClient, TaskType, AnalysisResult, VLMBackend
 from agent_runtime.email_tools import send_email
 
 # Set up logging
@@ -58,6 +58,8 @@ ENV_DB_PATH = "CAMERA_AGENT_DB"
 ENV_DETECTED_DIR = "DETECTED_IMAGES_DIR"
 ENV_PROCESSED_DIR = "PROCESSED_FRAMES_DIR"
 ENV_OLLAMA_URL = "OLLAMA_URL"
+ENV_VLLM_URL = "VLLM_URL"
+ENV_INFERENCE_BACKEND = "INFERENCE_BACKEND"
 ENV_HTTP_TIMEOUT = "HTTP_REQUEST_TIMEOUT"
 
 DEFAULT_SECRET_KEY_BYTES = 24
@@ -97,6 +99,8 @@ PROCESSED_FRAMES_DIR = Path(
     os.getenv(ENV_PROCESSED_DIR, str(DATA_DIR / "processed_frames"))
 ).expanduser()
 OLLAMA_BASE_URL = os.getenv(ENV_OLLAMA_URL, "http://localhost:11434")
+VLLM_BASE_URL = os.getenv(ENV_VLLM_URL, "http://localhost:8000")
+INFERENCE_BACKEND = os.getenv(ENV_INFERENCE_BACKEND, "vllm")  # Default to vLLM
 
 
 def _resolve_request_timeout() -> float:
@@ -201,6 +205,52 @@ _camera_check_lock = threading.Lock()
 def _ollama_endpoint(path: str) -> str:
     base = OLLAMA_BASE_URL.rstrip("/")
     return f"{base}/{path.lstrip('/')}"
+
+
+def _create_vlm_client_from_config(config: Dict) -> UnifiedVLMClient:
+    """Create a VLM client from configuration.
+    
+    Supports both Ollama and vLLM backends based on config and environment variables.
+    Environment variables take precedence over config file settings.
+    """
+    # Check environment variable for backend selection
+    env_backend = os.getenv(ENV_INFERENCE_BACKEND, "").lower()
+    
+    # Determine backend: env var > config > default (vllm)
+    if env_backend == "vllm" or (not env_backend and config.get("vllm")):
+        # Use vLLM backend
+        vllm_cfg = config.get("vllm", {})
+        vllm_url = os.getenv(ENV_VLLM_URL) or str(vllm_cfg.get("url", "http://localhost:8000")).rstrip("/")
+        default_model = os.getenv("VISION_MODEL", "Qwen/Qwen3-VL-8B-Instruct")
+        vision_model = str(vllm_cfg.get("model", default_model))
+        timeout = int(os.getenv("VLLM_TIMEOUT", vllm_cfg.get("timeout", 300)))
+        temperature = float(os.getenv("VLLM_TEMPERATURE", vllm_cfg.get("temperature", 0.1)))
+        
+        logger.info("Creating vLLM client: url=%s, model=%s", vllm_url, vision_model)
+        return UnifiedVLMClient(
+            base_url=vllm_url,
+            model=vision_model,
+            timeout=timeout,
+            backend=VLMBackend.VLLM,
+            temperature=temperature,
+        )
+    
+    # Fall back to Ollama config
+    ollama_cfg = config.get("ollama", {})
+    ollama_url = os.getenv(ENV_OLLAMA_URL) or str(ollama_cfg.get("url", "http://localhost:11434")).rstrip("/")
+    default_model = os.getenv("VISION_MODEL", "qwen3-vl:4b")
+    vision_model = str(ollama_cfg.get("vision_model", default_model))
+    timeout = int(ollama_cfg.get("timeout", 300))
+    temperature = float(ollama_cfg.get("temperature", 0.1))
+    
+    logger.info("Creating Ollama client: url=%s, model=%s", ollama_url, vision_model)
+    return UnifiedVLMClient(
+        base_url=ollama_url,
+        model=vision_model,
+        timeout=timeout,
+        backend=VLMBackend.OLLAMA,
+        temperature=temperature,
+    )
 
 
 app = Flask(__name__)
@@ -876,10 +926,11 @@ def health_check():
     health_status = {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
+        "inference_backend": INFERENCE_BACKEND,
         "components": {
             "database": False,
             "camera": False,
-            "ollama": False,
+            "inference": False,
         }
     }
     
@@ -894,8 +945,8 @@ def health_check():
     # Check camera
     health_status["components"]["camera"] = check_camera_availability()
     
-    # Check Ollama
-    health_status["components"]["ollama"] = check_ollama_availability()
+    # Check inference backend (vLLM or Ollama)
+    health_status["components"]["inference"] = check_inference_backend_availability()
     
     # Determine overall status
     if not health_status["components"]["database"]:
@@ -1059,7 +1110,8 @@ def api_status():
             camera_agent.is_monitoring if camera_agent else False
         ),
         "camera_available": check_camera_availability(),
-        "ollama_available": check_ollama_availability(),
+        "inference_backend": INFERENCE_BACKEND,
+        "inference_available": check_inference_backend_availability(),
         "agentic_mode": prompt_config.get("agentic_mode", False),
         "stats": camera_agent._serialize_stats() if camera_agent else {},
     }
@@ -1555,6 +1607,64 @@ def api_test_camera():
         return jsonify({"success": False, "error": str(e)})
 
 
+@app.route("/api/test_inference")
+def api_test_inference():
+    """Test the configured inference backend (vLLM or Ollama)"""
+    backend = INFERENCE_BACKEND.lower()
+    try:
+        if backend == "vllm":
+            response = requests.get(
+                f"{VLLM_BASE_URL}/v1/models", timeout=REQUEST_TIMEOUT
+            )
+            response.raise_for_status()
+            data = response.json()
+            models = [m.get("id", "") for m in data.get("data", [])]
+            return jsonify({
+                "success": True,
+                "backend": "vllm",
+                "message": "vLLM connection successful",
+                "models": models
+            })
+        else:
+            response = requests.get(
+                _ollama_endpoint("api/version"), timeout=REQUEST_TIMEOUT
+            )
+            response.raise_for_status()
+            return jsonify({
+                "success": True,
+                "backend": "ollama",
+                "message": "Ollama connection successful"
+            })
+    except requests.RequestException as exc:
+        return jsonify({
+            "success": False,
+            "backend": backend,
+            "error": f"{backend} connectivity failed: {exc}"
+        })
+
+
+@app.route("/api/test_vllm")
+def api_test_vllm():
+    """Test vLLM connection"""
+    try:
+        response = requests.get(
+            f"{VLLM_BASE_URL}/v1/models", timeout=REQUEST_TIMEOUT
+        )
+        response.raise_for_status()
+        data = response.json()
+        models = [m.get("id", "") for m in data.get("data", [])]
+        return jsonify({
+            "success": True,
+            "message": "vLLM connection successful",
+            "models": models,
+            "url": VLLM_BASE_URL
+        })
+    except requests.RequestException as exc:
+        return jsonify(
+            {"success": False, "error": f"vLLM connectivity failed: {exc}"}
+        )
+
+
 @app.route("/api/test_ollama")
 def api_test_ollama():
     """Test Ollama connection"""
@@ -1665,17 +1775,7 @@ def api_analyze_prompt():
         # Initialize VLM client with configuration
         try:
             config = load_camera_config()
-            ollama_cfg = config.get("ollama", {})
-            ollama_url = str(ollama_cfg.get("url", "http://localhost:11434")).rstrip("/")
-            default_model = os.getenv("VISION_MODEL", "qwen3-vl:4b")
-            vision_model = str(ollama_cfg.get("vision_model", default_model))
-            timeout = int(ollama_cfg.get("timeout", 300))
-            
-            vlm_client = UnifiedVLMClient(
-                base_url=ollama_url,
-                model=vision_model,
-                timeout=timeout,
-            )
+            vlm_client = _create_vlm_client_from_config(config)
         except Exception as e:
             logger.error("Failed to initialize VLM client: %s", e)
             return jsonify({
@@ -1817,17 +1917,7 @@ def api_analyze_agentic():
         # Initialize VLM client with configuration
         try:
             config = load_camera_config()
-            ollama_cfg = config.get("ollama", {})
-            ollama_url = str(ollama_cfg.get("url", "http://localhost:11434")).rstrip("/")
-            default_model = os.getenv("VISION_MODEL", "qwen3-vl:4b")
-            vision_model = str(ollama_cfg.get("vision_model", default_model))
-            timeout = int(ollama_cfg.get("timeout", 300))
-            
-            vlm_client = UnifiedVLMClient(
-                base_url=ollama_url,
-                model=vision_model,
-                timeout=timeout,
-            )
+            vlm_client = _create_vlm_client_from_config(config)
             
             # Get recipients from config if not provided
             if not recipients:
@@ -2466,6 +2556,26 @@ def check_ollama_availability():
         return True
     except requests.RequestException:
         return False
+
+
+def check_vllm_availability():
+    """Check if vLLM server is available"""
+    try:
+        response = requests.get(
+            f"{VLLM_BASE_URL}/v1/models", timeout=REQUEST_TIMEOUT
+        )
+        response.raise_for_status()
+        return True
+    except requests.RequestException:
+        return False
+
+
+def check_inference_backend_availability():
+    """Check if the configured inference backend is available"""
+    backend = INFERENCE_BACKEND.lower()
+    if backend == "vllm":
+        return check_vllm_availability()
+    return check_ollama_availability()
 
 
 def update_email_recipients():

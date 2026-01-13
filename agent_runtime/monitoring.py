@@ -25,12 +25,17 @@ from camera_agent import (
     CircuitBreaker,
     DEFAULT_CONFIG_PATH,
 )
-from agent_runtime.unified_vlm import UnifiedVLMClient, TaskType
+from agent_runtime.unified_vlm import UnifiedVLMClient, TaskType, VLMBackend
 from agent_runtime.publisher import get_camera_publisher
 from agent_runtime.state import DetectionEvent
 from agent_runtime.email_tools import send_email
 
 logger = logging.getLogger(__name__)
+
+# Environment variable names
+ENV_INFERENCE_BACKEND = "INFERENCE_BACKEND"
+ENV_VLLM_URL = "VLLM_URL"
+ENV_OLLAMA_URL = "OLLAMA_URL"
 
 # Export for easy importing
 __all__ = ['StreamlinedMonitoringService']
@@ -203,27 +208,56 @@ class StreamlinedMonitoringService:
         try:
             config = StreamlinedAgent.load_config_from_path(DEFAULT_CONFIG_PATH)
             
-            # Initialize unified VLM client
-            ollama_cfg = config.get("ollama", {})
-            ollama_url = str(ollama_cfg.get("url", "http://localhost:11434")).rstrip("/")
-            default_model = os.getenv("VISION_MODEL", "qwen3-vl:4b")
-            vision_model = str(ollama_cfg.get("vision_model", default_model))
-            timeout = int(ollama_cfg.get("timeout", 300))
+            # Determine backend from environment or config
+            env_backend = os.getenv(ENV_INFERENCE_BACKEND, "").lower()
             
             # Get custom prompt if configured
             detection_cfg = config.get("detection", {})
             prompt = detection_cfg.get("prompt") if isinstance(detection_cfg, dict) else None
             
-            vlm_client = UnifiedVLMClient(
-                base_url=ollama_url,
-                model=vision_model,
-                timeout=timeout,
-                prompt=prompt,
-            )
-            
-            if not vlm_client.test_connection():
-                self.last_error = f"Cannot connect to Ollama at {ollama_url}"
-                return False
+            # Initialize VLM client based on backend
+            if env_backend == "vllm" or (not env_backend and config.get("vllm")):
+                # Use vLLM backend
+                vllm_cfg = config.get("vllm", {})
+                vllm_url = os.getenv(ENV_VLLM_URL) or str(vllm_cfg.get("url", "http://localhost:8000")).rstrip("/")
+                default_model = os.getenv("VISION_MODEL", "Qwen/Qwen3-VL-8B-Instruct")
+                vision_model = str(vllm_cfg.get("model", default_model))
+                timeout = int(os.getenv("VLLM_TIMEOUT", vllm_cfg.get("timeout", 300)))
+                temperature = float(os.getenv("VLLM_TEMPERATURE", vllm_cfg.get("temperature", 0.1)))
+                
+                logger.info("Initializing vLLM client: url=%s, model=%s", vllm_url, vision_model)
+                vlm_client = UnifiedVLMClient(
+                    base_url=vllm_url,
+                    model=vision_model,
+                    timeout=timeout,
+                    prompt=prompt,
+                    backend=VLMBackend.VLLM,
+                    temperature=temperature,
+                )
+                
+                if not vlm_client.test_connection():
+                    self.last_error = f"Cannot connect to vLLM at {vllm_url}"
+                    return False
+            else:
+                # Use Ollama backend
+                ollama_cfg = config.get("ollama", {})
+                ollama_url = os.getenv(ENV_OLLAMA_URL) or str(ollama_cfg.get("url", "http://localhost:11434")).rstrip("/")
+                default_model = os.getenv("VISION_MODEL", "qwen3-vl:4b")
+                vision_model = str(ollama_cfg.get("vision_model", default_model))
+                timeout = int(ollama_cfg.get("timeout", 300))
+                
+                logger.info("Initializing Ollama client: url=%s, model=%s", ollama_url, vision_model)
+                vlm_client = UnifiedVLMClient(
+                    base_url=ollama_url,
+                    model=vision_model,
+                    timeout=timeout,
+                    prompt=prompt,
+                    backend=VLMBackend.OLLAMA,
+                )
+                
+                if not vlm_client.test_connection():
+                    self.last_error = f"Cannot connect to Ollama at {ollama_url}"
+                    return False
             
             # Initialize circuit breaker with higher tolerance
             circuit_breaker = CircuitBreaker(

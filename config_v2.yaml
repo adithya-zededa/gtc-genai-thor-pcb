@@ -14,11 +14,17 @@ camera:
   device_index: 0
   save_detection_images: true
 
-# Unified VLM configuration - single model for both vision and decision
-ollama:
-  url: http://localhost:11434
-  vision_model: qwen3-vl:8b
+# vLLM configuration - high-performance inference backend
+vllm:
+  url: http://localhost:8000
+  model: Qwen/Qwen3-VL-8B-Instruct
   timeout: 300
+
+# Ollama configuration (legacy - used if vllm config is not present)
+# ollama:
+#   url: http://localhost:11434
+#   vision_model: qwen3-vl:8b
+#   timeout: 300
 
 # Streamlined detection prompt
 detection:

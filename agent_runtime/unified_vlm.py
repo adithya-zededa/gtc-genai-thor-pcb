@@ -9,6 +9,10 @@ The client supports dynamic prompting for multi-purpose analysis:
 - PPE (Personal Protective Equipment) detection
 - General scene description
 - Custom user-defined queries
+
+Supported backends:
+- Ollama: Local LLM server with /api/generate endpoint
+- vLLM: High-performance inference with OpenAI-compatible /v1/chat/completions endpoint
 """
 
 from __future__ import annotations
@@ -27,6 +31,12 @@ import numpy as np
 import requests
 
 logger = logging.getLogger(__name__)
+
+
+class VLMBackend(Enum):
+    """Supported VLM backend types."""
+    OLLAMA = "ollama"
+    VLLM = "vllm"
 
 
 class TaskType(Enum):
@@ -373,6 +383,8 @@ class UnifiedVLMClient:
         timeout: int = 300,
         prompt: Optional[str] = None,
         default_task_type: TaskType = TaskType.PACKAGE_DETECTION,
+        backend: VLMBackend = VLMBackend.OLLAMA,
+        temperature: float = 0.1,
     ):
         if not model:
             raise ValueError("Vision model name must be provided")
@@ -381,21 +393,32 @@ class UnifiedVLMClient:
         self.model = model
         self.timeout = timeout
         self.default_task_type = default_task_type
+        self.backend = backend
+        self.temperature = temperature
         # Use provided prompt or get from task registry
         self.prompt = prompt or TASK_PROMPTS.get(default_task_type, DEFAULT_DETECTION_PROMPT)
         self.session = requests.Session()
         user_agent = os.getenv("CAMERA_AGENT_USER_AGENT", "camera-agent/1.0")
         self.session.headers.update({"User-Agent": user_agent})
         
+        backend_name = backend.value if isinstance(backend, VLMBackend) else backend
         logger.info(
-            "Initialized Unified VLM client for model '%s' at %s (timeout=%ds)",
+            "Initialized Unified VLM client for model '%s' at %s (backend=%s, timeout=%ds)",
             model,
             self.base_url,
+            backend_name,
             timeout,
         )
         self._ensure_model_available()
 
     def _check_model_exists(self) -> bool:
+        """Check if model exists on the backend server."""
+        if self.backend == VLMBackend.VLLM:
+            return self._check_model_exists_vllm()
+        return self._check_model_exists_ollama()
+
+    def _check_model_exists_ollama(self) -> bool:
+        """Check if model exists on Ollama."""
         try:
             response = self.session.get(f"{self.base_url}/api/tags", timeout=10)
             response.raise_for_status()
@@ -410,7 +433,28 @@ class UnifiedVLMClient:
             logger.warning("Failed to check if model exists: %s", exc)
             return False
 
+    def _check_model_exists_vllm(self) -> bool:
+        """Check if model exists on vLLM server."""
+        try:
+            response = self.session.get(f"{self.base_url}/v1/models", timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            models = data.get("data", [])
+            for model_info in models:
+                model_id = model_info.get("id", "")
+                if model_id == self.model or self.model in model_id:
+                    return True
+            # If we get a response, the server is up - model might be the only one loaded
+            return len(models) > 0
+        except Exception as exc:
+            logger.warning("Failed to check if model exists on vLLM: %s", exc)
+            return False
+
     def _pull_model(self) -> bool:
+        """Pull model - only applicable for Ollama backend."""
+        if self.backend == VLMBackend.VLLM:
+            logger.info("vLLM does not support model pulling - model must be pre-loaded")
+            return False
         try:
             logger.info("🔄 Pulling model '%s'...", self.model)
             payload = {"name": self.model, "stream": False}
@@ -427,18 +471,33 @@ class UnifiedVLMClient:
             return False
 
     def _ensure_model_available(self) -> None:
+        """Ensure the model is available on the backend."""
         if not self._check_model_exists():
-            logger.warning("Model '%s' not found. Attempting to pull...", self.model)
-            if not self._pull_model():
-                logger.error(
-                    "Could not pull model '%s'. Run 'ollama pull %s' manually.",
+            if self.backend == VLMBackend.VLLM:
+                logger.warning(
+                    "Model '%s' not found on vLLM server. Ensure vLLM is running with: "
+                    "vllm serve '%s'",
                     self.model,
                     self.model,
                 )
+            else:
+                logger.warning("Model '%s' not found. Attempting to pull...", self.model)
+                if not self._pull_model():
+                    logger.error(
+                        "Could not pull model '%s'. Run 'ollama pull %s' manually.",
+                        self.model,
+                        self.model,
+                    )
         else:
             logger.info("Model '%s' is available", self.model)
 
     def test_connection(self) -> bool:
+        """Test connectivity to the VLM backend."""
+        if self.backend == VLMBackend.VLLM:
+            return self._test_connection_vllm()
+        return self._test_connection_ollama()
+
+    def _test_connection_ollama(self) -> bool:
         """Test connectivity to Ollama."""
         try:
             response = self.session.get(f"{self.base_url}/api/version", timeout=10)
@@ -447,6 +506,17 @@ class UnifiedVLMClient:
             return True
         except Exception as exc:
             logger.error("Ollama connection test failed: %s", exc)
+            return False
+
+    def _test_connection_vllm(self) -> bool:
+        """Test connectivity to vLLM."""
+        try:
+            response = self.session.get(f"{self.base_url}/v1/models", timeout=10)
+            response.raise_for_status()
+            logger.info("vLLM connection test successful")
+            return True
+        except Exception as exc:
+            logger.error("vLLM connection test failed: %s", exc)
             return False
 
     def _encode_frame(self, frame: np.ndarray) -> str:
@@ -604,6 +674,73 @@ class UnifiedVLMClient:
             RuntimeError: If model is not available
             requests.exceptions.RequestException: If request fails
         """
+        if self.backend == VLMBackend.VLLM:
+            return self._send_vllm_request(prompt, base64_image)
+        return self._send_ollama_request(prompt, base64_image)
+
+    def _send_vllm_request(self, prompt: str, base64_image: str) -> str:
+        """Send request to vLLM using OpenAI-compatible chat completions API.
+        
+        Args:
+            prompt: The prompt to send
+            base64_image: Base64 encoded image
+            
+        Returns:
+            Raw response text from vLLM
+        """
+        # Build the message with image content (OpenAI vision format)
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": prompt
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}"
+                        }
+                    }
+                ]
+            }
+        ]
+        
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": self.temperature,
+            "max_tokens": 1024,
+        }
+        
+        logger.debug("Sending request to vLLM (task prompt length: %d)", len(prompt))
+        response = self.session.post(
+            f"{self.base_url}/v1/chat/completions",
+            json=payload,
+            timeout=self.timeout,
+        )
+        
+        response.raise_for_status()
+        result = response.json()
+        
+        # Extract the assistant's response from OpenAI format
+        choices = result.get("choices", [])
+        if choices:
+            message = choices[0].get("message", {})
+            return message.get("content", "")
+        return ""
+
+    def _send_ollama_request(self, prompt: str, base64_image: str) -> str:
+        """Send request to Ollama using the generate API.
+        
+        Args:
+            prompt: The prompt to send
+            base64_image: Base64 encoded image
+            
+        Returns:
+            Raw response text from Ollama
+        """
         payload = {
             "model": self.model,
             "prompt": prompt,
@@ -611,7 +748,7 @@ class UnifiedVLMClient:
             "stream": False,
         }
         
-        logger.debug("Sending request to VLM (task prompt length: %d)", len(prompt))
+        logger.debug("Sending request to Ollama (task prompt length: %d)", len(prompt))
         response = self.session.post(
             f"{self.base_url}/api/generate",
             json=payload,
