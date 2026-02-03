@@ -1,4 +1,4 @@
-from agent_runtime.state import AgentMemory
+from agents.state import AgentMemory
 from dataclasses import asdict
 
 

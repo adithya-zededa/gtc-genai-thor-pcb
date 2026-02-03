@@ -3,9 +3,9 @@
 replicaCount: 1
 
 image:
-  repository: adithyazededa/camera-agent
+  repository: adithyazededa/camera-agent-thor-vllm
   pullPolicy: Always
-  tag: "1.5.6-gpu"
+  tag: "v100"
 
 imagePullSecrets: []
 nameOverride: ""
@@ -16,9 +16,15 @@ serviceAccount:
   annotations: {}
   name: ""
 
+# RBAC for Kubernetes API access (pod/service listing)
+rbac:
+  create: true
+
 podAnnotations: {}
 
-podSecurityContext: {}
+podSecurityContext:
+  # Add video group (44) for camera access
+  supplementalGroups: [44]
 
 securityContext:
   privileged: true  # Required for camera and GPU access
@@ -27,8 +33,6 @@ service:
   type: NodePort
   port: 8080
   nodePort: 30080
-  # Ollama port (internal)
-  ollamaPort: 11434
 
 ingress:
   enabled: false
@@ -41,35 +45,27 @@ ingress:
           pathType: Prefix
   tls: []
 
+# Resources for camera-agent (NOTE: when vllmServer.enabled=true, GPU is on vLLM pod)
 resources:
-  limits:
-    nvidia.com/gpu: 1
+  limits: {}
+    # nvidia.com/gpu: 1  # Only needed if running local inference
   requests:
-    memory: "25Gi"
-    cpu: "2"
+    memory: "2Gi"
+    cpu: "500m"
 
 # Camera device configuration
 camera:
   # Enable camera device mount (set to false if no camera available)
-  enabled: false
+  enabled: true
   # Device path on the host
   devicePath: /dev/video0
   # Camera index used by OpenCV
   index: 0
 
-# Ollama configuration
-ollama:
-  # Model to use (no default - must be set)
-  visionModel: ""
-  decisionModel: ""
-  # Context length for Ollama models
-  contextLength: "32768"
-
 # Environment variables
 env:
   FLASK_RUN_HOST: "0.0.0.0"
   FLASK_RUN_PORT: "8080"
-  OLLAMA_URL: "http://localhost:11434"
   LOG_LEVEL: "INFO"
 
 nodeSelector: {}
@@ -82,9 +78,9 @@ tolerations:
 
 affinity: {}
 
-# GPU scheduling - requires NVIDIA device plugin
+# GPU scheduling for camera-agent (not needed when vllmServer.enabled=true)
 gpu:
-  enabled: true
+  enabled: false  # GPU is on vLLM pod, not camera-agent
   # Number of GPUs to request
   count: 1
   # RuntimeClassName for NVIDIA GPU access (set to empty to disable)
@@ -93,41 +89,74 @@ gpu:
   # specifically requires a RuntimeClass for GPU access.
   runtimeClassName: ""
 
-# Inference backend selection: "vllm" (recommended), "ollama" (standalone server), or "default" (embedded ollama)
-inferenceBackend: "vllm"
-
-# vLLM Server configuration (when inferenceBackend: "vllm")
+# vLLM Server configuration
 vllmServer:
-  # URL to connect to vLLM server
-  url: "http://localhost:8000"
+  # Enable vLLM server deployment
+  enabled: true
+  # URL to connect to vLLM server (auto-set when enabled, or override for external vLLM)
+  url: ""
   # Model to serve - full Hugging Face model name
   model: "Qwen/Qwen3-VL-8B-Instruct"
   # Inference timeout in seconds
   timeout: 300
   # Temperature for generation
   temperature: 0.1
+  # Hugging Face token for gated models (optional)
+  huggingfaceToken: ""
+  # RuntimeClassName for GPU access (optional)
+  runtimeClassName: ""
   
-  # If running vLLM as a sidecar or separate deployment
+  # vLLM container image - using NVIDIA Triton Server with vLLM
   image:
-    repository: vllm/vllm-openai
-    tag: "latest"
+    repository: nvcr.io/nvidia/tritonserver
+    tag: "25.12-vllm-python-py3"
     pullPolicy: IfNotPresent
   
   # vLLM server arguments
   args:
+    # Tensor parallel size
+    tensorParallelSize: 1
     # GPU memory utilization (0.0 - 1.0)
-    gpuMemoryUtilization: 0.9
-    # Maximum model length
-    maxModelLen: 32768
+    gpuMemoryUtilization: 0.85
+    # Maximum model length (needs to be large enough for image tokens + tools prompt)
+    maxModelLen: 16000
+    # Data type (auto, float16, bfloat16, float32)
+    dtype: "auto"
     # Trust remote code (required for some models)
     trustRemoteCode: true
     # Enable prefix caching
     enablePrefixCaching: true
   
+  # Extra args to pass to vLLM
+  extraArgs: []
+  
+  # Extra environment variables
+  env: []
+  
   service:
     type: ClusterIP
     port: 8000
-    targetPort: 8000
+  
+  # Persistence for model cache
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 50Gi
+  
+  # Liveness probe - increased delay for model download/loading (can take 10+ minutes)
+  livenessProbe:
+    initialDelaySeconds: 600
+    periodSeconds: 60
+    timeoutSeconds: 30
+    failureThreshold: 10
+  
+  # Readiness probe - model loading can take several minutes  
+  readinessProbe:
+    initialDelaySeconds: 300
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 30
   
   resources:
     requests:
@@ -160,93 +189,15 @@ model:
     # Catalog ID for the model
     catalogId: ""
 
-# Ollama Server configuration (when inferenceBackend: "ollama")
-ollamaServer:
-  image:
-    repository: ollama/ollama
-    tag: "latest"
-    pullPolicy: IfNotPresent
-  
-  # Model downloader init container
-  modelDownloader:
-    image:
-      repository: adithyazededa/hf-model-downloader
-      tag: "1.0.0"
-      pullPolicy: IfNotPresent
-  
-  service:
-    type: ClusterIP
-    port: 11434
-    targetPort: 11434
-    nodePort: null
-  
-  config:
-    keepAlive: "5m"
-    numParallel: 1
-    debug: false
-  
-  # Custom model configuration
-  modelConfig:
-    temperature: 0.7
-    topK: 40
-    topP: 0.9
-    numCtx: 32000
-    repeatPenalty: 1.1
-    systemMessage: "You are a helpful AI assistant."
-    template: null
-  
-  # Additional models to pull after loading custom model
-  pullAdditionalModels: false
-  additionalModels: []
-    # - llama2:7b
-    # - mistral:7b
-  
-  livenessProbe:
-    httpGet:
-      path: /api/tags
-      port: http
-    initialDelaySeconds: 60
-    periodSeconds: 30
-    timeoutSeconds: 10
-    failureThreshold: 5
-  
-  readinessProbe:
-    httpGet:
-      path: /api/tags
-      port: http
-    initialDelaySeconds: 30
-    periodSeconds: 10
-    timeoutSeconds: 5
-    failureThreshold: 3
-  
-  resources:
-    requests:
-      memory: "8Gi"
-      cpu: "2"
-    limits:
-      memory: "16Gi"
-      cpu: "4"
-      nvidia.com/gpu: 1
-  
-  env: []
-    # - name: CUSTOM_ENV
-    #   value: "custom-value"
-
 # Persistence configuration
 persistence:
-  # Ollama models storage
-  ollama:
-    enabled: true
-    storageClass: ""
-    accessMode: ReadWriteOnce
-    size: 50Gi
   # Application data (detected images, database)
   data:
     enabled: true
     storageClass: ""
     accessMode: ReadWriteOnce
     size: 10Gi
-  # Shared storage for model files (used by Ollama server backend)
+  # Shared storage for model files (used by vLLM)
   sharedStorage:
     enabled: true
     storageClass: ""

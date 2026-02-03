@@ -7,7 +7,7 @@ import pytest
 
 import cv2
 
-from agent_runtime.publisher import CameraFeedPublisher, CameraFrame
+from services.camera_service import CameraFeedPublisher, CameraFrame
 
 
 class FakeCapture:

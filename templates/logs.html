@@ -669,10 +669,15 @@
         const totalEvents = filteredLogs.length;
         const detections = filteredLogs.filter(log => log.detected).length;
         const detectionRate = totalEvents > 0 ? ((detections / totalEvents) * 100).toFixed(1) : 0;
+        const agenticEvents = filteredLogs.filter(log => 
+            log.agentic_mode || 
+            (log.decision_details && log.decision_details.classification === 'AGENTIC_ANALYSIS')
+        ).length;
         
         document.getElementById('total-events').textContent = totalEvents;
         document.getElementById('total-detections').textContent = detections;
         document.getElementById('detection-rate').textContent = detectionRate + '%';
+        document.getElementById('agentic-events').textContent = agenticEvents;
     }
     
     // Update pagination

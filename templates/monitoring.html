@@ -3,6 +3,36 @@
 {% block title %}Live Monitoring - ZEDEDA Camera Agent{% endblock %}
 {% block page_title %}Live Monitoring{% endblock %}
 
+{% block extra_head %}
+<style>
+    /* Tool card expand/collapse styles */
+    .tool-card .tool-description {
+        display: -webkit-box;
+        -webkit-line-clamp: 1;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        transition: all 0.2s ease;
+    }
+    
+    .tool-card.expanded .tool-description {
+        -webkit-line-clamp: unset;
+        display: block;
+    }
+    
+    .tool-card .tool-expand-icon {
+        transition: transform 0.2s ease;
+    }
+    
+    .tool-card.expanded .tool-expand-icon {
+        transform: rotate(180deg);
+    }
+    
+    .tool-card:hover {
+        background: var(--color-surface-hover, rgba(0, 0, 0, 0.02)) !important;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
     <div class="lg:col-span-2">
@@ -40,7 +70,7 @@
 
                 <div id="detection-overlay" class="absolute inset-0 hidden" style="border: 3px solid #ff3b30;"></div>
                 <div id="detection-badge" class="absolute top-3 right-3 hidden rounded-full px-4 py-2 text-xs font-semibold text-white" style="background: linear-gradient(180deg, #ff6b6b 0%, #ff3b30 100%); box-shadow: 0 4px 16px rgba(255, 59, 48, 0.4);">
-                    Packaging Box Detected
+                    Detection
                 </div>
             </div>
 
@@ -167,7 +197,10 @@
                 <i class="fas fa-save mr-1.5"></i>Save & Apply
             </button>
             <button id="test-agentic-prompt" class="px-4 py-2 text-xs font-medium rounded-lg transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
-                <i class="fas fa-flask mr-1.5"></i>Test with Image
+                <i class="fas fa-flask mr-1.5"></i>Test with Current Frame
+            </button>
+            <button id="test-uploaded-image-btn" onclick="openTestImageModal()" class="px-4 py-2 text-xs font-medium rounded-lg transition" style="background: linear-gradient(135deg, rgba(175, 82, 222, 0.15) 0%, rgba(175, 82, 222, 0.05) 100%); color: #af52de; border: 0.5px solid rgba(175, 82, 222, 0.3);">
+                <i class="fas fa-upload mr-1.5"></i>Test with Uploaded Image
             </button>
         </div>
         
@@ -353,12 +386,46 @@
             return;
         }
 
-        const labelStatus = event.shipping_label_present === true
-            ? 'Shipping label visible'
-            : event.shipping_label_present === false
-                ? 'No shipping label visible'
-                : 'Shipping label status unknown';
-    const shouldAlert = event.should_alert === true;
+        // Generate dynamic badge text based on task type
+        const taskType = event.task_type || 'package_detection';
+        const shouldAlert = event.should_alert === true;
+        const primaryLabel = event.primary_label || '';
+        
+        let badgeText = 'Detection';
+        let badgeTitle = '';
+        
+        switch (taskType) {
+            case 'package_detection':
+                const labelStatus = event.shipping_label_present === true
+                    ? 'Shipping label visible'
+                    : event.shipping_label_present === false
+                        ? 'No shipping label visible'
+                        : 'Shipping label status unknown';
+                badgeText = shouldAlert ? 'Unlabeled Packaging Box' : 'Packaging Box (Label Visible)';
+                badgeTitle = labelStatus;
+                break;
+            case 'ppe_detection':
+                badgeText = shouldAlert ? 'PPE Violation Detected' : 'PPE Compliance OK';
+                badgeTitle = 'Personal Protective Equipment check';
+                break;
+            case 'person_counting':
+                badgeText = 'Person Detected';
+                badgeTitle = 'Person counting detection';
+                break;
+            case 'scene_description':
+                badgeText = 'Scene Analyzed';
+                badgeTitle = 'Scene description completed';
+                break;
+            case 'custom':
+                // Use primary label or response for custom detections
+                badgeText = shouldAlert ? 'Alert Triggered' : 'Condition Detected';
+                badgeTitle = primaryLabel || 'Custom detection';
+                break;
+            default:
+                badgeText = shouldAlert ? 'Alert' : 'Detection';
+                badgeTitle = primaryLabel || taskType;
+        }
+        
     const labelAnalysisSummary = event.label_analysis_summary || '';
     const packagingAnalysisSummary = event.packaging_analysis_summary || '';
     const toolsUsed = Array.isArray(event.tools_used) ? event.tools_used : [];
@@ -372,9 +439,9 @@
 
         const badgeColor = shouldAlert ? 'bg-rose-500' : 'bg-amber-500';
         badge.className = `absolute top-4 right-4 rounded-full px-4 py-2 text-sm font-semibold text-white shadow-lg ${badgeColor}`;
-        badge.textContent = shouldAlert ? 'Unlabeled Packaging Box' : 'Packaging Box (Label Visible)';
+        badge.textContent = badgeText;
     const badgeDetail = summaryParts.join(' • ');
-    badge.setAttribute('title', `${labelStatus} • Confidence ${Math.round(event.confidence * 100)}%${badgeDetail ? ' • ' + badgeDetail : ''}`);
+    badge.setAttribute('title', `${badgeTitle} • Confidence ${Math.round(event.confidence * 100)}%${badgeDetail ? ' • ' + badgeDetail : ''}`);
         
         // Show detection indicators
         overlay.classList.remove('hidden');
@@ -610,7 +677,7 @@
             <div class="rounded-xl py-8 text-center" style="border: 1px dashed var(--color-border); background: rgba(0, 0, 0, 0.02); color: var(--color-text-secondary);">
                 <i class="fas fa-search text-2xl mb-2 opacity-60"></i>
                 <p class="text-sm font-medium">No detections yet</p>
-                <p class="text-xs opacity-70">Detections will appear here when packaging boxes are detected</p>
+                <p class="text-xs opacity-70">Detections will appear here when objects are detected</p>
             </div>
         `;
         detectionCount = 0;
@@ -626,9 +693,30 @@
         }
         updateLatestAnalysis(data.event.response);
         
-        // Flash the page title
+        // Flash the page title with dynamic text based on task type
         const shouldAlert = data.event.should_alert === true;
-        document.title = shouldAlert ? '🚨 Unlabeled Box Detected - Live Monitoring' : 'ℹ️ Labeled Box Detected - Live Monitoring';
+        const taskType = data.event.task_type || 'package_detection';
+        let titleText = shouldAlert ? '🚨 Alert' : 'ℹ️ Detection';
+        
+        switch (taskType) {
+            case 'package_detection':
+                titleText = shouldAlert ? '🚨 Unlabeled Box Detected' : 'ℹ️ Labeled Box Detected';
+                break;
+            case 'ppe_detection':
+                titleText = shouldAlert ? '🚨 PPE Violation' : 'ℹ️ PPE OK';
+                break;
+            case 'person_counting':
+                titleText = 'ℹ️ Person Detected';
+                break;
+            case 'scene_description':
+                titleText = 'ℹ️ Scene Analyzed';
+                break;
+            case 'custom':
+                titleText = shouldAlert ? '🚨 Custom Alert' : 'ℹ️ Custom Detection';
+                break;
+        }
+        
+        document.title = `${titleText} - Live Monitoring`;
         setTimeout(() => {
             document.title = 'Live Monitoring - ZEDEDA Camera Agent';
         }, 3000);
@@ -727,12 +815,16 @@
             
             if (result && result.tools && result.tools.length > 0) {
                 container.innerHTML = result.tools.map(tool => `
-                    <div class="flex items-center gap-2 px-3 py-2 rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
-                        <i class="fas fa-${getToolIcon(tool.name)}" style="color: #af52de; width: 16px;"></i>
-                        <div>
+                    <div class="tool-card flex items-start gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all" 
+                         style="background: var(--color-surface); border: 0.5px solid var(--color-border);"
+                         onclick="this.classList.toggle('expanded')"
+                         title="Click to expand">
+                        <i class="fas fa-${getToolIcon(tool.name)} mt-0.5" style="color: #af52de; width: 16px; flex-shrink: 0;"></i>
+                        <div class="min-w-0 flex-1">
                             <div class="text-xs font-medium" style="color: var(--color-text-primary);">${tool.name}</div>
-                            <div class="text-xs" style="color: var(--color-text-tertiary);">${tool.description.substring(0, 40)}...</div>
+                            <div class="tool-description text-xs" style="color: var(--color-text-tertiary);">${tool.description}</div>
                         </div>
+                        <i class="fas fa-chevron-down text-xs mt-0.5 tool-expand-icon transition-transform" style="color: var(--color-text-tertiary); flex-shrink: 0;"></i>
                     </div>
                 `).join('');
             } else {

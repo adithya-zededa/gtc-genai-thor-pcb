@@ -31,7 +31,7 @@
     <!-- Top Toolbar (macOS vibrancy) -->
     <header class="toolbar flex items-center justify-between px-6 h-14 select-none">
         <div class="flex items-center gap-4">
-            <img src="{{ url_for('static', filename='zededa-logo.png') }}" class="h-6 opacity-95" alt="ZEDEDA" />
+            <img src="{{ url_for('static', filename='logo-ai-flows.png') }}" class="h-8 opacity-95" alt="AI Flows" />
             <h1 class="text-[17px] font-semibold tracking-tight">
                 {% block page_title %}Dashboard{% endblock %}
             </h1>
@@ -40,13 +40,13 @@
         <div class="flex items-center gap-3">
             <!-- System Status -->
             <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full surface text-xs">
-                <span class="status-indicator" id="camera-status"></span>
+                <span class="status-indicator status-checking" id="camera-status"></span>
                 <span style="color: var(--z-text-secondary);">Camera</span>
                 <div class="w-px h-3" style="background: var(--z-border);"></div>
-                <span class="status-indicator" id="ollama-status"></span>
+                <span class="status-indicator status-checking" id="ollama-status"></span>
                 <span style="color: var(--z-text-secondary);">AI</span>
                 <div class="w-px h-3" style="background: var(--z-border);"></div>
-                <span class="status-indicator" id="monitoring-status"></span>
+                <span class="status-indicator status-checking" id="monitoring-status"></span>
                 <span style="color: var(--z-text-secondary);">Analysis</span>
             </div>
 
@@ -113,6 +113,119 @@
         <div class="text-center">
             <i class="fas fa-spinner fa-spin text-3xl mb-4" style="color: var(--z-blue);"></i>
             <p class="text-base font-medium">Loading...</p>
+        </div>
+    </div>
+
+    <!-- Test Image Upload Modal -->
+    <div id="test-image-modal" class="fixed inset-0 z-50 hidden" style="background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="surface rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden" style="border: 0.5px solid var(--z-border);">
+                <!-- Modal Header -->
+                <div class="px-6 py-4 flex items-center justify-between" style="border-bottom: 0.5px solid var(--z-border); background: rgba(0,0,0,0.02);">
+                    <div class="flex items-center gap-3">
+                        <div class="h-9 w-9 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, rgba(175, 82, 222, 0.15) 0%, rgba(175, 82, 222, 0.05) 100%);">
+                            <i class="fas fa-image" style="color: #af52de;"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-base font-semibold" style="color: var(--z-text-primary);">Test with Uploaded Image</h3>
+                            <p class="text-xs" style="color: var(--z-text-secondary);">Upload an image for agent analysis</p>
+                        </div>
+                    </div>
+                    <button onclick="closeTestImageModal()" class="h-8 w-8 rounded-lg flex items-center justify-center hover:bg-black/5 transition">
+                        <i class="fas fa-times" style="color: var(--z-text-secondary);"></i>
+                    </button>
+                </div>
+
+                <!-- Modal Body -->
+                <div class="p-6 space-y-4">
+                    <!-- Drop Zone -->
+                    <div id="image-drop-zone" 
+                         class="border-2 border-dashed rounded-xl p-8 text-center transition cursor-pointer hover:border-purple-400"
+                         style="border-color: var(--z-border); background: rgba(0,0,0,0.01);"
+                         ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)" onclick="document.getElementById('image-file-input').click()">
+                        <div id="drop-zone-content">
+                            <i class="fas fa-cloud-upload-alt text-4xl mb-3" style="color: var(--z-text-tertiary);"></i>
+                            <p class="text-sm font-medium" style="color: var(--z-text-secondary);">Drop image here or click to browse</p>
+                            <p class="text-xs mt-1" style="color: var(--z-text-tertiary);">Supports JPEG, PNG, WebP</p>
+                        </div>
+                        <div id="image-preview-container" class="hidden">
+                            <img id="image-preview" class="max-h-48 mx-auto rounded-lg shadow" />
+                            <p id="image-filename" class="text-xs mt-2" style="color: var(--z-text-secondary);"></p>
+                        </div>
+                    </div>
+                    <input type="file" id="image-file-input" accept="image/*" class="hidden" onchange="handleFileSelect(this.files)" />
+
+                    <!-- Options -->
+                    <div class="space-y-3">
+                        <!-- Task Type Selection -->
+                        <div>
+                            <label class="block text-xs font-medium mb-1.5" style="color: var(--z-text-secondary);">Analysis Type</label>
+                            <select id="test-task-type" 
+                                    class="w-full px-3 py-2 text-sm rounded-lg"
+                                    style="background: var(--z-surface); border: 0.5px solid var(--z-border); color: var(--z-text-primary);">
+                                <option value="package_detection">Package Detection</option>
+                                <option value="ppe_detection">PPE/Safety Detection</option>
+                                <option value="person_counting">Person Counting</option>
+                                <option value="scene_description">Scene Description</option>
+                                <option value="custom">Custom Analysis</option>
+                            </select>
+                        </div>
+
+                        <!-- Agentic Mode Toggle -->
+                        <div class="flex items-center justify-between p-3 rounded-xl" style="background: rgba(0,0,0,0.02); border: 0.5px solid var(--z-border);">
+                            <div class="flex items-center gap-2">
+                                <i class="fas fa-robot text-sm" style="color: #af52de;"></i>
+                                <span class="text-sm font-medium" style="color: var(--z-text-primary);">Agentic Mode</span>
+                                <span class="text-xs px-1.5 py-0.5 rounded" style="background: rgba(175, 82, 222, 0.1); color: #af52de;">AI Tools</span>
+                            </div>
+                            <label class="toggle-switch" style="transform: scale(0.8);">
+                                <input type="checkbox" id="test-agentic-toggle">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+
+                        <!-- Custom Prompt (optional) -->
+                        <div id="custom-prompt-container">
+                            <label class="block text-xs font-medium mb-1.5" style="color: var(--z-text-secondary);">Custom Prompt <span id="prompt-required-label" class="hidden text-red-500">*</span></label>
+                            <textarea id="test-custom-prompt" rows="2" 
+                                      class="w-full px-3 py-2 text-sm rounded-lg resize-none"
+                                      style="background: var(--z-surface); border: 0.5px solid var(--z-border); color: var(--z-text-primary);"
+                                      placeholder="e.g., Check if there are any safety hazards in this image"></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Result Display -->
+                    <div id="test-result-container" class="hidden">
+                        <div class="p-4 rounded-xl" style="background: rgba(0,0,0,0.02); border: 0.5px solid var(--z-border);">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span id="test-result-icon"></span>
+                                <span id="test-result-status" class="text-sm font-semibold"></span>
+                                <span id="test-result-latency" class="text-xs ml-auto" style="color: var(--z-text-tertiary);"></span>
+                            </div>
+                            <p id="test-result-reasoning" class="text-sm" style="color: var(--z-text-secondary);"></p>
+                            <div id="test-result-tools" class="mt-2 hidden">
+                                <p class="text-xs font-medium" style="color: var(--z-text-tertiary);">Tools Used:</p>
+                                <p id="test-result-tools-list" class="text-xs" style="color: #af52de;"></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal Footer -->
+                <div class="px-6 py-4 flex items-center justify-end gap-3" style="border-top: 0.5px solid var(--z-border); background: rgba(0,0,0,0.02);">
+                    <button onclick="closeTestImageModal()" 
+                            class="px-4 py-2 text-sm font-medium rounded-lg transition hover:opacity-80"
+                            style="color: var(--z-text-secondary);">
+                        Cancel
+                    </button>
+                    <button id="analyze-image-btn" onclick="analyzeUploadedImage()" 
+                            class="px-4 py-2 text-sm font-medium rounded-lg text-white transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                            style="background: linear-gradient(135deg, #af52de 0%, #8e44ad 100%);"
+                            disabled>
+                        <i class="fas fa-magic mr-2"></i>Analyze
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -247,7 +360,7 @@
                 document.getElementById('camera-status').className = 
                     'status-indicator ' + (status.camera_available ? 'status-online' : 'status-offline');
                 document.getElementById('ollama-status').className = 
-                    'status-indicator ' + (status.ollama_available ? 'status-online' : 'status-offline');
+                    'status-indicator ' + (status.inference_available ? 'status-online' : 'status-offline');
                 updateMonitoringStatus(status.monitoring_active);
             }
         }
@@ -255,6 +368,217 @@
         // Default event handlers (can be overridden)
         function handleDetectionEvent(data) {}
         function handleFrameUpdate(data) {}
+        
+        // ========================================
+        // Test Image Upload Modal Functions
+        // ========================================
+        let selectedImageFile = null;
+        
+        function openTestImageModal() {
+            document.getElementById('test-image-modal').classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+            // Reset state
+            resetTestImageModal();
+        }
+        
+        function closeTestImageModal() {
+            document.getElementById('test-image-modal').classList.add('hidden');
+            document.body.style.overflow = '';
+            resetTestImageModal();
+        }
+        
+        function resetTestImageModal() {
+            selectedImageFile = null;
+            document.getElementById('image-file-input').value = '';
+            document.getElementById('drop-zone-content').classList.remove('hidden');
+            document.getElementById('image-preview-container').classList.add('hidden');
+            document.getElementById('test-result-container').classList.add('hidden');
+            document.getElementById('analyze-image-btn').disabled = true;
+            document.getElementById('test-custom-prompt').value = '';
+            document.getElementById('test-task-type').value = 'package_detection';
+            document.getElementById('test-agentic-toggle').checked = false;
+            updateCustomPromptVisibility();
+            // Reset drop zone styling
+            document.getElementById('image-drop-zone').style.borderColor = 'var(--z-border)';
+        }
+        
+        function updateCustomPromptVisibility() {
+            const taskType = document.getElementById('test-task-type').value;
+            const requiredLabel = document.getElementById('prompt-required-label');
+            if (taskType === 'custom') {
+                requiredLabel.classList.remove('hidden');
+            } else {
+                requiredLabel.classList.add('hidden');
+            }
+        }
+        
+        function handleDragOver(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            document.getElementById('image-drop-zone').style.borderColor = '#af52de';
+        }
+        
+        function handleDragLeave(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            document.getElementById('image-drop-zone').style.borderColor = 'var(--z-border)';
+        }
+        
+        function handleDrop(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            document.getElementById('image-drop-zone').style.borderColor = 'var(--z-border)';
+            
+            const files = event.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileSelect(files);
+            }
+        }
+        
+        function handleFileSelect(files) {
+            if (files.length === 0) return;
+            
+            const file = files[0];
+            if (!file.type.startsWith('image/')) {
+                showToast('Please select an image file', 'error');
+                return;
+            }
+            
+            selectedImageFile = file;
+            
+            // Show preview
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                document.getElementById('image-preview').src = e.target.result;
+                document.getElementById('image-filename').textContent = file.name;
+                document.getElementById('drop-zone-content').classList.add('hidden');
+                document.getElementById('image-preview-container').classList.remove('hidden');
+                document.getElementById('analyze-image-btn').disabled = false;
+            };
+            reader.readAsDataURL(file);
+            
+            // Hide previous results
+            document.getElementById('test-result-container').classList.add('hidden');
+        }
+        
+        async function analyzeUploadedImage() {
+            if (!selectedImageFile) {
+                showToast('Please select an image first', 'error');
+                return;
+            }
+            
+            const analyzeBtn = document.getElementById('analyze-image-btn');
+            const originalText = analyzeBtn.innerHTML;
+            analyzeBtn.disabled = true;
+            analyzeBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Analyzing...';
+            
+            // Hide previous results
+            document.getElementById('test-result-container').classList.add('hidden');
+            
+            try {
+                const formData = new FormData();
+                formData.append('image', selectedImageFile);
+                
+                // Add options
+                const taskType = document.getElementById('test-task-type').value;
+                const agenticMode = document.getElementById('test-agentic-toggle').checked;
+                const customPrompt = document.getElementById('test-custom-prompt').value.trim();
+                
+                formData.append('task_type', taskType);
+                
+                if (agenticMode) {
+                    formData.append('agentic_mode', 'true');
+                }
+                if (customPrompt) {
+                    formData.append('custom_prompt', customPrompt);
+                }
+                
+                const response = await fetch('/api/analyze_uploaded_image', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayTestResult(result);
+                    showToast('Analysis complete!', 'success');
+                } else {
+                    showToast(result.error || 'Analysis failed', 'error');
+                    // Show error in result container too
+                    displayTestError(result.error || 'Analysis failed');
+                }
+            } catch (error) {
+                console.error('Analysis failed:', error);
+                showToast('Analysis failed: ' + error.message, 'error');
+                displayTestError('Network error: ' + error.message);
+            } finally {
+                analyzeBtn.disabled = false;
+                analyzeBtn.innerHTML = originalText;
+            }
+        }
+        
+        function displayTestError(errorMessage) {
+            const container = document.getElementById('test-result-container');
+            document.getElementById('test-result-icon').innerHTML = '<i class="fas fa-exclamation-circle" style="color: #ff3b30;"></i>';
+            document.getElementById('test-result-status').textContent = 'Analysis Failed';
+            document.getElementById('test-result-status').style.color = '#ff3b30';
+            document.getElementById('test-result-latency').textContent = '';
+            document.getElementById('test-result-reasoning').textContent = errorMessage;
+            document.getElementById('test-result-tools').classList.add('hidden');
+            container.classList.remove('hidden');
+        }
+        
+        function displayTestResult(data) {
+            const container = document.getElementById('test-result-container');
+            const result = data.result;
+            
+            // Status icon and text
+            const iconEl = document.getElementById('test-result-icon');
+            const statusEl = document.getElementById('test-result-status');
+            
+            if (result.detected) {
+                iconEl.innerHTML = '<i class="fas fa-exclamation-triangle" style="color: #ff9500;"></i>';
+                statusEl.textContent = 'Detection Found';
+                statusEl.style.color = '#ff9500';
+            } else {
+                iconEl.innerHTML = '<i class="fas fa-check-circle" style="color: #34c759;"></i>';
+                statusEl.textContent = 'No Detection';
+                statusEl.style.color = '#34c759';
+            }
+            
+            // Latency
+            document.getElementById('test-result-latency').textContent = data.latency_ms + 'ms';
+            
+            // Reasoning
+            document.getElementById('test-result-reasoning').textContent = result.reasoning || 'No additional details';
+            
+            // Tools used
+            const toolsContainer = document.getElementById('test-result-tools');
+            const toolsList = document.getElementById('test-result-tools-list');
+            if (result.tools_used && result.tools_used.length > 0) {
+                toolsContainer.classList.remove('hidden');
+                toolsList.textContent = result.tools_used.join(', ');
+            } else if (result.agentic_mode) {
+                toolsContainer.classList.remove('hidden');
+                toolsList.textContent = 'No tools called';
+            } else {
+                toolsContainer.classList.add('hidden');
+            }
+            
+            container.classList.remove('hidden');
+        }
+        
+        // Close modal on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && !document.getElementById('test-image-modal').classList.contains('hidden')) {
+                closeTestImageModal();
+            }
+        });
+        
+        // ========================================
+        // End Test Image Upload Functions
+        // ========================================
         
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
@@ -270,6 +594,12 @@
                         stopMonitoring();
                     }
                 });
+            }
+            
+            // Task type change handler for upload modal
+            var taskTypeSelect = document.getElementById('test-task-type');
+            if (taskTypeSelect) {
+                taskTypeSelect.addEventListener('change', updateCustomPromptVisibility);
             }
             
             setInterval(updateSystemStatus, 30000);

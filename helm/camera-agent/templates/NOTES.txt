@@ -23,15 +23,38 @@
 
 2. The application requires:
    - GPU access (NVIDIA device plugin must be installed)
+   {{- if .Values.camera.enabled }}
    - Camera device at {{ .Values.camera.devicePath }}
+   {{- end }}
 
-3. On first startup, Ollama will pull the required models:
-   - Vision: {{ .Values.ollama.visionModel }}
-   - Decision: {{ .Values.ollama.decisionModel }}
-   This may take several minutes depending on network speed.
+3. vLLM Configuration:
+   {{- if .Values.vllmServer.enabled }}
+   - vLLM Server: Deployed as {{ include "camera-agent.fullname" . }}-vllm
+   - Internal URL: http://{{ include "camera-agent.fullname" . }}-vllm:{{ .Values.vllmServer.service.port }}
+   {{- else if .Values.vllmServer.url }}
+   - External URL: {{ .Values.vllmServer.url }}
+   {{- else }}
+   - URL: http://localhost:8000 (default)
+   {{- end }}
+   - Model: {{ .Values.vllmServer.model }}
+   - Timeout: {{ .Values.vllmServer.timeout }}s
+
+{{- if .Values.vllmServer.enabled }}
+
+4. Check vLLM server status:
+   kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "camera-agent.name" . }},app.kubernetes.io/component=vllm"
+   kubectl logs --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/component=vllm" -f
+
+5. Check the camera-agent pod status:
+   kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "camera-agent.name" . }}"
+
+6. View camera-agent logs:
+   kubectl logs --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "camera-agent.name" . }}" -c {{ .Chart.Name }} -f
+{{- else }}
 
 4. Check the pod status:
    kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "camera-agent.name" . }}"
 
 5. View logs:
    kubectl logs --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "camera-agent.name" . }}" -f
+{{- end }}

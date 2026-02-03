@@ -14,9 +14,6 @@ spec:
       {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}
       nodePort: {{ .Values.service.nodePort }}
       {{- end }}
-    - port: {{ .Values.service.ollamaPort }}
-      targetPort: ollama
-      protocol: TCP
-      name: ollama
   selector:
     {{- include "camera-agent.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: web

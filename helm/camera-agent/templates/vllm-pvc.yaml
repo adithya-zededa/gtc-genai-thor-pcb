@@ -1,0 +1,18 @@
+{{- if and .Values.vllmServer.enabled .Values.vllmServer.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "camera-agent.fullname" . }}-vllm-cache
+  labels:
+    {{- include "camera-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vllm
+spec:
+  accessModes:
+    - {{ .Values.vllmServer.persistence.accessMode }}
+  {{- if .Values.vllmServer.persistence.storageClass }}
+  storageClassName: {{ .Values.vllmServer.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.vllmServer.persistence.size }}
+{{- end }}

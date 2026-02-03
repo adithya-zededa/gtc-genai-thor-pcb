@@ -1,0 +1,112 @@
+{{- if .Values.vllmServer.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "camera-agent.fullname" . }}-vllm
+  labels:
+    {{- include "camera-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vllm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "camera-agent.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: vllm
+  template:
+    metadata:
+      labels:
+        {{- include "camera-agent.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: vllm
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      runtimeClassName: nvidia
+      securityContext:
+        privileged: true
+      containers:
+        - name: vllm
+          image: "{{ .Values.vllmServer.image.repository }}:{{ .Values.vllmServer.image.tag }}"
+          imagePullPolicy: {{ .Values.vllmServer.image.pullPolicy }}
+          command: ["/bin/bash", "/workspace/start_vllm.sh"]
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: MODEL_NAME
+              value: "{{ .Values.vllmServer.model }}"
+            - name: TENSOR_PARALLEL_SIZE
+              value: "{{ .Values.vllmServer.args.tensorParallelSize | default 1 }}"
+            - name: GPU_MEMORY_UTILIZATION
+              value: "{{ .Values.vllmServer.args.gpuMemoryUtilization | default 0.9 }}"
+            - name: MAX_MODEL_LEN
+              value: "{{ .Values.vllmServer.args.maxModelLen | default 4096 }}"
+            - name: DTYPE
+              value: "{{ .Values.vllmServer.args.dtype | default "auto" }}"
+            - name: TRUST_REMOTE_CODE
+              value: "{{ .Values.vllmServer.args.trustRemoteCode | default true }}"
+            - name: ENABLE_PREFIX_CACHING
+              value: "{{ .Values.vllmServer.args.enablePrefixCaching | default true }}"
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
+            - name: HF_HOME
+              value: "/root/.cache/huggingface"
+            - name: TRANSFORMERS_CACHE
+              value: "/root/.cache/huggingface"
+            {{- if .Values.vllmServer.huggingfaceToken }}
+            - name: HUGGING_FACE_HUB_TOKEN
+              value: "{{ .Values.vllmServer.huggingfaceToken }}"
+            - name: HF_TOKEN
+              value: "{{ .Values.vllmServer.huggingfaceToken }}"
+            {{- end }}
+            {{- range .Values.vllmServer.env }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: {{ .Values.vllmServer.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.vllmServer.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.vllmServer.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.vllmServer.livenessProbe.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: {{ .Values.vllmServer.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.vllmServer.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.vllmServer.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.vllmServer.readinessProbe.failureThreshold }}
+          resources:
+            {{- toYaml .Values.vllmServer.resources | nindent 12 }}
+          volumeMounts:
+            - name: huggingface-cache
+              mountPath: /root/.cache/huggingface
+            - name: vllm-scripts
+              mountPath: /workspace/start_vllm.sh
+              subPath: start_vllm.sh
+      volumes:
+        - name: huggingface-cache
+          {{- if .Values.vllmServer.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "camera-agent.fullname" . }}-vllm-cache
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: vllm-scripts
+          configMap:
+            name: {{ include "camera-agent.fullname" . }}-vllm-scripts
+            defaultMode: 0755
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

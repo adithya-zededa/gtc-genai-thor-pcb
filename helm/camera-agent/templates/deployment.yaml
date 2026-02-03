@@ -9,6 +9,7 @@ spec:
   selector:
     matchLabels:
       {{- include "camera-agent.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: web
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -17,6 +18,7 @@ spec:
       {{- end }}
       labels:
         {{- include "camera-agent.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: web
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -40,9 +42,6 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
-            - name: ollama
-              containerPort: 11434
-              protocol: TCP
           env:
             - name: CAMERA_INDEX
               value: "{{ .Values.camera.index }}"
@@ -54,25 +53,18 @@ spec:
               value: "/app/data/detected_images"
             - name: PROCESSED_FRAMES_DIR
               value: "/app/data/processed_frames"
-            - name: INFERENCE_BACKEND
-              value: {{ .Values.inferenceBackend | quote }}
-            {{- if eq .Values.inferenceBackend "vllm" }}
             - name: VLLM_URL
-              value: {{ .Values.vllmServer.url | quote }}
+              {{- if and .Values.vllmServer.enabled (not .Values.vllmServer.url) }}
+              value: "http://{{ include "camera-agent.fullname" . }}-vllm:{{ .Values.vllmServer.service.port }}"
+              {{- else }}
+              value: {{ .Values.vllmServer.url | default "http://localhost:8000" | quote }}
+              {{- end }}
             - name: VISION_MODEL
               value: {{ .Values.vllmServer.model | quote }}
             - name: VLLM_TIMEOUT
               value: {{ .Values.vllmServer.timeout | default 300 | quote }}
             - name: VLLM_TEMPERATURE
               value: {{ .Values.vllmServer.temperature | default 0.1 | quote }}
-            {{- else }}
-            - name: VISION_MODEL
-              value: {{ .Values.ollama.visionModel | quote }}
-            - name: DECISION_MODEL
-              value: {{ .Values.ollama.decisionModel | quote }}
-            - name: OLLAMA_CONTEXT_LENGTH
-              value: {{ .Values.ollama.contextLength | quote }}
-            {{- end }}
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}
@@ -100,10 +92,6 @@ spec:
             - name: camera-device
               mountPath: {{ .Values.camera.devicePath }}
             {{- end }}
-            {{- if .Values.persistence.ollama.enabled }}
-            - name: ollama-data
-              mountPath: /root/.ollama
-            {{- end }}
             {{- if .Values.persistence.data.enabled }}
             - name: app-data
               mountPath: /app/data
@@ -123,11 +111,6 @@ spec:
           hostPath:
             path: {{ .Values.camera.devicePath }}
             type: CharDevice
-        {{- end }}
-        {{- if .Values.persistence.ollama.enabled }}
-        - name: ollama-data
-          persistentVolumeClaim:
-            claimName: {{ include "camera-agent.fullname" . }}-ollama
         {{- end }}
         {{- if .Values.persistence.data.enabled }}
         - name: app-data

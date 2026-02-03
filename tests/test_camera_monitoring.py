@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent_runtime.monitoring import StreamlinedMonitoringService as CameraMonitoringService
+from services.monitoring_service import StreamlinedMonitoringService as CameraMonitoringService
 
 
 class FakePublisher:

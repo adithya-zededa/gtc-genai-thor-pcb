@@ -229,6 +229,8 @@ input:focus, textarea:focus, select:focus {
     height: 8px;
     border-radius: 50%;
     display: inline-block;
+    background: #8e8e93;  /* Default gray (checking state) */
+    transition: background 0.3s ease, box-shadow 0.3s ease;
 }
 
 .status-online {
@@ -244,6 +246,16 @@ input:focus, textarea:focus, select:focus {
 .status-warning {
     background: #ff9500;
     box-shadow: 0 0 6px rgba(255, 149, 0, 0.5);
+}
+
+.status-checking {
+    background: #8e8e93;
+    animation: pulse-check 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-check {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
 }
 
 /* -------------------------------------------------- */
