@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
     <title>{% block title %}ZEDEDA Camera Agent{% endblock %}</title>
 
     <!-- Favicon -->
@@ -20,42 +21,76 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-    <!-- macOS Sequoia × ZEDEDA Design System -->
+    <!-- iOS 26 / macOS 26 Liquid Glass Design System -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/liquid-glass.css') }}" />
+
+    <!-- Legacy compatibility layer -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/sequoia-zededa.css') }}" />
 
     {% block extra_head %}{% endblock %}
+    
+    <!-- Tailwind CDN Configuration - Disable preflight to preserve glass styling -->
+    <script>
+        tailwind.config = {
+            corePlugins: {
+                preflight: false, // Don't inject CSS resets that break glass styling
+            },
+            theme: {
+                extend: {
+                    // Extend rather than override
+                }
+            }
+        }
+    </script>
 </head>
 
-<body class="bg-z-body text-z-text-primary min-h-screen flex flex-col">
+<body class="min-h-screen flex flex-col">
 
-    <!-- Top Toolbar (macOS vibrancy) -->
-    <header class="toolbar flex items-center justify-between px-6 h-14 select-none">
+    <!-- Offline Indicator - shows when disconnected from server -->
+    <div id="offline-indicator" class="offline-indicator">
+        <i class="fas fa-wifi-slash mr-2"></i>
+        <span>Reconnecting...</span>
+    </div>
+
+    <!-- Floating Glass Navigation Bar -->
+    <header class="navbar-glass select-none">
         <div class="flex items-center gap-4">
-            <img src="{{ url_for('static', filename='logo-ai-flows.png') }}" class="h-8 opacity-95" alt="AI Flows" />
-            <h1 class="text-[17px] font-semibold tracking-tight">
-                {% block page_title %}Dashboard{% endblock %}
-            </h1>
+            <div class="flex items-center gap-3">
+                <img src="{{ url_for('static', filename='logo-ai-flows.png') }}" class="h-8 opacity-95 hover:opacity-100 transition-opacity" alt="AI Flows" />
+                <div class="w-px h-6 bg-[var(--border-separator)]"></div>
+                <h1 class="text-headline tracking-tight">
+                    {% block page_title %}Dashboard{% endblock %}
+                </h1>
+            </div>
         </div>
 
         <div class="flex items-center gap-3">
-            <!-- System Status -->
-            <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full surface text-xs">
-                <span class="status-indicator status-checking" id="camera-status"></span>
-                <span style="color: var(--z-text-secondary);">Camera</span>
-                <div class="w-px h-3" style="background: var(--z-border);"></div>
-                <span class="status-indicator status-checking" id="ollama-status"></span>
-                <span style="color: var(--z-text-secondary);">AI</span>
-                <div class="w-px h-3" style="background: var(--z-border);"></div>
-                <span class="status-indicator status-checking" id="monitoring-status"></span>
-                <span style="color: var(--z-text-secondary);">Analysis</span>
+            <!-- System Status Pills (Glass) -->
+            <div class="hidden md:flex items-center gap-1 glass-thin px-3 py-2 rounded-full">
+                <div class="flex items-center gap-1.5 px-2">
+                    <span class="status-dot checking" id="camera-status"></span>
+                    <span class="text-footnote">Camera</span>
+                </div>
+                <div class="w-px h-4 bg-[var(--border-separator)]"></div>
+                <div class="flex items-center gap-1.5 px-2">
+                    <span class="status-dot checking" id="ollama-status"></span>
+                    <span class="text-footnote">AI</span>
+                </div>
+                <div class="w-px h-4 bg-[var(--border-separator)]"></div>
+                <div class="flex items-center gap-1.5 px-2">
+                    <span class="status-dot checking" id="monitoring-status"></span>
+                    <span class="text-footnote">Analysis</span>
+                </div>
             </div>
 
-            <!-- Monitoring Toggle -->
-            <div class="flex items-center gap-2 px-3 py-1.5 rounded-full surface text-xs">
-                <span id="monitoring-label" style="color: var(--z-text-secondary);">Monitoring</span>
-                <label class="toggle-switch" style="transform: scale(0.8);">
+            <!-- Monitoring Toggle (Glass Pill) -->
+            <div class="flex items-center gap-2.5 glass-thin px-3 py-1.5 rounded-full">
+                <span id="monitoring-label" class="text-footnote font-medium">Monitoring</span>
+                <label class="toggle-glass" style="transform: scale(0.7); transform-origin: right center;">
                     <input type="checkbox" id="monitoring-toggle">
-                    <span class="toggle-slider"></span>
+                    <div class="toggle-track">
+                        <div class="toggle-thumb"></div>
+                    </div>
                 </label>
             </div>
 
@@ -64,14 +99,16 @@
     </header>
 
     <!-- Main Content -->
-    <main class="flex-1 px-6 py-8 pb-28 max-w-6xl mx-auto w-full space-y-6">
+    <main class="flex-1 px-6 py-8 pb-32 max-w-6xl mx-auto w-full space-y-6" role="main">
         {% with messages = get_flashed_messages() %}
             {% if messages %}
-                <div class="space-y-3">
+                <div class="space-y-3 animate-slide-up">
                     {% for message in messages %}
-                        <div class="surface p-4 text-[14px] flex items-center gap-3">
-                            <i class="fa-solid fa-circle-info" style="color: var(--z-blue);"></i>
-                            <span>{{ message }}</span>
+                        <div class="glass-card flex items-center gap-3 py-3 px-4">
+                            <div class="w-8 h-8 rounded-full flex items-center justify-center" style="background: var(--system-blue-glass);">
+                                <i class="fa-solid fa-circle-info text-sm" style="color: var(--system-blue);"></i>
+                            </div>
+                            <span class="text-body">{{ message }}</span>
                         </div>
                     {% endfor %}
                 </div>
@@ -82,164 +119,186 @@
     </main>
 
 
-    <!-- macOS Dock-style Navigation -->
-    <nav class="dock fixed bottom-6 left-1/2 -translate-x-1/2 flex gap-6 px-5 py-3">
-        <a href="{{ url_for('dashboard') }}" class="dock-item {% if request.endpoint=='dashboard' %}active{% endif %}" title="Dashboard">
+    <!-- iOS-style Floating Glass Dock -->
+    <nav class="dock-glass">
+        <a href="{{ url_for('views.dashboard') }}" class="dock-item {% if request.endpoint=='views.dashboard' %}active{% endif %}" title="Dashboard">
             <i class="fas fa-tachometer-alt"></i>
         </a>
 
-        <a href="{{ url_for('monitoring') }}" class="dock-item {% if request.endpoint=='monitoring' %}active{% endif %}" title="Monitoring">
-            <i class="fas fa-eye"></i>
+        <a href="{{ url_for('views.chat') }}" class="dock-item {% if request.endpoint in ['views.chat', 'views.monitoring'] %}active{% endif %}" title="Agent Chat">
+            <i class="fas fa-robot"></i>
         </a>
 
-        <a href="{{ url_for('users') }}" class="dock-item {% if request.endpoint=='users' %}active{% endif %}" title="Users">
+        <div class="dock-separator"></div>
+
+        <a href="{{ url_for('views.users') }}" class="dock-item {% if request.endpoint=='views.users' %}active{% endif %}" title="Users">
             <i class="fas fa-users"></i>
         </a>
 
-        <a href="{{ url_for('logs') }}" class="dock-item {% if request.endpoint=='logs' %}active{% endif %}" title="Logs">
+        <a href="{{ url_for('views.logs') }}" class="dock-item {% if request.endpoint=='views.logs' %}active{% endif %}" title="Logs">
             <i class="fas fa-list"></i>
         </a>
 
-        <a href="{{ url_for('settings') }}" class="dock-item {% if request.endpoint=='settings' %}active{% endif %}" title="Settings">
+        <div class="dock-separator"></div>
+
+        <a href="{{ url_for('views.settings') }}" class="dock-item {% if request.endpoint=='views.settings' %}active{% endif %}" title="Settings">
             <i class="fas fa-wrench"></i>
         </a>
     </nav>
 
-    <!-- Toast Container -->
-    <div id="toast-container"></div>
+    <!-- Toast Container - aria-live for accessibility -->
+    <div id="toast-container" class="toast-container" role="status" aria-live="polite" aria-atomic="false"></div>
 
-    <!-- Loading Overlay -->
-    <div id="loading-overlay" class="hidden">
-        <div class="text-center">
-            <i class="fas fa-spinner fa-spin text-3xl mb-4" style="color: var(--z-blue);"></i>
-            <p class="text-base font-medium">Loading...</p>
+    <!-- Loading Overlay (Glass) - hidden by default, shown via .active class -->
+    <div id="loading-overlay" class="loading-overlay" role="dialog" aria-modal="true" aria-label="Loading">
+        <div class="loading-content">
+            <div class="loading-spinner mx-auto mb-4"></div>
+            <p class="text-body font-medium">Loading...</p>
         </div>
     </div>
 
-    <!-- Test Image Upload Modal -->
-    <div id="test-image-modal" class="fixed inset-0 z-50 hidden" style="background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);">
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="surface rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden" style="border: 0.5px solid var(--z-border);">
-                <!-- Modal Header -->
-                <div class="px-6 py-4 flex items-center justify-between" style="border-bottom: 0.5px solid var(--z-border); background: rgba(0,0,0,0.02);">
+    <!-- Test Image Upload Modal (Liquid Glass) -->
+    <div id="test-image-modal-backdrop" class="modal-overlay" onclick="closeTestImageModal()"></div>
+    <div id="test-image-modal" class="modal-sheet">
+        <!-- Modal Header -->
+        <div class="modal-header">
+            <div class="flex items-center gap-3">
+                <div class="h-10 w-10 rounded-2xl flex items-center justify-center glass-purple">
+                    <i class="fas fa-image" style="color: var(--system-purple);"></i>
+                </div>
+                <div>
+                    <h3 class="text-headline">Test with Uploaded Image</h3>
+                    <p class="text-footnote">Upload an image for agent analysis</p>
+                </div>
+            </div>
+            <button onclick="closeTestImageModal()" class="btn-icon hover-sweep">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <!-- Modal Body -->
+        <div class="modal-body space-y-4">
+            <!-- Drop Zone (Glass) -->
+            <div id="image-drop-zone" 
+                 class="glass-thin rounded-2xl p-8 text-center transition-all cursor-pointer liquid-hover"
+                 style="border: 2px dashed var(--border-separator);"
+                 ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)" onclick="document.getElementById('image-file-input').click()">
+                <div id="drop-zone-content">
+                    <div class="w-14 h-14 mx-auto mb-4 rounded-2xl flex items-center justify-center" style="background: var(--graphite-50);">
+                        <i class="fas fa-cloud-upload-alt text-2xl text-tertiary"></i>
+                    </div>
+                    <p class="text-subhead font-medium text-secondary">Drop image here or click to browse</p>
+                    <p class="text-footnote mt-1">Supports JPEG, PNG, WebP</p>
+                </div>
+                <div id="image-preview-container" class="hidden">
+                    <img id="image-preview" class="max-h-48 mx-auto rounded-xl shadow-lg" />
+                    <p id="image-filename" class="text-footnote mt-3"></p>
+                </div>
+            </div>
+            <input type="file" id="image-file-input" accept="image/*" class="hidden" onchange="handleFileSelect(this.files)" />
+
+            <!-- Options (Glass Cards) -->
+            <div class="space-y-3">
+                <!-- Task Type Selection -->
+                <div class="glass-ultra-thin rounded-xl p-4">
+                    <label class="input-label">Analysis Type</label>
+                    <select id="test-task-type" class="input-glass w-full">
+                        <option value="package_detection">Package Detection</option>
+                        <option value="ppe_detection">PPE/Safety Detection</option>
+                        <option value="person_counting">Person Counting</option>
+                        <option value="scene_description">Scene Description</option>
+                        <option value="custom">Custom Analysis</option>
+                    </select>
+                </div>
+
+                <!-- Agentic Mode Toggle (Glass Pill) -->
+                <div class="glass-thin rounded-xl p-4 flex items-center justify-between">
                     <div class="flex items-center gap-3">
-                        <div class="h-9 w-9 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, rgba(175, 82, 222, 0.15) 0%, rgba(175, 82, 222, 0.05) 100%);">
-                            <i class="fas fa-image" style="color: #af52de;"></i>
+                        <div class="w-9 h-9 rounded-xl flex items-center justify-center glass-purple">
+                            <i class="fas fa-robot text-sm" style="color: var(--system-purple);"></i>
                         </div>
                         <div>
-                            <h3 class="text-base font-semibold" style="color: var(--z-text-primary);">Test with Uploaded Image</h3>
-                            <p class="text-xs" style="color: var(--z-text-secondary);">Upload an image for agent analysis</p>
+                            <span class="text-subhead font-medium">Agentic Mode</span>
+                            <span class="ml-2 px-2 py-0.5 rounded-full text-caption" style="background: var(--system-purple-glass); color: var(--system-purple);">AI Tools</span>
                         </div>
                     </div>
-                    <button onclick="closeTestImageModal()" class="h-8 w-8 rounded-lg flex items-center justify-center hover:bg-black/5 transition">
-                        <i class="fas fa-times" style="color: var(--z-text-secondary);"></i>
-                    </button>
+                    <label class="toggle-glass" style="transform: scale(0.8);">
+                        <input type="checkbox" id="test-agentic-toggle">
+                        <div class="toggle-track">
+                            <div class="toggle-thumb"></div>
+                        </div>
+                    </label>
                 </div>
 
-                <!-- Modal Body -->
-                <div class="p-6 space-y-4">
-                    <!-- Drop Zone -->
-                    <div id="image-drop-zone" 
-                         class="border-2 border-dashed rounded-xl p-8 text-center transition cursor-pointer hover:border-purple-400"
-                         style="border-color: var(--z-border); background: rgba(0,0,0,0.01);"
-                         ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)" onclick="document.getElementById('image-file-input').click()">
-                        <div id="drop-zone-content">
-                            <i class="fas fa-cloud-upload-alt text-4xl mb-3" style="color: var(--z-text-tertiary);"></i>
-                            <p class="text-sm font-medium" style="color: var(--z-text-secondary);">Drop image here or click to browse</p>
-                            <p class="text-xs mt-1" style="color: var(--z-text-tertiary);">Supports JPEG, PNG, WebP</p>
-                        </div>
-                        <div id="image-preview-container" class="hidden">
-                            <img id="image-preview" class="max-h-48 mx-auto rounded-lg shadow" />
-                            <p id="image-filename" class="text-xs mt-2" style="color: var(--z-text-secondary);"></p>
-                        </div>
-                    </div>
-                    <input type="file" id="image-file-input" accept="image/*" class="hidden" onchange="handleFileSelect(this.files)" />
-
-                    <!-- Options -->
-                    <div class="space-y-3">
-                        <!-- Task Type Selection -->
-                        <div>
-                            <label class="block text-xs font-medium mb-1.5" style="color: var(--z-text-secondary);">Analysis Type</label>
-                            <select id="test-task-type" 
-                                    class="w-full px-3 py-2 text-sm rounded-lg"
-                                    style="background: var(--z-surface); border: 0.5px solid var(--z-border); color: var(--z-text-primary);">
-                                <option value="package_detection">Package Detection</option>
-                                <option value="ppe_detection">PPE/Safety Detection</option>
-                                <option value="person_counting">Person Counting</option>
-                                <option value="scene_description">Scene Description</option>
-                                <option value="custom">Custom Analysis</option>
-                            </select>
-                        </div>
-
-                        <!-- Agentic Mode Toggle -->
-                        <div class="flex items-center justify-between p-3 rounded-xl" style="background: rgba(0,0,0,0.02); border: 0.5px solid var(--z-border);">
-                            <div class="flex items-center gap-2">
-                                <i class="fas fa-robot text-sm" style="color: #af52de;"></i>
-                                <span class="text-sm font-medium" style="color: var(--z-text-primary);">Agentic Mode</span>
-                                <span class="text-xs px-1.5 py-0.5 rounded" style="background: rgba(175, 82, 222, 0.1); color: #af52de;">AI Tools</span>
-                            </div>
-                            <label class="toggle-switch" style="transform: scale(0.8);">
-                                <input type="checkbox" id="test-agentic-toggle">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-
-                        <!-- Custom Prompt (optional) -->
-                        <div id="custom-prompt-container">
-                            <label class="block text-xs font-medium mb-1.5" style="color: var(--z-text-secondary);">Custom Prompt <span id="prompt-required-label" class="hidden text-red-500">*</span></label>
-                            <textarea id="test-custom-prompt" rows="2" 
-                                      class="w-full px-3 py-2 text-sm rounded-lg resize-none"
-                                      style="background: var(--z-surface); border: 0.5px solid var(--z-border); color: var(--z-text-primary);"
-                                      placeholder="e.g., Check if there are any safety hazards in this image"></textarea>
-                        </div>
-                    </div>
-
-                    <!-- Result Display -->
-                    <div id="test-result-container" class="hidden">
-                        <div class="p-4 rounded-xl" style="background: rgba(0,0,0,0.02); border: 0.5px solid var(--z-border);">
-                            <div class="flex items-center gap-2 mb-2">
-                                <span id="test-result-icon"></span>
-                                <span id="test-result-status" class="text-sm font-semibold"></span>
-                                <span id="test-result-latency" class="text-xs ml-auto" style="color: var(--z-text-tertiary);"></span>
-                            </div>
-                            <p id="test-result-reasoning" class="text-sm" style="color: var(--z-text-secondary);"></p>
-                            <div id="test-result-tools" class="mt-2 hidden">
-                                <p class="text-xs font-medium" style="color: var(--z-text-tertiary);">Tools Used:</p>
-                                <p id="test-result-tools-list" class="text-xs" style="color: #af52de;"></p>
-                            </div>
-                        </div>
-                    </div>
+                <!-- Custom Prompt -->
+                <div id="custom-prompt-container" class="glass-ultra-thin rounded-xl p-4">
+                    <label class="input-label">Custom Prompt <span id="prompt-required-label" class="hidden text-red">*</span></label>
+                    <textarea id="test-custom-prompt" rows="2" 
+                              class="input-glass resize-none"
+                              placeholder="e.g., Check if there are any safety hazards in this image"></textarea>
                 </div>
+            </div>
 
-                <!-- Modal Footer -->
-                <div class="px-6 py-4 flex items-center justify-end gap-3" style="border-top: 0.5px solid var(--z-border); background: rgba(0,0,0,0.02);">
-                    <button onclick="closeTestImageModal()" 
-                            class="px-4 py-2 text-sm font-medium rounded-lg transition hover:opacity-80"
-                            style="color: var(--z-text-secondary);">
-                        Cancel
-                    </button>
-                    <button id="analyze-image-btn" onclick="analyzeUploadedImage()" 
-                            class="px-4 py-2 text-sm font-medium rounded-lg text-white transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                            style="background: linear-gradient(135deg, #af52de 0%, #8e44ad 100%);"
-                            disabled>
-                        <i class="fas fa-magic mr-2"></i>Analyze
-                    </button>
+            <!-- Result Display (Glass Card) -->
+            <div id="test-result-container" class="hidden animate-slide-up">
+                <div class="glass-card">
+                    <div class="flex items-center gap-3 mb-3">
+                        <span id="test-result-icon"></span>
+                        <span id="test-result-status" class="text-subhead font-semibold"></span>
+                        <span id="test-result-latency" class="text-footnote ml-auto"></span>
+                    </div>
+                    <p id="test-result-reasoning" class="text-body text-secondary"></p>
+                    <div id="test-result-tools" class="mt-3 hidden">
+                        <p class="text-caption mb-1">Tools Used</p>
+                        <p id="test-result-tools-list" class="text-footnote" style="color: var(--system-purple);"></p>
+                    </div>
                 </div>
             </div>
         </div>
+
+        <!-- Modal Footer -->
+        <div class="modal-footer">
+            <button onclick="closeTestImageModal()" class="btn btn-tertiary">
+                Cancel
+            </button>
+            <button id="analyze-image-btn" onclick="analyzeUploadedImage()" 
+                    class="btn btn-primary"
+                    style="background: linear-gradient(135deg, var(--system-purple) 0%, #8e44ad 100%);"
+                    disabled>
+                <i class="fas fa-magic"></i>
+                <span>Analyze</span>
+            </button>
+        </div>
     </div>
 
-    <!-- Base JavaScript -->
+    <!-- Base JavaScript (Liquid Glass compatible) -->
     <script>
         // Global variables
         let socket;
         let isReconnecting = false;
+        let isOffline = false;
+        
+        // Offline state management - UI remains interactive
+        function setOfflineState(offline) {
+            isOffline = offline;
+            const indicator = document.getElementById('offline-indicator');
+            const body = document.body;
+            
+            if (offline) {
+                indicator.classList.add('visible');
+                body.classList.add('offline');
+            } else {
+                indicator.classList.remove('visible');
+                body.classList.remove('offline');
+            }
+        }
         
         // Initialize socket connection
         function initSocket() {
             socket = io();
             
             socket.on('connect', function() {
+                setOfflineState(false);
                 if (isReconnecting) {
                     showToast('Reconnected to server', 'success');
                 }
@@ -248,7 +307,12 @@
             
             socket.on('disconnect', function() {
                 isReconnecting = true;
-                showToast('Disconnected from server', 'error');
+                setOfflineState(true);
+                showToast('Disconnected from server - UI remains active', 'warning');
+            });
+            
+            socket.on('connect_error', function() {
+                setOfflineState(true);
             });
             
             socket.on('detection_event', function(data) {
@@ -260,30 +324,40 @@
             });
         }
         
-        // Show toast notification
+        // Show toast notification (Liquid Glass style)
         function showToast(message, type = 'info') {
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
             
-            const colors = {
-                'success': { bg: 'rgba(52, 199, 89, 0.95)', text: 'white' },
-                'error': { bg: 'rgba(255, 59, 48, 0.95)', text: 'white' },
-                'warning': { bg: 'rgba(255, 149, 0, 0.95)', text: 'white' },
-                'info': { bg: 'rgba(0, 122, 255, 0.95)', text: 'white' }
+            const icons = {
+                'success': 'fa-check',
+                'error': 'fa-times',
+                'warning': 'fa-exclamation',
+                'info': 'fa-info'
             };
             
-            const color = colors[type] || colors['info'];
-            
-            toast.className = 'px-4 py-3 rounded-xl text-sm font-medium transform transition-all duration-300 translate-x-full';
-            toast.style.cssText = 'background: ' + color.bg + '; color: ' + color.text + '; backdrop-filter: blur(20px); box-shadow: 0 8px 32px rgba(0,0,0,0.2);';
-            toast.innerHTML = '<div class="flex items-center gap-3"><span>' + message + '</span><button onclick="this.parentElement.parentElement.remove()" class="opacity-70 hover:opacity-100"><i class="fas fa-times"></i></button></div>';
+            toast.className = 'toast ' + type;
+            toast.innerHTML = `
+                <div class="toast-icon">
+                    <i class="fas ${icons[type] || icons['info']}"></i>
+                </div>
+                <span>${message}</span>
+                <button onclick="this.parentElement.remove()" class="btn-icon ml-2" style="width:24px;height:24px;">
+                    <i class="fas fa-times text-xs"></i>
+                </button>
+            `;
             
             container.appendChild(toast);
             
-            setTimeout(function() { toast.classList.remove('translate-x-full'); }, 50);
+            // Trigger animation
+            requestAnimationFrame(() => {
+                toast.classList.add('show');
+            });
+            
+            // Auto-dismiss
             setTimeout(function() {
-                toast.classList.add('translate-x-full');
-                setTimeout(function() { toast.remove(); }, 300);
+                toast.classList.remove('show');
+                setTimeout(function() { toast.remove(); }, 400);
             }, 5000);
         }
         
@@ -304,25 +378,28 @@
             }
         }
         
-        // Show/hide loading overlay
+        // Show/hide loading overlay (Liquid Glass)
         function showLoading(show) {
             var overlay = document.getElementById('loading-overlay');
             if (show) {
-                overlay.classList.remove('hidden');
+                overlay.classList.add('active');
             } else {
-                overlay.classList.add('hidden');
+                overlay.classList.remove('active');
             }
         }
         
-        // Update monitoring status
+        // Update monitoring status with status dots
         function updateMonitoringStatus(active) {
             var toggle = document.getElementById('monitoring-toggle');
             var label = document.getElementById('monitoring-label');
             var statusIndicator = document.getElementById('monitoring-status');
             
             if (toggle) toggle.checked = active;
-            if (label) label.style.color = active ? '#34c759' : 'var(--z-text-secondary)';
-            if (statusIndicator) statusIndicator.className = 'status-indicator ' + (active ? 'status-online' : 'status-offline');
+            if (label) label.style.color = active ? 'var(--system-green)' : 'var(--text-secondary)';
+            if (statusIndicator) {
+                statusIndicator.classList.remove('online', 'offline', 'checking');
+                statusIndicator.classList.add(active ? 'online' : 'offline');
+            }
         }
         
         // Start monitoring
@@ -353,14 +430,21 @@
             }
         }
         
-        // Update system status
+        // Update system status (with Liquid Glass status dots)
         async function updateSystemStatus() {
             var status = await apiCall('/api/status');
             if (status) {
-                document.getElementById('camera-status').className = 
-                    'status-indicator ' + (status.camera_available ? 'status-online' : 'status-offline');
-                document.getElementById('ollama-status').className = 
-                    'status-indicator ' + (status.inference_available ? 'status-online' : 'status-offline');
+                var cameraStatus = document.getElementById('camera-status');
+                var ollamaStatus = document.getElementById('ollama-status');
+                
+                if (cameraStatus) {
+                    cameraStatus.classList.remove('online', 'offline', 'checking');
+                    cameraStatus.classList.add(status.camera_available ? 'online' : 'offline');
+                }
+                if (ollamaStatus) {
+                    ollamaStatus.classList.remove('online', 'offline', 'checking');
+                    ollamaStatus.classList.add(status.inference_available ? 'online' : 'offline');
+                }
                 updateMonitoringStatus(status.monitoring_active);
             }
         }
@@ -370,19 +454,20 @@
         function handleFrameUpdate(data) {}
         
         // ========================================
-        // Test Image Upload Modal Functions
+        // Test Image Upload Modal Functions (Liquid Glass)
         // ========================================
         let selectedImageFile = null;
         
         function openTestImageModal() {
-            document.getElementById('test-image-modal').classList.remove('hidden');
+            document.getElementById('test-image-modal-backdrop').classList.add('active');
+            document.getElementById('test-image-modal').classList.add('active');
             document.body.style.overflow = 'hidden';
-            // Reset state
             resetTestImageModal();
         }
         
         function closeTestImageModal() {
-            document.getElementById('test-image-modal').classList.add('hidden');
+            document.getElementById('test-image-modal-backdrop').classList.remove('active');
+            document.getElementById('test-image-modal').classList.remove('active');
             document.body.style.overflow = '';
             resetTestImageModal();
         }
@@ -399,7 +484,7 @@
             document.getElementById('test-agentic-toggle').checked = false;
             updateCustomPromptVisibility();
             // Reset drop zone styling
-            document.getElementById('image-drop-zone').style.borderColor = 'var(--z-border)';
+            document.getElementById('image-drop-zone').style.borderColor = 'var(--border-separator)';
         }
         
         function updateCustomPromptVisibility() {
@@ -415,19 +500,19 @@
         function handleDragOver(event) {
             event.preventDefault();
             event.stopPropagation();
-            document.getElementById('image-drop-zone').style.borderColor = '#af52de';
+            document.getElementById('image-drop-zone').style.borderColor = 'var(--system-purple)';
         }
         
         function handleDragLeave(event) {
             event.preventDefault();
             event.stopPropagation();
-            document.getElementById('image-drop-zone').style.borderColor = 'var(--z-border)';
+            document.getElementById('image-drop-zone').style.borderColor = 'var(--border-separator)';
         }
         
         function handleDrop(event) {
             event.preventDefault();
             event.stopPropagation();
-            document.getElementById('image-drop-zone').style.borderColor = 'var(--z-border)';
+            document.getElementById('image-drop-zone').style.borderColor = 'var(--border-separator)';
             
             const files = event.dataTransfer.files;
             if (files.length > 0) {
@@ -468,9 +553,9 @@
             }
             
             const analyzeBtn = document.getElementById('analyze-image-btn');
-            const originalText = analyzeBtn.innerHTML;
+            const originalHTML = analyzeBtn.innerHTML;
             analyzeBtn.disabled = true;
-            analyzeBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Analyzing...';
+            analyzeBtn.innerHTML = '<div class="loading-spinner" style="width:16px;height:16px;border-width:2px;"></div><span>Analyzing...</span>';
             
             // Hide previous results
             document.getElementById('test-result-container').classList.add('hidden');
@@ -505,7 +590,6 @@
                     showToast('Analysis complete!', 'success');
                 } else {
                     showToast(result.error || 'Analysis failed', 'error');
-                    // Show error in result container too
                     displayTestError(result.error || 'Analysis failed');
                 }
             } catch (error) {
@@ -514,15 +598,15 @@
                 displayTestError('Network error: ' + error.message);
             } finally {
                 analyzeBtn.disabled = false;
-                analyzeBtn.innerHTML = originalText;
+                analyzeBtn.innerHTML = originalHTML;
             }
         }
         
         function displayTestError(errorMessage) {
             const container = document.getElementById('test-result-container');
-            document.getElementById('test-result-icon').innerHTML = '<i class="fas fa-exclamation-circle" style="color: #ff3b30;"></i>';
+            document.getElementById('test-result-icon').innerHTML = '<div class="status-badge offline"><i class="fas fa-exclamation-circle"></i></div>';
             document.getElementById('test-result-status').textContent = 'Analysis Failed';
-            document.getElementById('test-result-status').style.color = '#ff3b30';
+            document.getElementById('test-result-status').style.color = 'var(--system-red)';
             document.getElementById('test-result-latency').textContent = '';
             document.getElementById('test-result-reasoning').textContent = errorMessage;
             document.getElementById('test-result-tools').classList.add('hidden');
@@ -538,13 +622,13 @@
             const statusEl = document.getElementById('test-result-status');
             
             if (result.detected) {
-                iconEl.innerHTML = '<i class="fas fa-exclamation-triangle" style="color: #ff9500;"></i>';
+                iconEl.innerHTML = '<div class="status-badge warning"><i class="fas fa-exclamation-triangle"></i></div>';
                 statusEl.textContent = 'Detection Found';
-                statusEl.style.color = '#ff9500';
+                statusEl.style.color = 'var(--system-orange)';
             } else {
-                iconEl.innerHTML = '<i class="fas fa-check-circle" style="color: #34c759;"></i>';
+                iconEl.innerHTML = '<div class="status-badge online"><i class="fas fa-check-circle"></i></div>';
                 statusEl.textContent = 'No Detection';
-                statusEl.style.color = '#34c759';
+                statusEl.style.color = 'var(--system-green)';
             }
             
             // Latency
@@ -571,8 +655,11 @@
         
         // Close modal on Escape key
         document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape' && !document.getElementById('test-image-modal').classList.contains('hidden')) {
-                closeTestImageModal();
+            if (e.key === 'Escape') {
+                const modal = document.getElementById('test-image-modal');
+                if (modal && modal.classList.contains('active')) {
+                    closeTestImageModal();
+                }
             }
         });
         

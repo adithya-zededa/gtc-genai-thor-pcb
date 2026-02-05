@@ -11,7 +11,7 @@
         -webkit-line-clamp: 1;
         -webkit-box-orient: vertical;
         overflow: hidden;
-        transition: all 0.2s ease;
+        transition: all var(--duration-base) var(--ease-liquid);
     }
     
     .tool-card.expanded .tool-description {
@@ -20,7 +20,7 @@
     }
     
     .tool-card .tool-expand-icon {
-        transition: transform 0.2s ease;
+        transition: transform var(--duration-base) var(--ease-liquid);
     }
     
     .tool-card.expanded .tool-expand-icon {
@@ -28,7 +28,7 @@
     }
     
     .tool-card:hover {
-        background: var(--color-surface-hover, rgba(0, 0, 0, 0.02)) !important;
+        background: var(--material-thin) !important;
     }
 </style>
 {% endblock %}
@@ -36,18 +36,18 @@
 {% block content %}
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
     <div class="lg:col-span-2">
-        <section class="surface h-full p-5">
+        <section class="glass rounded-2xl h-full p-5 animate-slide-up" style="--animation-order: 1;">
             <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                    <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Live Camera Feed</h3>
-                    <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">Monitor the stream and inspection events in real time.</p>
+                    <h3 class="text-base font-semibold text-primary">Live Camera Feed</h3>
+                    <p class="text-xs mt-0.5 text-secondary">Monitor the stream and inspection events in real time.</p>
                 </div>
                 <div class="flex items-center gap-3">
-                    <div id="feed-status" class="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium" style="background: rgba(0, 0, 0, 0.04); border: 0.5px solid var(--color-border); color: var(--color-text-secondary);">
+                    <div id="feed-status" class="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium glass-ultra-thin">
                         <i class="fas fa-pause text-xs"></i>
                         Stopped
                     </div>
-                    <label class="toggle-switch">
+                    <label class="toggle-glass">
                         <input type="checkbox" id="toggle-feed">
                         <span class="toggle-slider"></span>
                     </label>
@@ -62,27 +62,27 @@
                 </div>
                 <img id="camera-feed" class="hidden h-full w-full object-cover" alt="Camera Feed">
 
-                <div id="frame-info" class="absolute top-3 left-3 hidden rounded-lg px-3 py-2 text-xs text-white" style="background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);">
+                <div id="frame-info" class="absolute top-3 left-3 hidden rounded-lg px-3 py-2 text-xs text-white glass-thick">
                     <div>Frame: <span id="frame-number">0</span></div>
                     <div>SSIM: <span id="frame-ssim">0.000</span></div>
                     <div>Reason: <span id="frame-reason">-</span></div>
                 </div>
 
-                <div id="detection-overlay" class="absolute inset-0 hidden" style="border: 3px solid #ff3b30;"></div>
-                <div id="detection-badge" class="absolute top-3 right-3 hidden rounded-full px-4 py-2 text-xs font-semibold text-white" style="background: linear-gradient(180deg, #ff6b6b 0%, #ff3b30 100%); box-shadow: 0 4px 16px rgba(255, 59, 48, 0.4);">
+                <div id="detection-overlay" class="absolute inset-0 hidden" style="border: 3px solid var(--system-red);"></div>
+                <div id="detection-badge" class="absolute top-3 right-3 hidden rounded-full px-4 py-2 text-xs font-semibold text-white" style="background: linear-gradient(180deg, #ff6b6b 0%, var(--system-red) 100%); box-shadow: 0 4px 16px rgba(255, 59, 48, 0.4);">
                     Detection
                 </div>
             </div>
 
-            <div class="mt-4 flex items-center justify-between pt-4" style="border-top: 0.5px solid var(--color-border);">
-                <label class="flex items-center gap-2.5 text-xs" style="color: var(--color-text-secondary);">
+            <div class="mt-4 flex items-center justify-between pt-4" style="border-top: 0.5px solid var(--border-separator);">
+                <label class="flex items-center gap-2.5 text-xs text-secondary">
                     <span>Auto refresh</span>
-                    <label class="toggle-switch" style="transform: scale(0.8);">
+                    <label class="toggle-glass" style="transform: scale(0.8);">
                         <input type="checkbox" id="auto-refresh" checked>
                         <span class="toggle-slider"></span>
                     </label>
                 </label>
-                <div class="text-xs" style="color: var(--color-text-secondary);">
+                <div class="text-xs text-secondary">
                     Last update: <span id="last-update">Never</span>
                 </div>
             </div>
@@ -90,57 +90,57 @@
     </div>
 
     <div class="space-y-4">
-        <section class="surface p-5">
-            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Detection Status</h3>
+        <section class="glass rounded-2xl p-5 animate-slide-up" style="--animation-order: 2;">
+            <h3 class="text-base font-semibold text-primary">Detection Status</h3>
             <div class="mt-4 space-y-3 text-sm">
-                <div class="rounded-xl p-3" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
+                <div class="rounded-xl p-3 glass-ultra-thin">
                     <div class="flex items-center justify-between">
-                        <span class="font-medium" style="color: var(--color-text-primary);">Processing</span>
-                        <span id="processing-status" class="rounded-full px-2.5 py-1 text-xs font-medium" style="background: rgba(0, 0, 0, 0.04); color: var(--color-text-secondary);">Idle</span>
+                        <span class="font-medium text-primary">Processing</span>
+                        <span id="processing-status" class="rounded-full px-2.5 py-1 text-xs font-medium" style="background: var(--material-thin); color: var(--text-secondary);">Idle</span>
                     </div>
-                    <p class="mt-2 text-xs" style="color: var(--color-text-secondary);">Efficiency <span id="efficiency-rate" class="font-semibold" style="color: var(--color-text-primary);">0%</span></p>
+                    <p class="mt-2 text-xs text-secondary">Efficiency <span id="efficiency-rate" class="font-semibold text-primary">0%</span></p>
                 </div>
 
-                <div class="rounded-xl p-3" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
-                    <p class="font-medium text-xs" style="color: var(--color-text-primary);">Latest analysis</p>
-                    <div id="latest-analysis" class="mt-1.5 text-xs" style="color: var(--color-text-secondary);">
+                <div class="rounded-xl p-3 glass-ultra-thin">
+                    <p class="font-medium text-xs text-primary">Latest analysis</p>
+                    <div id="latest-analysis" class="mt-1.5 text-xs text-secondary">
                         No analysis yet
                     </div>
                 </div>
             </div>
         </section>
 
-        <section class="surface p-5">
-            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Real-time Statistics</h3>
+        <section class="glass rounded-2xl p-5 animate-slide-up" style="--animation-order: 3;">
+            <h3 class="text-base font-semibold text-primary">Real-time Statistics</h3>
             <dl class="mt-4 space-y-2.5 text-sm">
                 <div class="flex items-center justify-between">
-                    <dt style="color: var(--color-text-secondary);">Frames captured</dt>
-                    <dd id="live-total-frames" class="font-semibold" style="color: var(--color-text-primary);">0</dd>
+                    <dt class="text-secondary">Frames captured</dt>
+                    <dd id="live-total-frames" class="font-semibold text-primary">0</dd>
                 </div>
                 <div class="flex items-center justify-between">
-                    <dt style="color: var(--color-text-secondary);">Frames processed</dt>
-                    <dd id="live-processed-frames" class="font-semibold" style="color: var(--color-text-primary);">0</dd>
+                    <dt class="text-secondary">Frames processed</dt>
+                    <dd id="live-processed-frames" class="font-semibold text-primary">0</dd>
                 </div>
                 <div class="flex items-center justify-between">
-                    <dt style="color: var(--color-text-secondary);">Detections</dt>
-                    <dd id="live-detections" class="font-semibold" style="color: #ff9500;">0</dd>
+                    <dt class="text-secondary">Detections</dt>
+                    <dd id="live-detections" class="font-semibold" style="color: var(--system-orange);">0</dd>
                 </div>
                 <div class="flex items-center justify-between">
-                    <dt style="color: var(--color-text-secondary);">Alerts sent</dt>
-                    <dd id="live-alerts" class="font-semibold" style="color: #ff3b30;">0</dd>
+                    <dt class="text-secondary">Alerts sent</dt>
+                    <dd id="live-alerts" class="font-semibold" style="color: var(--system-red);">0</dd>
                 </div>
             </dl>
         </section>
 
-        <section class="surface p-5">
-            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Detection Sensitivity</h3>
+        <section class="glass rounded-2xl p-5 animate-slide-up" style="--animation-order: 4;">
+            <h3 class="text-base font-semibold text-primary">Detection Sensitivity</h3>
             <div class="mt-4 text-sm">
                 <div>
-                    <label class="block text-xs font-medium" style="color: var(--color-text-secondary);">SSIM Threshold</label>
+                    <label class="block text-xs font-medium text-secondary">SSIM Threshold</label>
                     <input type="range" id="ssim-threshold" min="0.5" max="1.0" step="0.01" value="0.95" class="mt-2 w-full">
-                    <div class="mt-1.5 flex justify-between text-xs" style="color: var(--color-text-secondary);">
+                    <div class="mt-1.5 flex justify-between text-xs text-secondary">
                         <span>Sensitive</span>
-                        <span id="ssim-value" class="font-medium" style="color: var(--color-text-primary);">0.95</span>
+                        <span id="ssim-value" class="font-medium text-primary">0.95</span>
                         <span>Conservative</span>
                     </div>
                 </div>
@@ -150,26 +150,26 @@
 </div>
 
 <!-- Agentic Mode Section -->
-<section class="surface overflow-hidden mb-6">
-    <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
+<section class="glass rounded-2xl overflow-hidden mb-6 animate-slide-up" style="--animation-order: 5;">
+    <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator);">
         <div class="flex items-center justify-between">
             <div>
-                <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">
-                    <i class="fas fa-robot mr-2" style="color: #af52de;"></i>Agentic Mode
+                <h3 class="text-base font-semibold text-primary">
+                    <i class="fas fa-robot mr-2" style="color: var(--system-purple);"></i>Agentic Mode
                 </h3>
-                <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">Enable autonomous AI agent with tool calling capabilities</p>
+                <p class="text-xs mt-0.5 text-secondary">Enable autonomous AI agent with tool calling capabilities</p>
             </div>
-            <label class="relative inline-flex items-center cursor-pointer">
+            <label class="toggle-glass">
                 <input type="checkbox" id="agentic-mode-toggle" class="sr-only peer">
-                <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-purple-600"></div>
+                <span class="toggle-slider"></span>
             </label>
         </div>
     </div>
     <div class="p-5">
         <div class="grid gap-4 md:grid-cols-2">
             <div>
-                <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Task Type</label>
-                <select id="agentic-task-type" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                <label class="block text-xs font-medium mb-1.5 text-secondary">Task Type</label>
+                <select id="agentic-task-type" class="input-glass w-full">
                     <option value="package_detection">Package Detection</option>
                     <option value="safety_monitoring">Safety Monitoring</option>
                     <option value="quality_inspection">Quality Inspection</option>
@@ -180,68 +180,68 @@
             <div class="flex items-center gap-4">
                 <label class="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" id="agentic-alerts-enabled" checked class="w-4 h-4 rounded border-gray-300">
-                    <span class="text-xs font-medium" style="color: var(--color-text-secondary);">Enable Alerts</span>
+                    <span class="text-xs font-medium text-secondary">Enable Alerts</span>
                 </label>
             </div>
         </div>
         <div class="mt-4">
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Custom Prompt</label>
-            <textarea id="agentic-custom-prompt" rows="4" class="w-full px-3 py-2 text-sm rounded-lg font-mono" style="background: var(--color-surface); border: 0.5px solid var(--color-border);" placeholder="e.g., Send an email to alerts@company.com if you see any safety violations..."></textarea>
-            <p class="text-xs mt-2" style="color: var(--color-text-tertiary);">
+            <label class="block text-xs font-medium mb-1.5 text-secondary">Custom Prompt</label>
+            <textarea id="agentic-custom-prompt" rows="4" class="input-glass w-full font-mono" placeholder="e.g., Send an email to alerts@company.com if you see any safety violations..."></textarea>
+            <p class="text-xs mt-2 text-tertiary">
                 <i class="fas fa-info-circle mr-1"></i>
                 In agentic mode, the AI can autonomously call tools like <code>send_alert_email</code>, <code>save_evidence</code>, and <code>log_event</code>.
             </p>
         </div>
         <div class="mt-4 flex gap-3">
-            <button id="save-agentic-config" class="px-4 py-2 text-xs font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #af52de 0%, #9b3fd9 100%);">
+            <button id="save-agentic-config" class="btn text-white" style="background: linear-gradient(135deg, var(--system-purple) 0%, #9b3fd9 100%);">
                 <i class="fas fa-save mr-1.5"></i>Save & Apply
             </button>
-            <button id="test-agentic-prompt" class="px-4 py-2 text-xs font-medium rounded-lg transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
+            <button id="test-agentic-prompt" class="btn btn-secondary">
                 <i class="fas fa-flask mr-1.5"></i>Test with Current Frame
             </button>
-            <button id="test-uploaded-image-btn" onclick="openTestImageModal()" class="px-4 py-2 text-xs font-medium rounded-lg transition" style="background: linear-gradient(135deg, rgba(175, 82, 222, 0.15) 0%, rgba(175, 82, 222, 0.05) 100%); color: #af52de; border: 0.5px solid rgba(175, 82, 222, 0.3);">
+            <button id="test-uploaded-image-btn" onclick="openTestImageModal()" class="btn" style="background: var(--system-purple-glass); color: var(--system-purple); border: 0.5px solid rgba(175, 82, 222, 0.3);">
                 <i class="fas fa-upload mr-1.5"></i>Test with Uploaded Image
             </button>
         </div>
         
         <!-- Agentic Status Display -->
-        <div id="agentic-status-panel" class="mt-4 p-4 rounded-xl hidden" style="background: rgba(175, 82, 222, 0.05); border: 0.5px solid rgba(175, 82, 222, 0.2);">
+        <div id="agentic-status-panel" class="mt-4 p-4 rounded-xl hidden" style="background: var(--system-purple-glass); border: 0.5px solid rgba(175, 82, 222, 0.2);">
             <div class="flex items-center gap-2 mb-2">
-                <i class="fas fa-robot" style="color: #af52de;"></i>
-                <span class="text-sm font-medium" style="color: var(--color-text-primary);">Agentic Mode Active</span>
+                <i class="fas fa-robot" style="color: var(--system-purple);"></i>
+                <span class="text-sm font-medium text-primary">Agentic Mode Active</span>
             </div>
-            <div id="agentic-config-display" class="text-xs" style="color: var(--color-text-secondary);">
+            <div id="agentic-config-display" class="text-xs text-secondary">
                 <!-- Configuration will be shown here -->
             </div>
         </div>
         
         <!-- Available Tools Display -->
-        <div class="mt-4 p-4 rounded-xl" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
+        <div class="mt-4 p-4 rounded-xl glass-ultra-thin">
             <div class="flex items-center gap-2 mb-3">
-                <i class="fas fa-tools" style="color: var(--color-text-secondary);"></i>
-                <span class="text-sm font-medium" style="color: var(--color-text-primary);">Available Tools</span>
+                <i class="fas fa-tools text-secondary"></i>
+                <span class="text-sm font-medium text-primary">Available Tools</span>
             </div>
             <div id="tools-list" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                <div class="text-xs" style="color: var(--color-text-tertiary);">Loading tools...</div>
+                <div class="text-xs text-tertiary">Loading tools...</div>
             </div>
         </div>
     </div>
 </section>
 
-<section class="surface p-5">
+<section class="glass rounded-2xl p-5 animate-slide-up" style="--animation-order: 6;">
     <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Recent Detections</h3>
-            <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">Timeline updates whenever the system detects packaging boxes.</p>
+            <h3 class="text-base font-semibold text-primary">Recent Detections</h3>
+            <p class="text-xs mt-0.5 text-secondary">Timeline updates whenever the system detects packaging boxes.</p>
         </div>
-        <button id="clear-detections" class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition" style="background: rgba(255, 59, 48, 0.08); border: 0.5px solid rgba(255, 59, 48, 0.15); color: #ff3b30;">
-            <i class="fas fa-trash"></i>
+        <button id="clear-detections" class="btn text-xs" style="background: var(--system-red-glass); color: var(--system-red); border: 0.5px solid rgba(255, 59, 48, 0.15);">
+            <i class="fas fa-trash mr-1"></i>
             Clear
         </button>
     </div>
 
     <div id="detections-timeline" class="mt-4 max-h-80 space-y-3 overflow-y-auto pr-1">
-        <div class="rounded-xl py-8 text-center" style="border: 1px dashed var(--color-border); background: rgba(0, 0, 0, 0.02); color: var(--color-text-secondary);">
+        <div class="rounded-xl py-8 text-center glass-ultra-thin text-secondary">
             <i class="fas fa-search text-2xl mb-2 opacity-60"></i>
             <p class="text-sm font-medium">No detections yet</p>
             <p class="text-xs opacity-70">Detections will appear here when packaging boxes are detected</p>
@@ -323,9 +323,9 @@
         // Update UI
         const feedStatus = document.getElementById('feed-status');
         feedStatus.innerHTML = '<i class="fas fa-pause text-xs"></i><span>Stopped</span>';
-        feedStatus.style.background = 'rgba(0, 0, 0, 0.04)';
-        feedStatus.style.border = '0.5px solid var(--color-border)';
-        feedStatus.style.color = 'var(--color-text-secondary)';
+        feedStatus.style.background = 'var(--material-thin)';
+        feedStatus.style.border = '0.5px solid var(--border-separator)';
+        feedStatus.style.color = 'var(--text-secondary)';
         
         const processingStatus = document.getElementById('processing-status');
         processingStatus.textContent = 'Stopped';
@@ -674,7 +674,7 @@
     function clearDetections() {
         const timeline = document.getElementById('detections-timeline');
         timeline.innerHTML = `
-            <div class="rounded-xl py-8 text-center" style="border: 1px dashed var(--color-border); background: rgba(0, 0, 0, 0.02); color: var(--color-text-secondary);">
+            <div class="rounded-xl py-8 text-center glass-ultra-thin text-secondary">
                 <i class="fas fa-search text-2xl mb-2 opacity-60"></i>
                 <p class="text-sm font-medium">No detections yet</p>
                 <p class="text-xs opacity-70">Detections will appear here when objects are detected</p>
@@ -815,20 +815,19 @@
             
             if (result && result.tools && result.tools.length > 0) {
                 container.innerHTML = result.tools.map(tool => `
-                    <div class="tool-card flex items-start gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all" 
-                         style="background: var(--color-surface); border: 0.5px solid var(--color-border);"
+                    <div class="tool-card flex items-start gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all glass-ultra-thin" 
                          onclick="this.classList.toggle('expanded')"
                          title="Click to expand">
-                        <i class="fas fa-${getToolIcon(tool.name)} mt-0.5" style="color: #af52de; width: 16px; flex-shrink: 0;"></i>
+                        <i class="fas fa-${getToolIcon(tool.name)} mt-0.5" style="color: var(--system-purple); width: 16px; flex-shrink: 0;"></i>
                         <div class="min-w-0 flex-1">
-                            <div class="text-xs font-medium" style="color: var(--color-text-primary);">${tool.name}</div>
-                            <div class="tool-description text-xs" style="color: var(--color-text-tertiary);">${tool.description}</div>
+                            <div class="text-xs font-medium text-primary">${tool.name}</div>
+                            <div class="tool-description text-xs text-tertiary">${tool.description}</div>
                         </div>
-                        <i class="fas fa-chevron-down text-xs mt-0.5 tool-expand-icon transition-transform" style="color: var(--color-text-tertiary); flex-shrink: 0;"></i>
+                        <i class="fas fa-chevron-down text-xs mt-0.5 tool-expand-icon transition-transform text-tertiary" style="flex-shrink: 0;"></i>
                     </div>
                 `).join('');
             } else {
-                container.innerHTML = '<div class="text-xs" style="color: var(--color-text-tertiary);">No tools available</div>';
+                container.innerHTML = '<div class="text-xs text-tertiary">No tools available</div>';
             }
         } catch (error) {
             console.error('Failed to load tools:', error);

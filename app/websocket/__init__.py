@@ -20,6 +20,11 @@ logger = get_logger(__name__)
 def register_handlers(socketio: "SocketIO") -> None:
     """Register all WebSocket event handlers."""
     
+    # Register chat handlers
+    from app.websocket.chat import register_chat_handlers
+    
+    register_chat_handlers(socketio)
+    
     @socketio.on("connect")
     def handle_connect():
         """Handle client connection."""
@@ -52,6 +57,11 @@ def register_handlers(socketio: "SocketIO") -> None:
 def emit_detection_event(socketio: "SocketIO", event_data: dict) -> None:
     """Emit a detection event to all connected clients."""
     socketio.emit("detection_event", event_data)
+    
+    # Emit to chat interface
+    from app.websocket.chat import emit_detection_to_chat
+    
+    emit_detection_to_chat(socketio, event_data)
 
 
 def emit_frame_update(socketio: "SocketIO", frame_bytes: bytes, metadata: dict = None) -> None:

@@ -511,22 +511,4 @@ def analyze_uploaded_image():
         }), 500
 
 
-@api_bp.route("/tools", methods=["GET"])
-def list_tools():
-    """List all available tools for agentic analysis."""
-    from agents.tools import TOOL_REGISTRY
-    
-    tools = []
-    for tool in TOOL_REGISTRY.values():
-        tools.append({
-            "name": tool.name,
-            "description": tool.description,
-            "parameters": tool.parameters,
-            "required_params": tool.required_params,
-        })
-    
-    return jsonify({
-        "success": True,
-        "tools": tools,
-        "count": len(tools),
-    })
+# NOTE: Tools API endpoints are in mcp.py

@@ -4,55 +4,60 @@
 {% block page_title %}System Settings{% endblock %}
 
 {% block content %}
-<div class="max-w-5xl mx-auto px-6 py-6 space-y-4">
-    <!-- Environment & Integrations -->
-    <section class="surface overflow-hidden">
-        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
-            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Environment & Integrations</h3>
-            <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">Configure email notifications and Ollama backend</p>
+<div class="max-w-5xl mx-auto space-y-5">
+    <!-- Environment & Integrations (Liquid Glass) -->
+    <section class="glass rounded-2xl overflow-hidden animate-slide-up">
+        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator);">
+            <h3 class="text-headline">Environment & Integrations</h3>
+            <p class="text-footnote mt-0.5">Configure email notifications and Ollama backend</p>
         </div>
         <div class="p-5">
             <div class="grid gap-6 md:grid-cols-2">
                 <div class="space-y-4">
                     <div>
-                        <label for="gmail-email" class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Gmail Address</label>
-                        <input id="gmail-email" type="email" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);" placeholder="alerts@example.com">
+                        <label for="gmail-email" class="input-label">Gmail Address</label>
+                        <input id="gmail-email" type="email" class="input-glass" placeholder="alerts@example.com">
                     </div>
                     <div>
-                        <label for="gmail-password" class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">App Password</label>
-                        <div class="flex rounded-lg overflow-hidden" style="border: 0.5px solid var(--color-border);">
-                            <input id="gmail-password" type="password" class="flex-1 px-3 py-2 text-sm border-0" style="background: var(--color-surface);" placeholder="16 character app password">
-                            <button type="button" class="px-3" style="background: var(--color-surface); color: var(--color-text-tertiary);" onclick="togglePassword('gmail-password')">
-                                <i class="fas fa-eye text-sm"></i>
+                        <label for="gmail-password" class="input-label">App Password</label>
+                        <div class="flex rounded-xl overflow-hidden" style="border: 0.5px solid var(--border-separator);">
+                            <input id="gmail-password" type="password" class="input-glass flex-1 rounded-none border-0" placeholder="16 character app password">
+                            <button type="button" class="btn-icon" style="border-radius:0;" onclick="togglePassword('gmail-password')">
+                                <i class="fas fa-eye"></i>
                             </button>
                         </div>
                     </div>
                     <div>
-                        <label for="ollama-url" class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Ollama URL</label>
-                        <input id="ollama-url" type="url" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);" placeholder="http://localhost:11434">
+                        <label for="ollama-url" class="input-label">Ollama URL</label>
+                        <input id="ollama-url" type="url" class="input-glass" placeholder="http://localhost:11434">
                     </div>
-                    <div class="flex items-center justify-between text-xs" style="color: var(--color-text-primary);">
-                        <span>Enable debug logging</span>
-                        <label class="toggle-switch">
+                    <div class="flex items-center justify-between glass-ultra-thin rounded-xl p-4">
+                        <span class="text-subhead font-medium">Enable debug logging</span>
+                        <label class="toggle-glass" style="transform: scale(0.8);">
                             <input id="debug-mode" type="checkbox">
-                            <span class="toggle-slider"></span>
+                            <div class="toggle-track">
+                                <div class="toggle-thumb"></div>
+                            </div>
                         </label>
                     </div>
                 </div>
                 <div class="space-y-4">
-                    <div class="rounded-xl p-4" style="background: rgba(0, 113, 227, 0.04); border: 0.5px solid rgba(0, 113, 227, 0.15);">
-                        <h4 class="text-sm font-semibold mb-1" style="color: var(--color-text-primary);">Email Tools</h4>
-                        <p class="text-xs mb-3" style="color: var(--color-text-secondary);">Test delivery before enabling notifications</p>
-                        <button id="test-email" class="w-full px-3 py-2 text-xs font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%);">
-                            <i class="fas fa-paper-plane mr-1.5"></i>Send Test Email
+                    <div class="glass-blue rounded-xl p-4">
+                        <h4 class="text-subhead font-semibold mb-1">Email Tools</h4>
+                        <p class="text-footnote mb-3">Test delivery before enabling notifications</p>
+                        <button id="test-email" class="btn btn-primary w-full">
+                            <i class="fas fa-paper-plane"></i>
+                            <span>Send Test Email</span>
                         </button>
                     </div>
-                    <div class="flex gap-2">
-                        <button id="save-env" class="flex-1 px-3 py-2 text-xs font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%);">
-                            <i class="fas fa-save mr-1.5"></i>Save
+                    <div class="flex gap-3">
+                        <button id="save-env" class="btn btn-primary flex-1">
+                            <i class="fas fa-save"></i>
+                            <span>Save</span>
                         </button>
-                        <button id="load-env" class="flex-1 px-3 py-2 text-xs font-medium rounded-lg transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
-                            <i class="fas fa-sync-alt mr-1.5"></i>Reload
+                        <button id="load-env" class="btn btn-secondary flex-1">
+                            <i class="fas fa-sync-alt"></i>
+                            <span>Reload</span>
                         </button>
                     </div>
                 </div>
@@ -60,111 +65,118 @@
         </div>
     </section>
 
-    <!-- Camera Settings -->
-    <section class="surface overflow-hidden">
-        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
-            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Camera Settings</h3>
-            <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">Configure capture interval and resolution</p>
+    <!-- Camera Settings (Liquid Glass) -->
+    <section class="glass rounded-2xl overflow-hidden animate-slide-up" style="animation-delay: 50ms;">
+        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator);">
+            <h3 class="text-headline">Camera Settings</h3>
+            <p class="text-footnote mt-0.5">Configure capture interval and resolution</p>
         </div>
         <div class="p-5">
             <div class="grid gap-4 md:grid-cols-2 mb-4">
                 <div>
-                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Device Index</label>
-                    <select id="device-index" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                    <label class="input-label">Device Index</label>
+                    <select id="device-index" class="input-glass">
                         <option value="0">/dev/video0</option>
                         <option value="1">/dev/video1</option>
                         <option value="2">/dev/video2</option>
                     </select>
                 </div>
                 <div>
-                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Capture Interval (seconds)</label>
-                    <input id="capture-interval" type="number" min="0.1" step="0.1" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                    <label class="input-label">Capture Interval (seconds)</label>
+                    <input id="capture-interval" type="number" min="0.1" step="0.1" class="input-glass">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Resolution Width</label>
-                    <input id="resolution-width" type="number" min="1" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                    <label class="input-label">Resolution Width</label>
+                    <input id="resolution-width" type="number" min="1" class="input-glass">
                 </div>
                 <div>
-                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Resolution Height</label>
-                    <input id="resolution-height" type="number" min="1" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                    <label class="input-label">Resolution Height</label>
+                    <input id="resolution-height" type="number" min="1" class="input-glass">
                 </div>
             </div>
-            <div class="space-y-3 text-xs" style="color: var(--color-text-primary);">
-                <div class="flex items-center justify-between">
-                    <span>Store detection crops</span>
-                    <label class="toggle-switch">
+            <div class="space-y-3">
+                <div class="flex items-center justify-between glass-ultra-thin rounded-xl p-4">
+                    <span class="text-subhead font-medium">Store detection crops</span>
+                    <label class="toggle-glass" style="transform: scale(0.8);">
                         <input id="save-detection-images" type="checkbox">
-                        <span class="toggle-slider"></span>
+                        <div class="toggle-track">
+                            <div class="toggle-thumb"></div>
+                        </div>
                     </label>
                 </div>
-                <div class="flex items-center justify-between">
-                    <span>Store processed frames</span>
-                    <label class="toggle-switch">
+                <div class="flex items-center justify-between glass-ultra-thin rounded-xl p-4">
+                    <span class="text-subhead font-medium">Store processed frames</span>
+                    <label class="toggle-glass" style="transform: scale(0.8);">
                         <input id="save-processed-frames" type="checkbox">
-                        <span class="toggle-slider"></span>
+                        <div class="toggle-track">
+                            <div class="toggle-thumb"></div>
+                        </div>
                     </label>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Detection Model & Prompt -->
-    <section class="surface overflow-hidden">
-        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
-            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Detection Model & Prompt</h3>
-            <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">Configure Ollama model and vision prompt</p>
+    <!-- Detection Model & Prompt (Liquid Glass) -->
+    <section class="glass rounded-2xl overflow-hidden animate-slide-up" style="animation-delay: 100ms;">
+        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator);">
+            <h3 class="text-headline">Detection Model & Prompt</h3>
+            <p class="text-footnote mt-0.5">Configure Ollama model and vision prompt</p>
         </div>
         <div class="p-5">
             <div class="grid gap-4 md:grid-cols-2 mb-4">
                 <div>
-                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Vision Model</label>
-                    <select id="vision-model" class="w-full px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                    <label class="input-label">Vision Model</label>
+                    <select id="vision-model" class="input-glass">
                         <option value="">Loading models...</option>
                     </select>
                 </div>
                 <div>
-                    <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">SSIM Threshold</label>
-                    <input id="ssim-threshold-config" type="range" min="0.5" max="1.0" step="0.05" class="w-full mt-2">
-                    <div class="flex justify-between text-xs mt-1" style="color: var(--color-text-tertiary);">
-                        <span>0.5 (sensitive)</span>
-                        <span id="ssim-threshold-value" class="font-medium" style="color: var(--color-text-primary);">0.80</span>
-                        <span>1.0 (strict)</span>
+                    <label class="input-label">SSIM Threshold</label>
+                    <input id="ssim-threshold-config" type="range" min="0.5" max="1.0" step="0.05" class="w-full mt-2 accent-[var(--system-blue)]">
+                    <div class="flex justify-between text-footnote mt-2">
+                        <span class="text-tertiary">0.5 (sensitive)</span>
+                        <span id="ssim-threshold-value" class="font-semibold" style="color: var(--system-blue);">0.80</span>
+                        <span class="text-tertiary">1.0 (strict)</span>
                     </div>
                 </div>
             </div>
             <div class="space-y-3">
-                <label class="block text-xs font-medium" style="color: var(--color-text-secondary);">Detection Prompt</label>
-                <textarea id="detection-prompt" rows="5" class="w-full px-3 py-2 text-sm rounded-lg font-mono" style="background: var(--color-surface); border: 0.5px solid var(--color-border);" placeholder="Describe the detection criteria"></textarea>
+                <label class="input-label">Detection Prompt</label>
+                <textarea id="detection-prompt" rows="5" class="input-glass font-mono text-sm" placeholder="Describe the detection criteria"></textarea>
                 <div class="flex items-center justify-between">
-                    <button id="reset-prompt" class="px-3 py-1.5 text-xs font-medium rounded-lg transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
-                        <i class="fas fa-undo mr-1.5"></i>Reset to Default
+                    <button id="reset-prompt" class="btn btn-secondary text-xs">
+                        <i class="fas fa-undo"></i>
+                        <span>Reset to Default</span>
                     </button>
-                    <span class="text-xs" style="color: var(--color-text-tertiary);">Characters: <span id="prompt-length" class="font-medium" style="color: var(--color-text-primary);">0</span></span>
+                    <span class="text-footnote">Characters: <span id="prompt-length" class="font-semibold" style="color: var(--system-blue);">0</span></span>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Email Recipients -->
-    <section class="surface overflow-hidden">
-        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
-            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Email Recipients</h3>
-            <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">Manage destination addresses for alert delivery</p>
+    <!-- Email Recipients (Liquid Glass) -->
+    <section class="glass rounded-2xl overflow-hidden animate-slide-up" style="animation-delay: 150ms;">
+        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator);">
+            <h3 class="text-headline">Email Recipients</h3>
+            <p class="text-footnote mt-0.5">Manage destination addresses for alert delivery</p>
         </div>
         <div class="p-5">
-            <div class="flex items-center justify-end gap-3 text-xs font-medium mb-4" style="color: var(--color-text-primary);">
+            <div class="flex items-center justify-end gap-3 text-footnote font-medium mb-4 text-primary">
                 <span>Sync from User Management</span>
-                <label class="toggle-switch">
+                <label class="toggle-glass" style="transform: scale(0.8);">
                     <input id="auto-sync-users" type="checkbox">
-                    <span class="toggle-slider"></span>
+                    <div class="toggle-track">
+                        <div class="toggle-thumb"></div>
+                    </div>
                 </label>
             </div>
-            <p id="recipient-sync-hint" class="text-xs hidden mb-4" style="color: var(--color-text-secondary);">
-                Recipients are kept in sync with the <a href="/users" style="color: #0071e3;">User Management</a> page.
+            <p id="recipient-sync-hint" class="text-footnote hidden mb-4 text-secondary">
+                Recipients are kept in sync with the <a href="/users" style="color: var(--system-blue);">User Management</a> page.
             </p>
             <div class="flex gap-2">
-                <input id="new-recipient" type="email" class="flex-1 px-3 py-2 text-sm rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);" placeholder="recipient@example.com">
-                <button id="add-recipient" class="px-3 py-2 text-xs font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%);">
+                <input id="new-recipient" type="email" class="input-glass flex-1" placeholder="recipient@example.com">
+                <button id="add-recipient" class="btn btn-primary">
                     <i class="fas fa-plus mr-1.5"></i>Add
                 </button>
             </div>
@@ -173,31 +185,31 @@
     </section>
 
     <!-- API Key & Configuration Management -->
-    <section class="surface overflow-hidden">
-        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
-            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Security & Configuration</h3>
-            <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">API authentication and configuration management</p>
+    <section class="glass rounded-2xl overflow-hidden animate-slide-up" style="animation-delay: 200ms;">
+        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator);">
+            <h3 class="text-headline">Security & Configuration</h3>
+            <p class="text-footnote mt-0.5">API authentication and configuration management</p>
         </div>
         <div class="p-5">
             <div class="grid gap-6 md:grid-cols-2">
                 <div>
-                    <h4 class="text-sm font-semibold mb-2" style="color: var(--color-text-primary);">API Key</h4>
-                    <p class="text-xs mb-3" style="color: var(--color-text-secondary);">Use this key to authenticate external tooling</p>
+                    <h4 class="text-subhead font-semibold mb-2 text-primary">API Key</h4>
+                    <p class="text-footnote mb-3 text-secondary">Use this key to authenticate external tooling</p>
                     <div class="flex gap-2">
-                        <input id="api-key" type="text" readonly class="flex-1 px-3 py-2 text-xs rounded-lg font-mono" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
-                        <button id="regenerate-key" class="px-3 py-2 text-xs font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%);">
+                        <input id="api-key" type="text" readonly class="input-glass flex-1 font-mono text-xs">
+                        <button id="regenerate-key" class="btn btn-primary">
                             <i class="fas fa-redo mr-1.5"></i>Regenerate
                         </button>
                     </div>
                 </div>
                 <div>
-                    <h4 class="text-sm font-semibold mb-2" style="color: var(--color-text-primary);">Configuration Actions</h4>
-                    <p class="text-xs mb-3" style="color: var(--color-text-secondary);">Save or reset all settings</p>
+                    <h4 class="text-subhead font-semibold mb-2 text-primary">Configuration Actions</h4>
+                    <p class="text-footnote mb-3 text-secondary">Save or reset all settings</p>
                     <div class="flex gap-2">
-                        <button id="save-all-settings" class="flex-1 px-3 py-2 text-xs font-medium text-white rounded-lg transition" style="background: linear-gradient(135deg, #34c759 0%, #30b350 100%);">
+                        <button id="save-all-settings" class="btn flex-1 text-white" style="background: linear-gradient(135deg, var(--system-green) 0%, var(--system-teal) 100%);">
                             <i class="fas fa-check mr-1.5"></i>Save All
                         </button>
-                        <button id="reset-default-config" class="flex-1 px-3 py-2 text-xs font-medium rounded-lg transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">
+                        <button id="reset-default-config" class="btn btn-secondary flex-1">
                             <i class="fas fa-history mr-1.5"></i>Reset Defaults
                         </button>
                     </div>

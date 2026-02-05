@@ -4,113 +4,114 @@
 {% block page_title %}Dashboard{% endblock %}
 
 {% block content %}
-<!-- Hero Stats Row -->
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-    <div class="surface p-4 relative overflow-hidden group hover:scale-[1.02] transition-transform">
-        <div class="absolute inset-0 opacity-10" style="background: linear-gradient(135deg, #0071e3 0%, transparent 60%);"></div>
+<!-- Hero Stats Row (Liquid Glass Cards) -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <div class="glass-card liquid-hover hover-sweep group">
+        <div class="absolute inset-0 opacity-[0.08] rounded-[inherit]" style="background: linear-gradient(135deg, var(--system-blue) 0%, transparent 60%);"></div>
         <div class="relative flex items-center justify-between">
             <div>
-                <p class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-tertiary);">Total Frames</p>
-                <p class="mt-1.5 text-2xl font-bold tabular-nums" style="color: var(--color-text-primary);" id="total-frames">0</p>
+                <p class="text-caption">Total Frames</p>
+                <p class="mt-2 text-title-2 font-bold tabular-nums" id="total-frames">0</p>
             </div>
-            <div class="h-10 w-10 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%); box-shadow: 0 4px 12px rgba(0, 113, 227, 0.3);">
-                <i class="fas fa-camera text-white"></i>
+            <div class="h-12 w-12 rounded-2xl flex items-center justify-center glass-blue" style="box-shadow: 0 4px 16px rgba(0, 122, 255, 0.25);">
+                <i class="fas fa-camera" style="color: var(--system-blue);"></i>
             </div>
         </div>
     </div>
 
-    <div class="surface p-4 relative overflow-hidden group hover:scale-[1.02] transition-transform">
-        <div class="absolute inset-0 opacity-10" style="background: linear-gradient(135deg, #34c759 0%, transparent 60%);"></div>
+    <div class="glass-card liquid-hover hover-sweep group">
+        <div class="absolute inset-0 opacity-[0.08] rounded-[inherit]" style="background: linear-gradient(135deg, var(--system-green) 0%, transparent 60%);"></div>
         <div class="relative flex items-center justify-between">
             <div>
-                <p class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-tertiary);">Processed</p>
-                <p class="mt-1.5 text-2xl font-bold tabular-nums" style="color: var(--color-text-primary);" id="processed-frames">0</p>
+                <p class="text-caption">Processed</p>
+                <p class="mt-2 text-title-2 font-bold tabular-nums" id="processed-frames">0</p>
             </div>
-            <div class="h-10 w-10 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #34c759 0%, #30b350 100%); box-shadow: 0 4px 12px rgba(52, 199, 89, 0.3);">
-                <i class="fas fa-check text-white"></i>
+            <div class="h-12 w-12 rounded-2xl flex items-center justify-center glass-green" style="box-shadow: 0 4px 16px rgba(52, 199, 89, 0.25);">
+                <i class="fas fa-check" style="color: var(--system-green);"></i>
             </div>
         </div>
     </div>
 
-    <div class="surface p-4 relative overflow-hidden group hover:scale-[1.02] transition-transform">
-        <div class="absolute inset-0 opacity-10" style="background: linear-gradient(135deg, #ff9500 0%, transparent 60%);"></div>
+    <div class="glass-card liquid-hover hover-sweep group">
+        <div class="absolute inset-0 opacity-[0.08] rounded-[inherit]" style="background: linear-gradient(135deg, var(--system-orange) 0%, transparent 60%);"></div>
         <div class="relative flex items-center justify-between">
             <div>
-                <p class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-tertiary);">Detections</p>
-                <p class="mt-1.5 text-2xl font-bold tabular-nums" style="color: var(--color-text-primary);" id="detections">0</p>
+                <p class="text-caption">Detections</p>
+                <p class="mt-2 text-title-2 font-bold tabular-nums" id="detections">0</p>
             </div>
-            <div class="h-10 w-10 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #ff9500 0%, #ff6b00 100%); box-shadow: 0 4px 12px rgba(255, 149, 0, 0.3);">
-                <i class="fas fa-exclamation text-white"></i>
+            <div class="h-12 w-12 rounded-2xl flex items-center justify-center glass-orange" style="box-shadow: 0 4px 16px rgba(255, 149, 0, 0.25);">
+                <i class="fas fa-exclamation" style="color: var(--system-orange);"></i>
             </div>
         </div>
     </div>
 
-    <div class="surface p-4 relative overflow-hidden group hover:scale-[1.02] transition-transform">
-        <div class="absolute inset-0 opacity-10" style="background: linear-gradient(135deg, #ff3b30 0%, transparent 60%);"></div>
+    <div class="glass-card liquid-hover hover-sweep group">
+        <div class="absolute inset-0 opacity-[0.08] rounded-[inherit]" style="background: linear-gradient(135deg, var(--system-red) 0%, transparent 60%);"></div>
         <div class="relative flex items-center justify-between">
             <div>
-                <p class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-tertiary);">Alerts</p>
-                <p class="mt-1.5 text-2xl font-bold tabular-nums" style="color: var(--color-text-primary);" id="alerts-sent">0</p>
+                <p class="text-caption">Alerts</p>
+                <p class="mt-2 text-title-2 font-bold tabular-nums" id="alerts-sent">0</p>
             </div>
-            <div class="h-10 w-10 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #ff3b30 0%, #ff2d55 100%); box-shadow: 0 4px 12px rgba(255, 59, 48, 0.3);">
-                <i class="fas fa-bell text-white"></i>
+            <div class="h-12 w-12 rounded-2xl flex items-center justify-center glass-red" style="box-shadow: 0 4px 16px rgba(255, 59, 48, 0.25);">
+                <i class="fas fa-bell" style="color: var(--system-red);"></i>
             </div>
         </div>
     </div>
 </div>
 
-<!-- System Status & Resources -->
+<!-- System Status & Resources (Liquid Glass Panels) -->
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
     <!-- Service Health -->
-    <section class="surface overflow-hidden">
-        <div class="px-5 py-4 flex items-center justify-between" style="border-bottom: 0.5px solid var(--color-border);">
-            <div class="flex items-center gap-2">
-                <div class="h-8 w-8 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(52, 199, 89, 0.15) 0%, rgba(52, 199, 89, 0.05) 100%);">
-                    <i class="fas fa-heartbeat text-sm" style="color: #34c759;"></i>
+    <section class="glass rounded-2xl overflow-hidden animate-slide-up">
+        <div class="px-5 py-4 flex items-center justify-between" style="border-bottom: 0.5px solid var(--border-separator);">
+            <div class="flex items-center gap-3">
+                <div class="h-10 w-10 rounded-xl flex items-center justify-center glass-green">
+                    <i class="fas fa-heartbeat" style="color: var(--system-green);"></i>
                 </div>
-                <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Service Health</h3>
+                <h3 class="text-headline">Service Health</h3>
             </div>
-            <button id="refresh-activity" class="px-2.5 py-1.5 rounded-lg text-xs font-medium transition hover:opacity-80" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-secondary);">
-                <i class="fas fa-sync-alt mr-1"></i>Refresh
+            <button id="refresh-activity" class="btn btn-secondary text-xs">
+                <i class="fas fa-sync-alt"></i>
+                <span>Refresh</span>
             </button>
         </div>
         <div class="p-5 grid grid-cols-2 gap-3">
-            <div class="flex items-center gap-3 p-3 rounded-xl" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
-                <div class="h-9 w-9 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(52, 199, 89, 0.15) 0%, rgba(52, 199, 89, 0.05) 100%);">
-                    <i class="fas fa-server text-sm" style="color: #34c759;"></i>
+            <div class="glass-ultra-thin rounded-xl p-4 flex items-center gap-3 liquid-hover">
+                <div class="h-10 w-10 rounded-xl flex items-center justify-center glass-green">
+                    <i class="fas fa-server" style="color: var(--system-green);"></i>
                 </div>
                 <div class="flex-1 min-w-0">
-                    <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Web Server</p>
-                    <p id="web-status" class="text-sm font-semibold" style="color: #34c759;">Running</p>
+                    <p class="text-footnote text-secondary">Web Server</p>
+                    <p id="web-status" class="text-subhead font-semibold" style="color: var(--system-green);">Running</p>
                 </div>
             </div>
-            <div class="flex items-center gap-3 p-3 rounded-xl" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
-                <div class="h-9 w-9 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(0, 113, 227, 0.15) 0%, rgba(0, 113, 227, 0.05) 100%);">
-                    <i class="fas fa-video text-sm" style="color: #0071e3;"></i>
+            <div class="glass-ultra-thin rounded-xl p-4 flex items-center gap-3 liquid-hover">
+                <div class="h-10 w-10 rounded-xl flex items-center justify-center glass-blue">
+                    <i class="fas fa-video" style="color: var(--system-blue);"></i>
                 </div>
                 <div class="flex-1 min-w-0">
-                    <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Camera</p>
-                    <p id="camera-status-text" class="text-sm font-semibold" style="color: var(--color-text-tertiary);">Checking...</p>
+                    <p class="text-footnote text-secondary">Camera</p>
+                    <p id="camera-status-text" class="text-subhead font-semibold text-tertiary">Checking...</p>
                 </div>
             </div>
-            <div class="flex items-center gap-3 p-3 rounded-xl" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
-                <div class="h-9 w-9 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(175, 82, 222, 0.15) 0%, rgba(175, 82, 222, 0.05) 100%);">
-                    <i class="fas fa-brain text-sm" style="color: #af52de;"></i>
+            <div class="glass-ultra-thin rounded-xl p-4 flex items-center gap-3 liquid-hover">
+                <div class="h-10 w-10 rounded-xl flex items-center justify-center glass-purple">
+                    <i class="fas fa-brain" style="color: var(--system-purple);"></i>
                 </div>
                 <div class="flex-1 min-w-0">
-                    <p class="text-xs font-medium" style="color: var(--color-text-secondary);">AI Backend</p>
-                    <p id="ollama-status-text" class="text-sm font-semibold" style="color: var(--color-text-tertiary);">Checking...</p>
+                    <p class="text-footnote text-secondary">AI Backend</p>
+                    <p id="ollama-status-text" class="text-subhead font-semibold text-tertiary">Checking...</p>
                 </div>
             </div>
-            <div class="flex items-center gap-3 p-3 rounded-xl" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
-                <div class="h-9 w-9 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(52, 199, 89, 0.15) 0%, rgba(52, 199, 89, 0.05) 100%);">
-                    <i class="fas fa-eye text-sm" style="color: #34c759;"></i>
+            <div class="glass-ultra-thin rounded-xl p-4 flex items-center gap-3 liquid-hover">
+                <div class="h-10 w-10 rounded-xl flex items-center justify-center glass-green">
+                    <i class="fas fa-eye" style="color: var(--system-green);"></i>
                 </div>
                 <div class="flex-1 min-w-0">
-                    <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Monitoring</p>
-                    <div class="flex items-center gap-1.5">
-                        <p id="monitoring-status-text" class="text-sm font-semibold" style="color: var(--color-text-tertiary);">Stopped</p>
-                        <span id="agentic-mode-badge" class="hidden px-1.5 py-0.5 rounded text-xs font-medium" style="background: rgba(175, 82, 222, 0.15); color: #af52de;">AI</span>
+                    <p class="text-footnote text-secondary">Monitoring</p>
+                    <div class="flex items-center gap-2">
+                        <p id="monitoring-status-text" class="text-subhead font-semibold text-tertiary">Stopped</p>
+                        <span id="agentic-mode-badge" class="hidden status-badge" style="background: var(--system-purple-glass); color: var(--system-purple); font-size: 10px; padding: 2px 6px;">AI</span>
                     </div>
                 </div>
             </div>
@@ -118,91 +119,93 @@
     </section>
 
     <!-- System Resources -->
-    <section class="surface overflow-hidden">
-        <div class="px-5 py-4 flex items-center gap-2" style="border-bottom: 0.5px solid var(--color-border);">
-            <div class="h-8 w-8 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(0, 113, 227, 0.15) 0%, rgba(0, 113, 227, 0.05) 100%);">
-                <i class="fas fa-microchip text-sm" style="color: #0071e3;"></i>
+    <section class="glass rounded-2xl overflow-hidden animate-slide-up" style="animation-delay: 50ms;">
+        <div class="px-5 py-4 flex items-center gap-3" style="border-bottom: 0.5px solid var(--border-separator);">
+            <div class="h-10 w-10 rounded-xl flex items-center justify-center glass-blue">
+                <i class="fas fa-microchip" style="color: var(--system-blue);"></i>
             </div>
             <div>
-                <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">System Resources</h3>
-                <p id="system-uptime" class="text-xs" style="color: var(--color-text-tertiary);">Uptime: Loading...</p>
+                <h3 class="text-headline">System Resources</h3>
+                <p id="system-uptime" class="text-footnote">Uptime: Loading...</p>
             </div>
         </div>
-        <div class="p-5 space-y-4">
+        <div class="p-5 space-y-5">
             <!-- CPU -->
             <div>
-                <div class="flex items-center justify-between mb-1.5">
-                    <span class="text-xs font-medium" style="color: var(--color-text-secondary);">CPU Usage</span>
-                    <span id="cpu-usage" class="text-xs font-semibold" style="color: var(--color-text-primary);">--%</span>
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-footnote font-medium text-secondary">CPU Usage</span>
+                    <span id="cpu-usage" class="text-subhead font-semibold">--%</span>
                 </div>
-                <div class="h-2 rounded-full overflow-hidden" style="background: rgba(0, 0, 0, 0.06);">
-                    <div id="cpu-bar" class="h-full rounded-full transition-all duration-500" style="width: 0%; background: linear-gradient(90deg, #0071e3, #5856d6);"></div>
+                <div class="progress-glass">
+                    <div id="cpu-bar" class="progress-glass-bar" style="width: 0%; background: linear-gradient(90deg, var(--system-blue), var(--system-indigo));"></div>
                 </div>
             </div>
             <!-- Memory -->
             <div>
-                <div class="flex items-center justify-between mb-1.5">
-                    <span class="text-xs font-medium" style="color: var(--color-text-secondary);">Memory Usage</span>
-                    <span id="memory-usage" class="text-xs font-semibold" style="color: var(--color-text-primary);">--%</span>
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-footnote font-medium text-secondary">Memory Usage</span>
+                    <span id="memory-usage" class="text-subhead font-semibold">--%</span>
                 </div>
-                <div class="h-2 rounded-full overflow-hidden" style="background: rgba(0, 0, 0, 0.06);">
-                    <div id="memory-bar" class="h-full rounded-full transition-all duration-500" style="width: 0%; background: linear-gradient(90deg, #34c759, #30d158);"></div>
+                <div class="progress-glass">
+                    <div id="memory-bar" class="progress-glass-bar" style="width: 0%; background: linear-gradient(90deg, var(--system-green), var(--system-teal));"></div>
                 </div>
             </div>
             <!-- Disk -->
             <div>
-                <div class="flex items-center justify-between mb-1.5">
-                    <span class="text-xs font-medium" style="color: var(--color-text-secondary);">Disk Usage</span>
-                    <span id="disk-usage" class="text-xs font-semibold" style="color: var(--color-text-primary);">--%</span>
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-footnote font-medium text-secondary">Disk Usage</span>
+                    <span id="disk-usage" class="text-subhead font-semibold">--%</span>
                 </div>
-                <div class="h-2 rounded-full overflow-hidden" style="background: rgba(0, 0, 0, 0.06);">
-                    <div id="disk-bar" class="h-full rounded-full transition-all duration-500" style="width: 0%; background: linear-gradient(90deg, #ff9500, #ff6b00);"></div>
+                <div class="progress-glass">
+                    <div id="disk-bar" class="progress-glass-bar" style="width: 0%; background: linear-gradient(90deg, var(--system-orange), var(--system-red));"></div>
                 </div>
             </div>
         </div>
     </section>
 </div>
 
-<!-- GPU Stats (Shown if GPU available) -->
-<section id="gpu-stats-section" class="surface overflow-hidden mb-6 hidden">
-    <div class="px-5 py-4 flex items-center gap-2" style="border-bottom: 0.5px solid var(--color-border);">
-        <div class="h-8 w-8 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(118, 185, 0, 0.2) 0%, rgba(118, 185, 0, 0.05) 100%);">
-            <i class="fas fa-bolt text-sm" style="color: #76b900;"></i>
+<!-- GPU Stats (Liquid Glass - Shown if GPU available) -->
+<section id="gpu-stats-section" class="glass rounded-2xl overflow-hidden mb-6 hidden animate-slide-up">
+    <div class="px-5 py-4 flex items-center gap-3" style="border-bottom: 0.5px solid var(--border-separator);">
+        <div class="h-10 w-10 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, rgba(118, 185, 0, 0.2) 0%, rgba(118, 185, 0, 0.05) 100%);">
+            <i class="fas fa-bolt" style="color: #76b900;"></i>
         </div>
         <div>
-            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">GPU Acceleration</h3>
-            <p id="gpu-name" class="text-xs" style="color: #76b900;">NVIDIA GPU</p>
+            <h3 class="text-headline">GPU Acceleration</h3>
+            <p id="gpu-name" class="text-footnote" style="color: #76b900;">NVIDIA GPU</p>
         </div>
     </div>
     <div class="p-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div class="p-3 rounded-xl text-center" style="background: linear-gradient(135deg, rgba(118, 185, 0, 0.08) 0%, rgba(118, 185, 0, 0.02) 100%); border: 0.5px solid rgba(118, 185, 0, 0.2);">
-            <p class="text-xs font-medium" style="color: var(--color-text-secondary);">GPU Usage</p>
-            <p id="gpu-usage" class="text-xl font-bold mt-1" style="color: #76b900;">--%</p>
+        <div class="glass-ultra-thin p-4 rounded-xl text-center liquid-hover" style="background: linear-gradient(135deg, rgba(118, 185, 0, 0.08) 0%, transparent 100%);">
+            <p class="text-footnote text-secondary">GPU Usage</p>
+            <p id="gpu-usage" class="text-title-3 font-bold mt-1" style="color: #76b900;">--%</p>
         </div>
-        <div class="p-3 rounded-xl text-center" style="background: linear-gradient(135deg, rgba(118, 185, 0, 0.08) 0%, rgba(118, 185, 0, 0.02) 100%); border: 0.5px solid rgba(118, 185, 0, 0.2);">
-            <p class="text-xs font-medium" style="color: var(--color-text-secondary);">VRAM Used</p>
-            <p id="gpu-memory" class="text-xl font-bold mt-1" style="color: #76b900;">-- GB</p>
+        <div class="glass-ultra-thin p-4 rounded-xl text-center liquid-hover" style="background: linear-gradient(135deg, rgba(118, 185, 0, 0.08) 0%, transparent 100%);">
+            <p class="text-footnote text-secondary">VRAM Used</p>
+            <p id="gpu-memory" class="text-title-3 font-bold mt-1" style="color: #76b900;">-- GB</p>
         </div>
-        <div class="p-3 rounded-xl text-center" style="background: linear-gradient(135deg, rgba(118, 185, 0, 0.08) 0%, rgba(118, 185, 0, 0.02) 100%); border: 0.5px solid rgba(118, 185, 0, 0.2);">
-            <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Temperature</p>
-            <p id="gpu-temp" class="text-xl font-bold mt-1" style="color: #76b900;">--°C</p>
+        <div class="glass-ultra-thin p-4 rounded-xl text-center liquid-hover" style="background: linear-gradient(135deg, rgba(118, 185, 0, 0.08) 0%, transparent 100%);">
+            <p class="text-footnote text-secondary">Temperature</p>
+            <p id="gpu-temp" class="text-title-3 font-bold mt-1" style="color: #76b900;">--°C</p>
         </div>
-        <div class="p-3 rounded-xl text-center" style="background: linear-gradient(135deg, rgba(118, 185, 0, 0.08) 0%, rgba(118, 185, 0, 0.02) 100%); border: 0.5px solid rgba(118, 185, 0, 0.2);">
-            <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Power Draw</p>
-            <p id="gpu-power" class="text-xl font-bold mt-1" style="color: #76b900;">-- W</p>
+        <div class="glass-ultra-thin p-4 rounded-xl text-center liquid-hover" style="background: linear-gradient(135deg, rgba(118, 185, 0, 0.08) 0%, transparent 100%);">
+            <p class="text-footnote text-secondary">Power Draw</p>
+            <p id="gpu-power" class="text-title-3 font-bold mt-1" style="color: #76b900;">-- W</p>
         </div>
     </div>
 </section>
 
-<!-- Performance & Agent -->
+<!-- Performance & Agent (Liquid Glass) -->
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-    <section class="surface p-5">
+    <section class="glass-card animate-slide-up" style="animation-delay: 100ms;">
         <div class="flex items-center justify-between mb-4">
-            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Performance Metrics</h3>
-            <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium" style="background: rgba(52, 199, 89, 0.1); color: #34c759;">
-                <span class="relative flex h-1.5 w-1.5">
-                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style="background: #34c759;"></span>
-                    <span class="relative inline-flex rounded-full h-1.5 w-1.5" style="background: #34c759;"></span>
+    <section class="glass-card animate-slide-up" style="animation-delay: 100ms;">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-headline">Performance Metrics</h3>
+            <span class="status-badge online">
+                <span class="relative flex h-2 w-2">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style="background: var(--system-green);"></span>
+                    <span class="relative inline-flex rounded-full h-2 w-2" style="background: var(--system-green);"></span>
                 </span>
                 Live
             </span>
@@ -212,37 +215,39 @@
         </div>
     </section>
 
-    <section class="surface p-5" id="agent-summary-card">
+    <section class="glass-card animate-slide-up" id="agent-summary-card" style="animation-delay: 150ms;">
         <div class="flex items-center justify-between mb-4">
-            <div class="flex items-center gap-2">
-                <div class="h-7 w-7 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(175, 82, 222, 0.15) 0%, rgba(175, 82, 222, 0.05) 100%);">
-                    <i class="fas fa-robot text-xs" style="color: #af52de;"></i>
+            <div class="flex items-center gap-3">
+                <div class="h-9 w-9 rounded-xl flex items-center justify-center glass-purple">
+                    <i class="fas fa-robot" style="color: var(--system-purple);"></i>
                 </div>
-                <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Agent Memory</h3>
+                <h3 class="text-headline">Agent Memory</h3>
             </div>
-            <button id="refresh-summary" class="text-xs font-medium transition hover:opacity-70" style="color: var(--color-accent);">Refresh</button>
+            <button id="refresh-summary" class="btn btn-tertiary text-xs">Refresh</button>
         </div>
-        <p id="agent-summary" class="text-sm mb-4" style="color: var(--color-text-secondary);">Summary not available yet.</p>
+        <p id="agent-summary" class="text-body text-secondary mb-4">Summary not available yet.</p>
         <div id="agent-memory-list" class="space-y-2 max-h-40 overflow-y-auto"></div>
     </section>
 </div>
 
-<!-- Recent Activity -->
-<section class="surface overflow-hidden">
-    <div class="px-5 py-4 flex items-center justify-between" style="border-bottom: 0.5px solid var(--color-border);">
-        <div class="flex items-center gap-2">
-            <div class="h-8 w-8 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(0, 113, 227, 0.15) 0%, rgba(0, 113, 227, 0.05) 100%);">
-                <i class="fas fa-stream text-sm" style="color: #0071e3;"></i>
+<!-- Recent Activity (Liquid Glass) -->
+<section class="glass rounded-2xl overflow-hidden animate-slide-up" style="animation-delay: 200ms;">
+    <div class="px-5 py-4 flex items-center justify-between" style="border-bottom: 0.5px solid var(--border-separator);">
+        <div class="flex items-center gap-3">
+            <div class="h-10 w-10 rounded-xl flex items-center justify-center glass-blue">
+                <i class="fas fa-stream" style="color: var(--system-blue);"></i>
             </div>
-            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Recent Activity</h3>
+            <h3 class="text-headline">Recent Activity</h3>
         </div>
-        <button id="clear-activity" class="text-xs font-medium transition hover:opacity-70" style="color: var(--color-text-secondary);">Clear</button>
+        <button id="clear-activity" class="btn btn-tertiary text-xs">Clear</button>
     </div>
     <div id="activity-feed" class="p-5 max-h-64 overflow-y-auto space-y-2">
-        <div class="rounded-xl py-10 text-center" style="border: 1px dashed var(--color-border); background: rgba(0, 0, 0, 0.01);">
-            <i class="fas fa-clock text-3xl mb-3 opacity-30" style="color: var(--color-text-tertiary);"></i>
-            <p class="text-sm font-medium" style="color: var(--color-text-secondary);">No recent activity</p>
-            <p class="text-xs mt-1" style="color: var(--color-text-tertiary);">Events will appear here when monitoring starts</p>
+        <div class="glass-ultra-thin rounded-xl py-10 text-center">
+            <div class="w-14 h-14 mx-auto mb-4 rounded-2xl flex items-center justify-center" style="background: var(--graphite-50);">
+                <i class="fas fa-clock text-2xl text-tertiary"></i>
+            </div>
+            <p class="text-subhead font-medium text-secondary">No recent activity</p>
+            <p class="text-footnote mt-1">Events will appear here when monitoring starts</p>
         </div>
     </div>
 </section>
@@ -260,7 +265,7 @@
             return;
         }
         feed.innerHTML = `
-            <div class="rounded-xl py-8 text-center" style="border: 1px dashed var(--color-border); background: rgba(0, 0, 0, 0.02); color: var(--color-text-secondary);">
+            <div class="rounded-xl py-8 text-center glass-ultra-thin text-secondary">
                 <i class="fas fa-clock text-2xl mb-2 opacity-60"></i>
                 <p class="text-sm font-medium">No recent activity yet</p>
             </div>
@@ -342,10 +347,10 @@
                 const cameraStatus = document.getElementById('camera-status-text');
                 if (data.camera_available) {
                     cameraStatus.textContent = 'Online';
-                    cameraStatus.style.color = '#34c759';
+                    cameraStatus.style.color = 'var(--system-green)';
                 } else {
                     cameraStatus.textContent = 'Offline';
-                    cameraStatus.style.color = '#ff3b30';
+                    cameraStatus.style.color = 'var(--system-red)';
                 }
                 
                 // AI Backend status (supports both Ollama and VLLM)
@@ -353,10 +358,10 @@
                 if (data.inference_available) {
                     const backendName = (data.inference_backend || 'ai').toUpperCase();
                     ollamaStatus.textContent = backendName + ' Online';
-                    ollamaStatus.style.color = '#34c759';
+                    ollamaStatus.style.color = 'var(--system-green)';
                 } else {
                     ollamaStatus.textContent = 'Offline';
-                    ollamaStatus.style.color = '#ff3b30';
+                    ollamaStatus.style.color = 'var(--system-red)';
                 }
                 
                 // Monitoring status
@@ -364,10 +369,10 @@
                 const agenticBadge = document.getElementById('agentic-mode-badge');
                 if (data.monitoring_active) {
                     monitoringStatus.textContent = 'Active';
-                    monitoringStatus.style.color = '#34c759';
+                    monitoringStatus.style.color = 'var(--system-green)';
                 } else {
                     monitoringStatus.textContent = 'Stopped';
-                    monitoringStatus.style.color = 'var(--color-text-tertiary)';
+                    monitoringStatus.style.color = 'var(--text-tertiary)';
                 }
                 
                 // Update agentic mode badge
@@ -600,21 +605,20 @@
         const item = document.createElement('div');
         
         const icons = {
-            'detection': { icon: 'fas fa-exclamation-triangle', color: '#ff9500' },
-            'alert': { icon: 'fas fa-envelope', color: '#ff3b30' },
-            'info': { icon: 'fas fa-info-circle', color: '#0071e3' },
-            'success': { icon: 'fas fa-check-circle', color: '#34c759' }
+            'detection': { icon: 'fas fa-exclamation-triangle', color: 'var(--system-orange)' },
+            'alert': { icon: 'fas fa-envelope', color: 'var(--system-red)' },
+            'info': { icon: 'fas fa-info-circle', color: 'var(--system-blue)' },
+            'success': { icon: 'fas fa-check-circle', color: 'var(--system-green)' }
         };
         
         const config = icons[type] || icons['info'];
         
-        item.className = 'flex items-start space-x-3 rounded-xl p-3';
-        item.style.cssText = 'background: var(--color-surface); border: 0.5px solid var(--color-border);';
+        item.className = 'flex items-start space-x-3 rounded-xl p-3 glass-ultra-thin';
         item.innerHTML = `
             <i class="${config.icon}" style="color: ${config.color}; margin-top: 2px;"></i>
             <div class="flex-1">
-                <p class="text-sm" style="color: var(--color-text-primary);">${message}</p>
-                <p class="text-xs mt-0.5" style="color: var(--color-text-secondary);">${new Date().toLocaleTimeString()}</p>
+                <p class="text-sm text-primary">${message}</p>
+                <p class="text-xs mt-0.5 text-secondary">${new Date().toLocaleTimeString()}</p>
             </div>
         `;
         

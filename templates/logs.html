@@ -6,53 +6,57 @@
 {% block content %}
 <!-- Summary Stats - Hero Cards -->
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-    <div class="surface p-4 relative overflow-hidden group hover:scale-[1.02] transition-transform">
-        <div class="absolute inset-0 opacity-10" style="background: linear-gradient(135deg, #0071e3 0%, transparent 60%);"></div>
+    <div class="glass-card p-4 relative overflow-hidden group liquid-hover animate-slide-up" style="--animation-order: 1;">
+        <div class="absolute inset-0 opacity-10" style="background: linear-gradient(135deg, var(--system-blue) 0%, transparent 60%);"></div>
+        <div class="absolute inset-0 hover-sweep"></div>
         <div class="relative flex items-center justify-between">
             <div>
-                <p class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-tertiary);">Total Events</p>
-                <p class="mt-1.5 text-2xl font-bold tabular-nums" style="color: var(--color-text-primary);" id="total-events">0</p>
+                <p class="text-caption uppercase tracking-wider">Total Events</p>
+                <p class="mt-1.5 text-2xl font-bold tabular-nums text-primary" id="total-events">0</p>
             </div>
-            <div class="h-10 w-10 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%); box-shadow: 0 4px 12px rgba(0, 113, 227, 0.3);">
+            <div class="h-10 w-10 rounded-xl flex items-center justify-center glass-blue">
                 <i class="fas fa-list text-white"></i>
             </div>
         </div>
     </div>
 
-    <div class="surface p-4 relative overflow-hidden group hover:scale-[1.02] transition-transform">
-        <div class="absolute inset-0 opacity-10" style="background: linear-gradient(135deg, #ff9500 0%, transparent 60%);"></div>
+    <div class="glass-card p-4 relative overflow-hidden group liquid-hover animate-slide-up" style="--animation-order: 2;">
+        <div class="absolute inset-0 opacity-10" style="background: linear-gradient(135deg, var(--system-orange) 0%, transparent 60%);"></div>
+        <div class="absolute inset-0 hover-sweep"></div>
         <div class="relative flex items-center justify-between">
             <div>
-                <p class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-tertiary);">Detections</p>
-                <p class="mt-1.5 text-2xl font-bold tabular-nums" style="color: var(--color-text-primary);" id="total-detections">0</p>
+                <p class="text-caption uppercase tracking-wider">Detections</p>
+                <p class="mt-1.5 text-2xl font-bold tabular-nums text-primary" id="total-detections">0</p>
             </div>
-            <div class="h-10 w-10 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #ff9500 0%, #ff6b00 100%); box-shadow: 0 4px 12px rgba(255, 149, 0, 0.3);">
+            <div class="h-10 w-10 rounded-xl flex items-center justify-center glass-orange">
                 <i class="fas fa-exclamation text-white"></i>
             </div>
         </div>
     </div>
 
-    <div class="surface p-4 relative overflow-hidden group hover:scale-[1.02] transition-transform">
-        <div class="absolute inset-0 opacity-10" style="background: linear-gradient(135deg, #34c759 0%, transparent 60%);"></div>
+    <div class="glass-card p-4 relative overflow-hidden group liquid-hover animate-slide-up" style="--animation-order: 3;">
+        <div class="absolute inset-0 opacity-10" style="background: linear-gradient(135deg, var(--system-green) 0%, transparent 60%);"></div>
+        <div class="absolute inset-0 hover-sweep"></div>
         <div class="relative flex items-center justify-between">
             <div>
-                <p class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-tertiary);">Detection Rate</p>
-                <p class="mt-1.5 text-2xl font-bold tabular-nums" style="color: var(--color-text-primary);" id="detection-rate">0%</p>
+                <p class="text-caption uppercase tracking-wider">Detection Rate</p>
+                <p class="mt-1.5 text-2xl font-bold tabular-nums text-primary" id="detection-rate">0%</p>
             </div>
-            <div class="h-10 w-10 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #34c759 0%, #30b350 100%); box-shadow: 0 4px 12px rgba(52, 199, 89, 0.3);">
+            <div class="h-10 w-10 rounded-xl flex items-center justify-center glass-green">
                 <i class="fas fa-chart-line text-white"></i>
             </div>
         </div>
     </div>
 
-    <div class="surface p-4 relative overflow-hidden group hover:scale-[1.02] transition-transform">
-        <div class="absolute inset-0 opacity-10" style="background: linear-gradient(135deg, #af52de 0%, transparent 60%);"></div>
+    <div class="glass-card p-4 relative overflow-hidden group liquid-hover animate-slide-up" style="--animation-order: 4;">
+        <div class="absolute inset-0 opacity-10" style="background: linear-gradient(135deg, var(--system-purple) 0%, transparent 60%);"></div>
+        <div class="absolute inset-0 hover-sweep"></div>
         <div class="relative flex items-center justify-between">
             <div>
-                <p class="text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-tertiary);">Agentic Events</p>
-                <p class="mt-1.5 text-2xl font-bold tabular-nums" style="color: var(--color-text-primary);" id="agentic-events">0</p>
+                <p class="text-caption uppercase tracking-wider">Agentic Events</p>
+                <p class="mt-1.5 text-2xl font-bold tabular-nums text-primary" id="agentic-events">0</p>
             </div>
-            <div class="h-10 w-10 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #af52de 0%, #9b3fd9 100%); box-shadow: 0 4px 12px rgba(175, 82, 222, 0.3);">
+            <div class="h-10 w-10 rounded-xl flex items-center justify-center glass-purple">
                 <i class="fas fa-robot text-white"></i>
             </div>
         </div>
@@ -60,19 +64,19 @@
 </div>
 
 <!-- Filters Section -->
-<section class="surface overflow-hidden mb-6">
-    <div class="px-5 py-4 flex items-center justify-between" style="border-bottom: 0.5px solid var(--color-border);">
+<section class="glass rounded-2xl overflow-hidden mb-6 animate-slide-up" style="--animation-order: 5;">
+    <div class="px-5 py-4 flex items-center justify-between" style="border-bottom: 0.5px solid var(--border-separator);">
         <div class="flex items-center gap-2">
-            <div class="h-8 w-8 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, rgba(0, 113, 227, 0.15) 0%, rgba(0, 113, 227, 0.05) 100%);">
-                <i class="fas fa-filter text-sm" style="color: #0071e3;"></i>
+            <div class="h-8 w-8 rounded-lg flex items-center justify-center" style="background: var(--system-blue-glass);">
+                <i class="fas fa-filter text-sm" style="color: var(--system-blue);"></i>
             </div>
-            <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Filters</h3>
+            <h3 class="text-base font-semibold text-primary">Filters</h3>
         </div>
         <div class="flex gap-2">
-            <button id="export-logs" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition" style="background: linear-gradient(135deg, #0071e3 0%, #0077ed 100%);">
+            <button id="export-logs" class="btn btn-primary text-xs">
                 <i class="fas fa-download mr-1.5"></i>Export
             </button>
-            <button id="clear-logs" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition" style="background: linear-gradient(135deg, #ff3b30 0%, #ff2d55 100%);">
+            <button id="clear-logs" class="btn text-xs text-white" style="background: linear-gradient(135deg, var(--system-red) 0%, #ff2d55 100%);">
                 <i class="fas fa-trash mr-1.5"></i>Clear
             </button>
         </div>
@@ -80,8 +84,8 @@
     <div class="p-5">
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-                <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Date Range</label>
-                <select id="date-filter" class="w-full px-3 py-2 rounded-lg text-sm" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                <label class="block text-xs font-medium mb-1.5 text-secondary">Date Range</label>
+                <select id="date-filter" class="input-glass w-full">
                     <option value="today">Today</option>
                     <option value="yesterday">Yesterday</option>
                     <option value="week">Last 7 Days</option>
@@ -92,8 +96,8 @@
             </div>
             
             <div>
-                <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Status</label>
-                <select id="status-filter" class="w-full px-3 py-2 rounded-lg text-sm" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                <label class="block text-xs font-medium mb-1.5 text-secondary">Status</label>
+                <select id="status-filter" class="input-glass w-full">
                     <option value="all">All Events</option>
                     <option value="detected">Detections Only</option>
                     <option value="no_detection">No Detection</option>
@@ -102,11 +106,11 @@
             </div>
             
             <div>
-                <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">Search</label>
+                <label class="block text-xs font-medium mb-1.5 text-secondary">Search</label>
                 <div class="relative">
-                    <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-xs" style="color: var(--color-text-tertiary);"></i>
+                    <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-xs text-tertiary"></i>
                     <input type="text" id="search-logs" placeholder="Search descriptions..." 
-                           class="w-full pl-9 pr-3 py-2 rounded-lg text-sm" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                           class="input-glass w-full pl-9">
                 </div>
             </div>
         </div>
@@ -114,98 +118,96 @@
         <!-- Custom Date Range (Initially Hidden) -->
         <div id="custom-date-range" class="mt-4 grid grid-cols-2 gap-4 hidden">
             <div>
-                <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">From Date</label>
-                <input type="datetime-local" id="date-from" 
-                       class="w-full px-3 py-2 rounded-lg text-sm" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                <label class="block text-xs font-medium mb-1.5 text-secondary">From Date</label>
+                <input type="datetime-local" id="date-from" class="input-glass w-full">
             </div>
             <div>
-                <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-secondary);">To Date</label>
-                <input type="datetime-local" id="date-to" 
-                       class="w-full px-3 py-2 rounded-lg text-sm" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                <label class="block text-xs font-medium mb-1.5 text-secondary">To Date</label>
+                <input type="datetime-local" id="date-to" class="input-glass w-full">
             </div>
         </div>
     </div>
 </section>
 
 <!-- Logs Table -->
-<div class="surface overflow-hidden">
-    <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
+<div class="glass rounded-2xl overflow-hidden animate-slide-up" style="--animation-order: 6;">
+    <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator);">
         <div class="flex items-center justify-between">
             <div class="flex items-center gap-3">
-                <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Detection Events</h3>
-                <button id="live-toggle" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all" style="background: rgba(52, 199, 89, 0.1); color: #34c759; border: 1px solid rgba(52, 199, 89, 0.2);" title="Live updates enabled">
+                <h3 class="text-base font-semibold text-primary">Detection Events</h3>
+                <button id="live-toggle" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all" style="background: var(--system-green-glass); color: var(--system-green); border: 1px solid rgba(52, 199, 89, 0.2);" title="Live updates enabled">
                     <span class="relative flex h-2 w-2">
-                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                        <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style="background: var(--system-green);"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2" style="background: var(--system-green);"></span>
                     </span>
                     <span id="live-status-text">LIVE</span>
                 </button>
             </div>
             <div class="flex items-center space-x-2">
-                <span class="text-xs" style="color: var(--color-text-secondary);">Show:</span>
-                <select id="per-page" class="px-2 py-1 rounded text-xs" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
+                <span class="text-xs text-secondary">Show:</span>
+                <select id="per-page" class="input-glass px-2 py-1 text-xs">
                     <option value="25">25</option>
                     <option value="50">50</option>
                     <option value="100">100</option>
                 </select>
-                <span class="text-xs" style="color: var(--color-text-secondary);">entries</span>
+                <span class="text-xs text-secondary">entries</span>
             </div>
         </div>
     </div>
     
     <div class="overflow-x-auto">
         <table class="min-w-full">
-            <thead style="background: rgba(0, 0, 0, 0.02);">
+            <thead style="background: var(--material-ultra-thin);">
                 <tr>
-                    <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider cursor-pointer transition" style="color: var(--color-text-secondary);" onclick="sortTable('timestamp')">
+                    <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider cursor-pointer transition text-secondary" onclick="sortTable('timestamp')">
                         <div class="flex items-center">
                             Timestamp
                             <i class="fas fa-sort ml-1.5 opacity-50"></i>
                         </div>
                     </th>
-                    <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider cursor-pointer transition" style="color: var(--color-text-secondary);" onclick="sortTable('status')">
+                    <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider cursor-pointer transition text-secondary" onclick="sortTable('status')">
                         <div class="flex items-center">
                             Status
                             <i class="fas fa-sort ml-1.5 opacity-50"></i>
                         </div>
                     </th>
-                    <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-secondary);">
+                    <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-secondary">
                         Detection Response
                     </th>
-                    <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider cursor-pointer transition" style="color: var(--color-text-secondary);" onclick="sortTable('confidence')">
+                    <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider cursor-pointer transition text-secondary" onclick="sortTable('confidence')">
                         <div class="flex items-center">
                             Confidence
                             <i class="fas fa-sort ml-1.5 opacity-50"></i>
                         </div>
                     </th>
-                    <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-secondary);">
+                    <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-secondary">
                         Image
                     </th>
-                    <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider" style="color: var(--color-text-secondary);">
+                    <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider text-secondary">
                         Actions
                     </th>
                 </tr>
             </thead>
-            <tbody id="logs-table-body" style="background: var(--color-surface);">
+            <tbody id="logs-table-body" class="bg-surface">
                 <!-- Logs will be populated here -->
             </tbody>
         </table>
     </div>
     
     <!-- Pagination Island -->
-    <div class="mt-4 mx-4 mb-4 flex flex-col sm:flex-row items-center justify-between gap-4 rounded-2xl p-4" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
-        <div class="text-xs font-medium whitespace-nowrap" style="color: var(--color-text-secondary);">
-            Showing <span id="showing-from" class="font-semibold" style="color: var(--color-text-primary);">0</span> to <span id="showing-to" class="font-semibold" style="color: var(--color-text-primary);">0</span> of <span id="total-entries" class="font-semibold" style="color: var(--color-text-primary);">0</span> entries
+    <div class="mt-4 mx-4 mb-4 flex flex-col sm:flex-row items-center justify-between gap-4 rounded-2xl p-4 glass-ultra-thin">
+        <div class="text-xs font-medium whitespace-nowrap text-secondary">
+            Showing <span id="showing-from" class="font-semibold text-primary">0</span> to <span id="showing-to" class="font-semibold text-primary">0</span> of <span id="total-entries" class="font-semibold text-primary">0</span> entries
         </div>
         <div class="flex items-center gap-1.5 flex-wrap justify-center">
-            <button id="prev-page" class="pagination-btn inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-xs font-medium transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary); box-shadow: var(--shadow-sm);" disabled>
+            <button id="prev-page" class="btn btn-secondary inline-flex items-center justify-center gap-1.5 text-xs" disabled>
                 <i class="fas fa-chevron-left text-xs"></i>
                 <span>Previous</span>
             </button>
             <div id="page-numbers" class="flex items-center gap-1 flex-wrap justify-center">
                 <!-- Page numbers will be populated here -->
             </div>
-            <button id="next-page" class="pagination-btn inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-xs font-medium transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary); box-shadow: var(--shadow-sm);" disabled>
+            <button id="next-page" class="btn btn-secondary inline-flex items-center justify-center gap-1.5 text-xs" disabled>
                 <span>Next</span>
                 <i class="fas fa-chevron-right text-xs"></i>
             </button>
@@ -214,21 +216,21 @@
 </div>
 
 <!-- Image Modal -->
-<div id="image-modal" class="fixed inset-0 hidden z-50 flex items-center justify-center p-6" style="background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);">
-    <div class="surface-glass rounded-2xl max-w-4xl max-h-full overflow-auto" style="min-width: 400px;">
+<div id="image-modal" class="fixed inset-0 hidden z-50 flex items-center justify-center p-6" style="background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(var(--blur-lg)); -webkit-backdrop-filter: blur(var(--blur-lg));">
+    <div class="glass rounded-2xl max-w-4xl max-h-full overflow-auto" style="min-width: 400px;">
         <div class="p-5">
             <div class="flex items-center justify-between mb-4">
-                <h3 class="text-base font-semibold" style="color: var(--color-text-primary);" id="modal-title">Detection Image</h3>
-                <button id="close-modal" class="p-2 rounded-lg transition" style="color: var(--color-text-secondary);">
+                <h3 class="text-base font-semibold text-primary" id="modal-title">Detection Image</h3>
+                <button id="close-modal" class="p-2 rounded-lg transition text-secondary hover:text-primary">
                     <i class="fas fa-times"></i>
                 </button>
             </div>
             <div class="text-center">
-                <img id="modal-image" src="" alt="Detection Image" class="max-w-full h-auto rounded-xl" style="box-shadow: var(--shadow-lg);">
+                <img id="modal-image" src="" alt="Detection Image" class="max-w-full h-auto rounded-xl" style="box-shadow: var(--shadow-glass);">
             </div>
-            <div class="mt-4 p-4 rounded-xl" style="background: rgba(0, 0, 0, 0.03); border: 0.5px solid var(--color-border);">
-                <p class="text-xs font-medium mb-2" style="color: var(--color-text-secondary);"><strong>Analysis:</strong></p>
-                <p id="modal-analysis" class="text-sm" style="color: var(--color-text-primary);"></p>
+            <div class="mt-4 p-4 rounded-xl glass-ultra-thin">
+                <p class="text-xs font-medium mb-2 text-secondary"><strong>Analysis:</strong></p>
+                <p id="modal-analysis" class="text-sm text-primary"></p>
             </div>
         </div>
     </div>
@@ -560,8 +562,8 @@
         if (pageData.length === 0) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="6" class="px-5 py-12 text-center" style="color: var(--color-text-tertiary);">
-                        <div class="inline-flex items-center justify-center w-12 h-12 rounded-full mb-3" style="background: rgba(0, 0, 0, 0.03);">
+                    <td colspan="6" class="px-5 py-12 text-center text-tertiary">
+                        <div class="inline-flex items-center justify-center w-12 h-12 rounded-full mb-3 glass-ultra-thin">
                             <i class="fas fa-search text-xl opacity-50"></i>
                         </div>
                         <p class="text-sm font-medium">No logs found matching your criteria</p>
@@ -574,7 +576,7 @@
         pageData.forEach(log => {
             const row = document.createElement('tr');
             row.className = 'transition-colors';
-            row.style.cssText = 'border-bottom: 0.5px solid var(--color-border);';
+            row.style.cssText = 'border-bottom: 0.5px solid var(--border-separator);';
             row.id = `log-${log.id}`;
             
             const status = getLogStatus(log);
@@ -585,37 +587,37 @@
             const analysisText = log.response || log.vision_description || '';
             
             row.innerHTML = `
-                <td class="px-5 py-3.5 whitespace-nowrap text-sm" style="color: var(--color-text-primary);">
+                <td class="px-5 py-3.5 whitespace-nowrap text-sm text-primary">
                     ${formattedTimestamp}
                 </td>
                 <td class="px-5 py-3.5 whitespace-nowrap">
                     ${statusBadge}
                 </td>
-                <td class="px-5 py-3.5 text-sm align-top" style="color: var(--color-text-primary);">
+                <td class="px-5 py-3.5 text-sm align-top text-primary">
                     ${responseHtml}
                 </td>
-                <td class="px-5 py-3.5 whitespace-nowrap text-sm font-medium" style="color: var(--color-text-primary);">
+                <td class="px-5 py-3.5 whitespace-nowrap text-sm font-medium text-primary">
                     ${confidenceText}
                 </td>
                 <td class="px-5 py-3.5 whitespace-nowrap text-sm">
                     ${log.image_path ? `
                         <button
                             class="view-image-btn inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium transition"
-                            style="background: rgba(0, 113, 227, 0.1); color: #0071e3;"
+                            style="background: var(--system-blue-glass); color: var(--system-blue);"
                             data-image="${encodeURIComponent(log.image_path || '')}"
                             data-analysis="${encodeURIComponent(analysisText)}"
                             data-timestamp="${log.timestamp}"
                         >
                             <i class="fas fa-image mr-1.5"></i>View
                         </button>
-                    ` : '<span class="text-xs" style="color: var(--color-text-tertiary);">N/A</span>'}
+                    ` : '<span class="text-xs text-tertiary">N/A</span>'}
                 </td>
                 <td class="px-5 py-3.5 whitespace-nowrap text-sm">
                     <div class="flex items-center gap-2">
-                        <button onclick="openLogDetails('${log.id}')" class="p-1.5 rounded-md transition" style="color: #0071e3;" title="Open event">
+                        <button onclick="openLogDetails('${log.id}')" class="p-1.5 rounded-md transition" style="color: var(--system-blue);" title="Open event">
                             <i class="fas fa-external-link-alt text-xs"></i>
                         </button>
-                        <button onclick="deleteLog('${log.id}')" class="p-1.5 rounded-md transition" style="color: #ff3b30;" title="Delete event">
+                        <button onclick="deleteLog('${log.id}')" class="p-1.5 rounded-md transition" style="color: var(--system-red);" title="Delete event">
                             <i class="fas fa-trash text-xs"></i>
                         </button>
                     </div>
@@ -644,8 +646,8 @@
     // Get status badge
     function getStatusBadge(status) {
         const badges = {
-            'detected': '<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium" style="background: rgba(52, 199, 89, 0.12); color: #248a3d;">Detected</span>',
-            'no_detection': '<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium" style="background: rgba(0, 0, 0, 0.05); color: var(--color-text-secondary);">No Detection</span>'
+            'detected': '<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium" style="background: var(--system-green-glass); color: var(--system-green);">Detected</span>',
+            'no_detection': '<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium glass-ultra-thin text-secondary">No Detection</span>'
         };
         return badges[status] || badges['no_detection'];
     }
@@ -889,9 +891,9 @@
         const statusText = document.getElementById('live-status-text');
         
         if (isLiveUpdateEnabled) {
-            btn.style.background = 'rgba(52, 199, 89, 0.1)';
-            btn.style.color = '#34c759';
-            btn.style.border = '1px solid rgba(52, 199, 89, 0.2)';
+            btn.style.background = 'var(--system-green-glass)';
+            btn.style.color = 'var(--system-green)';
+            btn.style.border = '1px solid var(--system-green-glass)';
             btn.innerHTML = `
                 <span class="relative flex h-2 w-2">
                     <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
@@ -901,9 +903,9 @@
             `;
             showToast('Live updates enabled', 'success');
         } else {
-            btn.style.background = 'rgba(0, 0, 0, 0.05)';
-            btn.style.color = 'var(--color-text-secondary)';
-            btn.style.border = '1px solid var(--color-border)';
+            btn.style.background = 'var(--material-thin)';
+            btn.style.color = 'var(--text-secondary)';
+            btn.style.border = '1px solid var(--border-separator)';
             btn.innerHTML = `
                 <span class="relative flex h-2 w-2">
                     <span class="relative inline-flex rounded-full h-2 w-2 bg-gray-400"></span>

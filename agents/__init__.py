@@ -10,21 +10,76 @@ from .tools import (
     ToolExecutor,
     TOOL_REGISTRY,
 )
+from .mcp import (
+    # Core types
+    MCPSchemaType,
+    MCPParameterSchema,
+    MCPOutputSchema,
+    # Lifecycle
+    ToolLifecycleState,
+    MCPToolCallProposal,
+    MCPToolResult,
+    # State machine
+    AgentState as MCPAgentState,
+    AgentStateMachine,
+    # Session
+    SessionType,
+    MCPSession,
+    # Tools
+    MCPToolDefinition,
+    MCPToolRegistry,
+    # Audit
+    AuditEventType,
+    AuditLogEntry,
+    MCPAuditLog,
+    # Interpreter & Executor
+    MCPInterpreter,
+    MCPExecutor,
+    # Global accessors
+    get_agent_state_machine,
+    get_audit_log,
+    get_tool_registry,
+    get_mcp_executor,
+    get_mcp_interpreter,
+)
 
 __all__ = [
     # Camera agent
     "StreamlinedAgent",
     "CircuitBreaker",
-    # State management
+    # State management (legacy)
     "AgentMemory",
     "AgentState",
     "DetectionEvent",
     # Alerting
     "AlertManager",
-    # Tools
+    # Tools (legacy)
     "ToolDefinition",
     "ToolCall",
     "ToolResult",
     "ToolExecutor",
     "TOOL_REGISTRY",
+    # MCP Core
+    "MCPSchemaType",
+    "MCPParameterSchema",
+    "MCPOutputSchema",
+    "ToolLifecycleState",
+    "MCPToolCallProposal",
+    "MCPToolResult",
+    "MCPAgentState",
+    "AgentStateMachine",
+    "SessionType",
+    "MCPSession",
+    "MCPToolDefinition",
+    "MCPToolRegistry",
+    "AuditEventType",
+    "AuditLogEntry",
+    "MCPAuditLog",
+    "MCPInterpreter",
+    "MCPExecutor",
+    "get_agent_state_machine",
+    "get_audit_log",
+    "get_tool_registry",
+    "get_mcp_executor",
+    "get_mcp_interpreter",
 ]

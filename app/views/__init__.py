@@ -18,7 +18,25 @@ def dashboard():
 
 @views_bp.route("/monitoring")
 def monitoring():
-    """Live monitoring page."""
+    """Live monitoring page - redirects to chat interface."""
+    return redirect(url_for("views.chat"))
+
+
+@views_bp.route("/chat")
+def chat():
+    """Chat-based monitoring interface with MCP protocol."""
+    return render_template("chat.html")
+
+
+@views_bp.route("/chat/v2")
+def chat_v2():
+    """Chat-based monitoring interface - redirects to main chat."""
+    return redirect(url_for("views.chat"))
+
+
+@views_bp.route("/monitoring-legacy")
+def monitoring_legacy():
+    """Legacy monitoring page (original interface)."""
     return render_template("monitoring.html")
 
 

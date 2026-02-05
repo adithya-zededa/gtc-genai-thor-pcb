@@ -4,76 +4,76 @@
 {% block page_title %}Detection Event #{{ log.id }}{% endblock %}
 
 {% block content %}
-<div class="mb-5">
-    <a href="{{ url_for('logs') }}" class="inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg transition" style="background: var(--color-surface); border: 0.5px solid var(--color-border); color: var(--color-text-primary); box-shadow: var(--shadow-sm);">
+<div class="mb-5 animate-slide-up" style="--animation-order: 1;">
+    <a href="{{ url_for('views.logs') }}" class="btn btn-secondary">
         <i class="fas fa-arrow-left mr-2"></i>Back to Logs
     </a>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
     <div class="lg:col-span-2 space-y-4">
-        <div class="surface p-5">
+        <div class="glass rounded-2xl p-5 animate-slide-up" style="--animation-order: 2;">
             <div class="flex items-start justify-between mb-4">
                 <div>
-                    <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Captured</p>
-                    <p class="text-lg font-semibold mt-0.5" style="color: var(--color-text-primary);">{{ log.timestamp }}</p>
+                    <p class="text-xs font-medium text-secondary">Captured</p>
+                    <p class="text-lg font-semibold mt-0.5 text-primary">{{ log.timestamp }}</p>
                 </div>
                 <div class="text-right">
                     {% if confidence_percent is not none %}
-                        <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Decision Confidence</p>
-                        <p class="text-2xl font-bold mt-0.5" style="color: #34c759;">{{ '%.1f'|format(confidence_percent) }}%</p>
+                        <p class="text-xs font-medium text-secondary">Decision Confidence</p>
+                        <p class="text-2xl font-bold mt-0.5" style="color: var(--system-green);">{{ '%.1f'|format(confidence_percent) }}%</p>
                     {% else %}
-                        <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Decision Confidence</p>
-                        <p class="text-2xl font-bold mt-0.5" style="color: var(--color-text-tertiary);">N/A</p>
+                        <p class="text-xs font-medium text-secondary">Decision Confidence</p>
+                        <p class="text-2xl font-bold mt-0.5 text-tertiary">N/A</p>
                     {% endif %}
                 </div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                 <div>
-                    <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Frame Number</p>
-                    <p class="mt-1" style="color: var(--color-text-primary);">{{ log.frame_number or '—' }}</p>
+                    <p class="text-xs font-medium text-secondary">Frame Number</p>
+                    <p class="mt-1 text-primary">{{ log.frame_number or '—' }}</p>
                 </div>
                 <div>
-                    <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Processing Reason</p>
-                    <p class="mt-1" style="color: var(--color-text-primary);">{{ log.reason or '—' }}</p>
+                    <p class="text-xs font-medium text-secondary">Processing Reason</p>
+                    <p class="mt-1 text-primary">{{ log.reason or '—' }}</p>
                 </div>
                 <div>
-                    <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Image Path</p>
-                    <p class="mt-1" style="color: var(--color-text-primary);">{{ log.image_path or '—' }}</p>
+                    <p class="text-xs font-medium text-secondary">Image Path</p>
+                    <p class="mt-1 text-primary">{{ log.image_path or '—' }}</p>
                 </div>
                 <div>
-                    <p class="text-xs font-medium" style="color: var(--color-text-secondary);">Export Record ID</p>
-                    <p class="mt-1" style="color: var(--color-text-primary);">{{ log.id }}</p>
+                    <p class="text-xs font-medium text-secondary">Export Record ID</p>
+                    <p class="mt-1 text-primary">{{ log.id }}</p>
                 </div>
             </div>
         </div>
 
-        <div class="surface overflow-hidden">
-            <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border); background: linear-gradient(135deg, rgba(0, 199, 190, 0.06) 0%, rgba(0, 113, 227, 0.04) 100%);">
-                <h3 class="text-base font-semibold flex items-center" style="color: var(--color-text-primary);">
-                    <div class="w-7 h-7 rounded-lg flex items-center justify-center mr-2.5" style="background: linear-gradient(135deg, rgba(0, 199, 190, 0.15) 0%, rgba(0, 199, 190, 0.08) 100%);">
-                        <i class="fas fa-eye text-sm" style="color: #00c7be;"></i>
+        <div class="glass rounded-2xl overflow-hidden animate-slide-up" style="--animation-order: 3;">
+            <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator); background: linear-gradient(135deg, var(--system-teal-glass) 0%, var(--system-blue-glass) 100%);">
+                <h3 class="text-base font-semibold flex items-center text-primary">
+                    <div class="w-7 h-7 rounded-lg flex items-center justify-center mr-2.5" style="background: var(--system-teal-glass);">
+                        <i class="fas fa-eye text-sm" style="color: var(--system-teal);"></i>
                     </div>
                     Vision Model Analysis
                 </h3>
             </div>
             <div class="p-5">
                 {% if log.vision_description %}
-                    <div class="rounded-xl p-4 text-sm" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
-                        <pre class="whitespace-pre-wrap font-mono leading-relaxed" style="color: var(--color-text-primary);">{{ log.vision_description }}</pre>
+                    <div class="rounded-xl p-4 text-sm glass-ultra-thin">
+                        <pre class="whitespace-pre-wrap font-mono leading-relaxed text-primary">{{ log.vision_description }}</pre>
                     </div>
                 {% else %}
-                    <p class="text-sm italic" style="color: var(--color-text-tertiary);">No vision description stored for this event.</p>
+                    <p class="text-sm italic text-tertiary">No vision description stored for this event.</p>
                 {% endif %}
             </div>
         </div>
 
-        <div class="surface overflow-hidden">
-            <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border); background: linear-gradient(135deg, rgba(0, 113, 227, 0.06) 0%, rgba(175, 82, 222, 0.04) 100%);">
-                <h3 class="text-base font-semibold flex items-center" style="color: var(--color-text-primary);">
-                    <div class="w-7 h-7 rounded-lg flex items-center justify-center mr-2.5" style="background: linear-gradient(135deg, rgba(0, 113, 227, 0.15) 0%, rgba(0, 113, 227, 0.08) 100%);">
-                        <i class="fas fa-project-diagram text-sm" style="color: #0071e3;"></i>
+        <div class="glass rounded-2xl overflow-hidden animate-slide-up" style="--animation-order: 4;">
+            <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator); background: linear-gradient(135deg, var(--system-blue-glass) 0%, var(--system-purple-glass) 100%);">
+                <h3 class="text-base font-semibold flex items-center text-primary">
+                    <div class="w-7 h-7 rounded-lg flex items-center justify-center mr-2.5" style="background: var(--system-blue-glass);">
+                        <i class="fas fa-project-diagram text-sm" style="color: var(--system-blue);"></i>
                     </div>
                     Analysis Pipeline Trace
                 </h3>
@@ -82,12 +82,12 @@
             {% if decision and decision|length %}
                 <div class="p-5">
                     <!-- Decision Summary -->
-                    <div class="mb-5 p-4 rounded-xl" style="background: linear-gradient(135deg, rgba(52, 199, 89, 0.08) 0%, rgba(0, 199, 190, 0.05) 100%); border-left: 3px solid #34c759;">
+                    <div class="mb-5 p-4 rounded-xl" style="background: var(--system-green-glass); border-left: 3px solid var(--system-green);">
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             {% if decision.classification %}
                             <div>
-                                <p class="text-xs font-medium uppercase tracking-wide" style="color: var(--color-text-secondary);">Classification</p>
-                                <p class="mt-1 text-base font-semibold" style="color: var(--color-text-primary);">{{ decision.classification }}</p>
+                                <p class="text-xs font-medium uppercase tracking-wide text-secondary">Classification</p>
+                                <p class="mt-1 text-base font-semibold text-primary">{{ decision.classification }}</p>
                             </div>
                             {% endif %}
 
@@ -95,19 +95,19 @@
                                 {% set label_value = decision.shipping_label_present %}
                                 {% if label_value is sameas(true) %}
                                     {% set label_status = 'Visible' %}
-                                    {% set label_color = '#34c759' %}
+                                    {% set label_color = 'var(--system-green)' %}
                                     {% set label_icon = 'fa-check-circle' %}
                                 {% elif label_value is sameas(false) %}
                                     {% set label_status = 'Not Visible' %}
-                                    {% set label_color = '#ff3b30' %}
+                                    {% set label_color = 'var(--system-red)' %}
                                     {% set label_icon = 'fa-exclamation-triangle' %}
                                 {% else %}
                                     {% set label_status = 'Unknown' %}
-                                    {% set label_color = 'var(--color-text-secondary)' %}
+                                    {% set label_color = 'var(--text-secondary)' %}
                                     {% set label_icon = 'fa-question-circle' %}
                                 {% endif %}
                             <div>
-                                <p class="text-xs font-medium uppercase tracking-wide" style="color: var(--color-text-secondary);">Shipping Label</p>
+                                <p class="text-xs font-medium uppercase tracking-wide text-secondary">Shipping Label</p>
                                 <p class="mt-1 text-base font-semibold flex items-center" style="color: {{ label_color }};">
                                     <i class="fas {{ label_icon }} mr-2"></i>{{ label_status }}
                                 </p>
@@ -126,8 +126,8 @@
                                     {% set conf_display = raw_conf %}
                                 {% endif %}
                             <div>
-                                <p class="text-xs font-medium uppercase tracking-wide" style="color: var(--color-text-secondary);">Confidence</p>
-                                <p class="mt-1 text-base font-semibold" style="color: #0071e3;">{{ conf_display }}</p>
+                                <p class="text-xs font-medium uppercase tracking-wide text-secondary">Confidence</p>
+                                <p class="mt-1 text-base font-semibold" style="color: var(--system-blue);">{{ conf_display }}</p>
                             </div>
                             {% endif %}
                         </div>
@@ -136,23 +136,23 @@
                     <!-- Execution Pipeline -->
                     {% if decision.tool_trace %}
                     <div class="mb-5">
-                        <h4 class="text-sm font-semibold mb-3 flex items-center" style="color: var(--color-text-primary);">
-                            <i class="fas fa-stream mr-2" style="color: #af52de;"></i>
+                        <h4 class="text-sm font-semibold mb-3 flex items-center text-primary">
+                            <i class="fas fa-stream mr-2" style="color: var(--system-purple);"></i>
                             Execution Pipeline (Sequential Order)
                         </h4>
                         <div class="space-y-3">
                             {% for tool in decision.tool_trace %}
-                            <div class="rounded-xl transition" style="border-left: 3px solid #af52de; background: linear-gradient(135deg, rgba(175, 82, 222, 0.04) 0%, rgba(0, 113, 227, 0.02) 100%);">
+                            <div class="rounded-xl transition" style="border-left: 3px solid var(--system-purple); background: var(--system-purple-glass);">
                                 <div class="p-4">
                                     <div class="flex items-start justify-between mb-2">
                                         <div class="flex items-center">
-                                            <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-xs font-semibold mr-3" style="background: linear-gradient(135deg, #af52de 0%, #5856d6 100%);">
+                                            <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-xs font-semibold mr-3" style="background: linear-gradient(135deg, var(--system-purple) 0%, var(--system-indigo) 100%);">
                                                 {{ loop.index }}
                                             </span>
-                                            <h5 class="text-sm font-semibold" style="color: var(--color-text-primary);">{{ tool.name }}</h5>
+                                            <h5 class="text-sm font-semibold text-primary">{{ tool.name }}</h5>
                                         </div>
                                         {% if tool.compat_mode %}
-                                        <span class="text-xs px-2 py-0.5 rounded-md font-medium" style="background: rgba(255, 149, 0, 0.12); color: #c77700;">
+                                        <span class="text-xs px-2 py-0.5 rounded-md font-medium" style="background: var(--system-orange-glass); color: var(--system-orange);">
                                             {{ tool.compat_mode }}
                                         </span>
                                         {% endif %}
@@ -161,14 +161,14 @@
                                     {% if tool.output %}
                                     <div class="ml-9 space-y-2">
                                         {% if tool.output.summary %}
-                                        <p class="text-sm italic" style="color: var(--color-text-secondary);">{{ tool.output.summary }}</p>
+                                        <p class="text-sm italic text-secondary">{{ tool.output.summary }}</p>
                                         {% endif %}
 
                                         <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
                                             {% for key, value in tool.output.items() if key != 'summary' %}
-                                            <div class="px-3 py-2 rounded-lg" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
-                                                <p class="font-medium uppercase tracking-wide mb-0.5" style="color: var(--color-text-tertiary);">{{ key|replace('_', ' ') }}</p>
-                                                <p class="font-semibold" style="color: var(--color-text-primary);">
+                                            <div class="px-3 py-2 rounded-lg glass-ultra-thin">
+                                                <p class="font-medium uppercase tracking-wide mb-0.5 text-tertiary">{{ key|replace('_', ' ') }}</p>
+                                                <p class="font-semibold text-primary">
                                                     {% if value is number %}
                                                         {% if value < 1 and value > 0 %}
                                                             {{ '%.2f'|format(value) }}
@@ -176,9 +176,9 @@
                                                             {{ value }}
                                                         {% endif %}
                                                     {% elif value is sameas(true) %}
-                                                        <i class="fas fa-check" style="color: #34c759;"></i> Yes
+                                                        <i class="fas fa-check" style="color: var(--system-green);"></i> Yes
                                                     {% elif value is sameas(false) %}
-                                                        <i class="fas fa-times" style="color: #ff3b30;"></i> No
+                                                        <i class="fas fa-times" style="color: var(--system-red);"></i> No
                                                     {% else %}
                                                         {{ value }}
                                                     {% endif %}
@@ -191,7 +191,7 @@
 
                                     {% if tool.arguments %}
                                     <details class="ml-9 mt-2">
-                                        <summary class="cursor-pointer text-xs font-medium" style="color: #0071e3;">
+                                        <summary class="cursor-pointer text-xs font-medium" style="color: var(--system-blue);">
                                             <i class="fas fa-code mr-1"></i>View Arguments
                                         </summary>
                                         <pre class="mt-2 text-xs p-3 rounded-lg overflow-x-auto" style="background: #1e1e1e; color: #d4d4d4;">{{ tool.arguments | tojson(indent=2) }}</pre>
@@ -207,12 +207,12 @@
                     <!-- Decision Reasoning -->
                     {% if decision.reasoning %}
                     <div class="mb-4">
-                        <h4 class="text-sm font-semibold mb-2 flex items-center" style="color: var(--color-text-primary);">
-                            <i class="fas fa-brain mr-2" style="color: #ff2d55;"></i>
+                        <h4 class="text-sm font-semibold mb-2 flex items-center text-primary">
+                            <i class="fas fa-brain mr-2" style="color: var(--system-pink);"></i>
                             Decision Reasoning
                         </h4>
-                        <div class="rounded-xl p-4" style="background: linear-gradient(135deg, rgba(255, 45, 85, 0.06) 0%, rgba(175, 82, 222, 0.04) 100%); border: 0.5px solid rgba(255, 45, 85, 0.15);">
-                            <p class="text-sm whitespace-pre-line leading-relaxed" style="color: var(--color-text-primary);">{{ decision.reasoning }}</p>
+                        <div class="rounded-xl p-4" style="background: var(--system-pink-glass); border: 0.5px solid rgba(255, 45, 85, 0.15);">
+                            <p class="text-sm whitespace-pre-line leading-relaxed text-primary">{{ decision.reasoning }}</p>
                         </div>
                     </div>
                     {% endif %}
@@ -220,26 +220,26 @@
                     <!-- Additional Metadata -->
                     {% if decision.box_description %}
                     <div class="mb-4">
-                        <h4 class="text-sm font-semibold mb-2" style="color: var(--color-text-primary);">Box Description</h4>
-                        <p class="text-sm p-3 rounded-lg" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border); color: var(--color-text-primary);">{{ decision.box_description }}</p>
+                        <h4 class="text-sm font-semibold mb-2 text-primary">Box Description</h4>
+                        <p class="text-sm p-3 rounded-lg glass-ultra-thin text-primary">{{ decision.box_description }}</p>
                     </div>
                     {% endif %}
 
                     <!-- Advanced Details (Collapsible) -->
-                    <details class="rounded-xl" style="border: 0.5px solid var(--color-border); background: rgba(0, 0, 0, 0.01);">
-                        <summary class="cursor-pointer px-4 py-3 font-semibold text-sm flex items-center" style="color: var(--color-text-primary);">
-                            <i class="fas fa-cog mr-2" style="color: var(--color-text-tertiary);"></i>
+                    <details class="rounded-xl glass-ultra-thin">
+                        <summary class="cursor-pointer px-4 py-3 font-semibold text-sm flex items-center text-primary">
+                            <i class="fas fa-cog mr-2 text-tertiary"></i>
                             Advanced Analysis Details
-                            <i class="fas fa-chevron-down ml-auto text-xs" style="color: var(--color-text-tertiary);"></i>
+                            <i class="fas fa-chevron-down ml-auto text-xs text-tertiary"></i>
                         </summary>
-                        <div class="p-4 space-y-4" style="border-top: 0.5px solid var(--color-border);">
+                        <div class="p-4 space-y-4" style="border-top: 0.5px solid var(--border-separator);">
                             {% if decision.packaging_analysis %}
                                 {% set packaging = decision.packaging_analysis %}
                                 <div>
-                                    <p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color: var(--color-text-secondary);">Classical Packaging Analysis</p>
-                                    <div class="p-3 rounded-lg text-sm" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
-                                        <p class="mb-2" style="color: var(--color-text-primary);">{{ packaging.summary if packaging.summary else packaging }}</p>
-                                        <div class="flex gap-4 text-xs" style="color: var(--color-text-tertiary);">
+                                    <p class="text-xs font-semibold uppercase tracking-wide mb-2 text-secondary">Classical Packaging Analysis</p>
+                                    <div class="p-3 rounded-lg text-sm glass-ultra-thin">
+                                        <p class="mb-2 text-primary">{{ packaging.summary if packaging.summary else packaging }}</p>
+                                        <div class="flex gap-4 text-xs text-tertiary">
                                             <span>Confidence: {% if packaging.confidence is defined %}{{ '%.0f'|format((packaging.confidence or 0) * 100) }}%{% else %}n/a{% endif %}</span>
                                             <span>Candidates: {{ packaging.candidate_count if packaging.candidate_count is defined else 'n/a' }}</span>
                                         </div>
@@ -250,10 +250,10 @@
                             {% if decision.shipping_label_analysis %}
                                 {% set analysis = decision.shipping_label_analysis %}
                                 <div>
-                                    <p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color: var(--color-text-secondary);">Local Label Analysis</p>
-                                    <div class="p-3 rounded-lg text-sm" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
-                                        <p class="mb-2" style="color: var(--color-text-primary);">{{ analysis.summary if analysis.summary else analysis }}</p>
-                                        <div class="flex gap-4 text-xs" style="color: var(--color-text-tertiary);">
+                                    <p class="text-xs font-semibold uppercase tracking-wide mb-2 text-secondary">Local Label Analysis</p>
+                                    <div class="p-3 rounded-lg text-sm glass-ultra-thin">
+                                        <p class="mb-2 text-primary">{{ analysis.summary if analysis.summary else analysis }}</p>
+                                        <div class="flex gap-4 text-xs text-tertiary">
                                             <span>Confidence: {% if analysis.presence_confidence is defined %}{{ '%.0f'|format((analysis.presence_confidence or 0) * 100) }}%{% else %}n/a{% endif %}</span>
                                             <span>Candidates: {{ analysis.candidate_count if analysis.candidate_count is defined else 'n/a' }}</span>
                                         </div>
@@ -263,7 +263,7 @@
 
                             {% if decision.tool_arguments %}
                                 <div>
-                                    <p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color: var(--color-text-secondary);">Tool Arguments</p>
+                                    <p class="text-xs font-semibold uppercase tracking-wide mb-2 text-secondary">Tool Arguments</p>
                                     <pre class="text-xs p-3 rounded-lg overflow-x-auto" style="background: #1e1e1e; color: #d4d4d4;">{{ decision.tool_arguments | tojson(indent=2) }}</pre>
                                 </div>
                             {% endif %}
@@ -271,9 +271,9 @@
                             {% if decision.agent_similarity_snapshot %}
                                 {% set sim = decision.agent_similarity_snapshot %}
                                 <div>
-                                    <p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color: var(--color-text-secondary);">Frame Similarity</p>
-                                    <div class="p-3 rounded-lg text-xs" style="background: var(--color-surface); border: 0.5px solid var(--color-border);">
-                                        <div class="flex gap-4" style="color: var(--color-text-primary);">
+                                    <p class="text-xs font-semibold uppercase tracking-wide mb-2 text-secondary">Frame Similarity</p>
+                                    <div class="p-3 rounded-lg text-xs glass-ultra-thin">
+                                        <div class="flex gap-4 text-primary">
                                             <span>SSIM: {{ sim.similarity }}</span>
                                             <span>Threshold: {{ sim.threshold }}</span>
                                             {% if sim.recheck_window %}
@@ -286,7 +286,7 @@
 
                             {% if decision.raw %}
                                 <div>
-                                    <p class="text-xs font-semibold uppercase tracking-wide mb-2" style="color: var(--color-text-secondary);">Raw Decision Data</p>
+                                    <p class="text-xs font-semibold uppercase tracking-wide mb-2 text-secondary">Raw Decision Data</p>
                                     <pre class="text-xs p-3 rounded-lg overflow-x-auto" style="background: #1e1e1e; color: #d4d4d4;">{{ decision.raw }}</pre>
                                 </div>
                             {% endif %}
@@ -294,68 +294,68 @@
                     </details>
 
                     {% if decision.error %}
-                    <div class="mt-4 p-3 rounded-xl text-sm" style="background: rgba(255, 59, 48, 0.08); border-left: 3px solid #ff3b30; color: #d70015;">
+                    <div class="mt-4 p-3 rounded-xl text-sm" style="background: var(--system-red-glass); border-left: 3px solid var(--system-red); color: var(--system-red);">
                         <i class="fas fa-exclamation-circle mr-2"></i><strong>Error:</strong> {{ decision.error }}
                     </div>
                     {% endif %}
 
                     {% if decision.tool_error %}
-                    <div class="mt-4 p-3 rounded-xl text-sm" style="background: rgba(255, 149, 0, 0.08); border-left: 3px solid #ff9500; color: #995900;">
+                    <div class="mt-4 p-3 rounded-xl text-sm" style="background: var(--system-orange-glass); border-left: 3px solid var(--system-orange); color: var(--system-orange);">
                         <i class="fas fa-exclamation-triangle mr-2"></i><strong>Warning:</strong> {{ decision.tool_error }}
                     </div>
                     {% endif %}
                 </div>
             {% else %}
                 <div class="p-5">
-                    <p class="text-sm italic" style="color: var(--color-text-tertiary);">No decision metadata recorded for this event.</p>
+                    <p class="text-sm italic text-tertiary">No decision metadata recorded for this event.</p>
                 </div>
             {% endif %}
         </div>
 
-        <div class="surface overflow-hidden">
-            <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border); background: linear-gradient(135deg, rgba(0, 0, 0, 0.02) 0%, rgba(0, 0, 0, 0.01) 100%);">
-                <h3 class="text-base font-semibold flex items-center" style="color: var(--color-text-primary);">
-                    <div class="w-7 h-7 rounded-lg flex items-center justify-center mr-2.5" style="background: rgba(0, 0, 0, 0.05);">
-                        <i class="fas fa-comments text-sm" style="color: var(--color-text-secondary);"></i>
+        <div class="glass rounded-2xl overflow-hidden animate-slide-up" style="--animation-order: 5;">
+            <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator); background: var(--material-thin);">
+                <h3 class="text-base font-semibold flex items-center text-primary">
+                    <div class="w-7 h-7 rounded-lg flex items-center justify-center mr-2.5 glass-ultra-thin">
+                        <i class="fas fa-comments text-sm text-secondary"></i>
                     </div>
                     Full Agent Conversation
                 </h3>
             </div>
             <div class="p-5">
                 {% if log.response %}
-                    <div class="rounded-xl p-4 text-sm" style="background: rgba(0, 0, 0, 0.02); border: 0.5px solid var(--color-border);">
-                        <pre class="whitespace-pre-wrap font-mono leading-relaxed overflow-x-auto" style="color: var(--color-text-primary);">{{ log.response }}</pre>
+                    <div class="rounded-xl p-4 text-sm glass-ultra-thin">
+                        <pre class="whitespace-pre-wrap font-mono leading-relaxed overflow-x-auto text-primary">{{ log.response }}</pre>
                     </div>
                 {% else %}
-                    <p class="text-sm italic" style="color: var(--color-text-tertiary);">No conversation data was stored for this detection.</p>
+                    <p class="text-sm italic text-tertiary">No conversation data was stored for this detection.</p>
                 {% endif %}
             </div>
         </div>
     </div>
 
     <div class="space-y-4">
-        <div class="surface overflow-hidden">
-            <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--color-border);">
-                <h3 class="text-base font-semibold" style="color: var(--color-text-primary);">Detection Image</h3>
+        <div class="glass rounded-2xl overflow-hidden animate-slide-up" style="--animation-order: 6;">
+            <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator);">
+                <h3 class="text-base font-semibold text-primary">Detection Image</h3>
             </div>
             <div class="p-5">
                 {% if image_url %}
-                    <img src="{{ image_url }}" alt="Detection Image" class="w-full rounded-xl" style="box-shadow: var(--shadow-md);" />
+                    <img src="{{ image_url }}" alt="Detection Image" class="w-full rounded-xl" style="box-shadow: var(--shadow-glass);" />
                 {% else %}
-                    <p class="text-sm" style="color: var(--color-text-tertiary);">No image is associated with this detection.</p>
+                    <p class="text-sm text-tertiary">No image is associated with this detection.</p>
                 {% endif %}
             </div>
         </div>
 
-        <div class="surface p-5">
-            <h3 class="text-base font-semibold mb-3" style="color: var(--color-text-primary);">Quick Actions</h3>
+        <div class="glass rounded-2xl p-5 animate-slide-up" style="--animation-order: 7;">
+            <h3 class="text-base font-semibold mb-3 text-primary">Quick Actions</h3>
             <div class="space-y-2">
                 {% if image_url %}
-                    <a href="{{ image_url }}" download class="block text-center px-4 py-2.5 rounded-lg text-white text-sm font-medium transition" style="background: linear-gradient(135deg, #34c759 0%, #00c7be 100%); box-shadow: var(--shadow-sm);">
+                    <a href="{{ image_url }}" download class="btn block text-center text-white" style="background: linear-gradient(135deg, var(--system-green) 0%, var(--system-teal) 100%);">
                         <i class="fas fa-download mr-2"></i>Download Image
                     </a>
                 {% endif %}
-                <a href="{{ url_for('logs') }}#log-{{ log.id }}" class="block text-center px-4 py-2.5 rounded-lg text-sm font-medium transition" style="background: var(--color-text-primary); color: var(--color-surface); box-shadow: var(--shadow-sm);">
+                <a href="{{ url_for('views.logs') }}#log-{{ log.id }}" class="btn btn-secondary block text-center">
                     <i class="fas fa-list mr-2"></i>View in Table
                 </a>
             </div>

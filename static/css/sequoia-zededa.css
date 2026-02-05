@@ -1,9 +1,14 @@
 /* ===================================================================
    macOS Sequoia × ZEDEDA Hybrid Design System
+   LEGACY COMPATIBILITY LAYER
+   
+   NOTE: This file provides backwards compatibility only.
+   The primary styling is in liquid-glass.css.
+   Do NOT add new styles here.
    =================================================================== */
 
 /* -------------------------------------------------- */
-/* Color Tokens                                        */
+/* Color Tokens (Legacy aliases)                       */
 /* -------------------------------------------------- */
 :root {
     --z-blue: #007aff;                /* Apple Blue (close to ZEDEDA accent) */
@@ -16,10 +21,10 @@
 
     --z-border: rgba(0,0,0,0.12);
 
-    /* Vibrancy layers (Sequoia accurate) */
-    --layer-1: rgba(255,255,255,0.40);  /* Lowest elevation */
-    --layer-2: rgba(255,255,255,0.55);  /* Toolbar */
-    --layer-3: rgba(255,255,255,0.65);  /* Cards */
+    /* Vibrancy layers (Sequoia accurate) - NOW TRANSPARENT for glass effect */
+    --layer-1: rgba(255,255,255,0.30);  /* Lowest elevation - more transparent */
+    --layer-2: rgba(255,255,255,0.45);  /* Toolbar - more transparent */
+    --layer-3: rgba(255,255,255,0.55);  /* Cards - more transparent */
 
     /* Blurs */
     --blur-sm: 12px;
@@ -33,18 +38,18 @@
     --radius-lg: 12px;
     --radius-xl: 16px;
 
-    /* Shadows */
-    --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
-    --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
-    --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
-    --shadow-xl: 0 20px 40px rgba(0,0,0,0.15);
+    /* Shadows - lighter for glass effect */
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.06);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.08);
+    --shadow-xl: 0 20px 40px rgba(0,0,0,0.12);
 
     /* Legacy compatibility aliases */
     --color-bg: var(--z-body);
     --color-surface: var(--layer-3);
-    --color-surface-elevated: rgba(255,255,255,0.85);
+    --color-surface-elevated: rgba(255,255,255,0.75);
     --color-border: var(--z-border);
-    --color-border-light: rgba(255,255,255,0.5);
+    --color-border-light: rgba(255,255,255,0.4);
     --color-text-primary: var(--z-text-primary);
     --color-text-secondary: var(--z-text-secondary);
     --color-text-tertiary: var(--z-text-tertiary);
@@ -71,14 +76,22 @@ body {
 }
 
 /* -------------------------------------------------- */
-/* Cards / Surfaces                                    */
+/* Cards / Surfaces (Glass-compatible)                 */
 /* -------------------------------------------------- */
 .surface {
     background: var(--layer-3);
-    backdrop-filter: blur(var(--blur-md));
-    border: 1px solid rgba(255,255,255,0.55);
+    backdrop-filter: blur(var(--blur-md)) saturate(1.5);
+    -webkit-backdrop-filter: blur(var(--blur-md)) saturate(1.5);
+    border: 0.5px solid rgba(255,255,255,0.45);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-md);
+}
+
+/* Ensure .bg-surface uses glass materials */
+.bg-surface {
+    background: var(--layer-3) !important;
+    backdrop-filter: blur(var(--blur-md)) saturate(1.5);
+    -webkit-backdrop-filter: blur(var(--blur-md)) saturate(1.5);
 }
 
 /* -------------------------------------------------- */
@@ -105,20 +118,23 @@ body {
 }
 
 /* -------------------------------------------------- */
-/* Inputs                                              */
+/* Inputs (Glass-compatible)                           */
 /* -------------------------------------------------- */
 input, textarea, select {
-    background: rgba(255,255,255,0.85);
-    border: 1px solid var(--z-border);
+    background: rgba(255,255,255,0.65);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 0.5px solid var(--z-border);
     border-radius: var(--radius-sm);
     padding: 6px 10px;
     font-size: 14px;
-    transition: border 0.15s, background 0.15s;
+    transition: border 0.15s, background 0.15s, box-shadow 0.15s;
 }
 
 input:focus, textarea:focus, select:focus {
-    background: rgba(255,255,255,1);
+    background: rgba(255,255,255,0.85);
     border-color: var(--z-blue);
+    box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
     outline: none;
 }
 
@@ -272,43 +288,26 @@ input:focus, textarea:focus, select:focus {
 }
 
 /* -------------------------------------------------- */
-/* Loading Overlay                                     */
+/* Loading Overlay - DEPRECATED in favor of liquid-glass.css */
+/* This file is kept for legacy compatibility only     */
 /* -------------------------------------------------- */
-#loading-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.3);
-    backdrop-filter: blur(8px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-}
-
-#loading-overlay.hidden {
-    display: none !important;
-}
-
-#loading-overlay > div {
-    background: var(--layer-3);
-    backdrop-filter: blur(var(--blur-lg));
-    border-radius: var(--radius-xl);
-    padding: 2rem;
-    box-shadow: var(--shadow-xl);
-}
+/* Loading overlay now managed by liquid-glass.css .loading-overlay class */
+/* Using .active class to show, hidden by default */
 
 /* -------------------------------------------------- */
-/* Modal styling                                       */
+/* Modal styling (Glass-compatible)                    */
 /* -------------------------------------------------- */
 .modal-overlay {
-    background: rgba(0, 0, 0, 0.4);
-    backdrop-filter: blur(8px);
+    background: rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
 }
 
 .surface-glass {
     background: var(--layer-3);
-    backdrop-filter: blur(var(--blur-lg));
-    border: 1px solid rgba(255,255,255,0.55);
+    backdrop-filter: blur(var(--blur-lg)) saturate(1.5);
+    -webkit-backdrop-filter: blur(var(--blur-lg)) saturate(1.5);
+    border: 0.5px solid rgba(255,255,255,0.45);
 }
 
 /* -------------------------------------------------- */

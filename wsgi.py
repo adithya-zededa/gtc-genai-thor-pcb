@@ -10,7 +10,6 @@ Usage with waitress (Windows compatible):
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 

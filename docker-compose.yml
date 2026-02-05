@@ -8,6 +8,32 @@ services:
     devices:
       # Map the camera device
       - "/dev/video0:/dev/video0"
+    volumes:
+      # Persist application data
+      - ./detected_images:/app/detected_images
+      - ./processed_frames:/app/processed_frames
+      # Mount config to allow editing without rebuilding
+      - ./config.yaml:/app/config.yaml
+      # Persist database
+      - ./camera_agent.db:/app/camera_agent.db
+    environment:
+      - CAMERA_INDEX=0
+      - FLASK_RUN_HOST=0.0.0.0
+      - FLASK_RUN_PORT=8080
+      # vLLM server URL (required - start vLLM separately or use Helm chart)
+      - VLLM_URL=http://vllm-server:8000
+      - VISION_MODEL=Qwen/Qwen3-VL-8B-Instruct
+      - VLLM_TIMEOUT=300
+      - VLLM_TEMPERATURE=0.1
+    depends_on:
+      - vllm-server
+
+  vllm-server:
+    image: nvcr.io/nvidia/tritonserver:25.12-vllm-python-py3
+    container_name: vllm-server
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
     deploy:
       resources:
         reservations:
@@ -16,27 +42,20 @@ services:
               count: 1
               capabilities: [gpu]
     volumes:
-      # Persist Ollama models
-      - ollama_data:/root/.ollama
-      # Persist application data
-      - ./detected_images:/app/detected_images
-      - ./processed_frames:/app/processed_frames
-      # Mount config to allow editing without rebuilding
-      - ./config.yaml:/app/config.yaml
-      # Persist database
-      - ./camera_agent.db:/app/camera_agent.db
-      # Mount custom models directory (create ./models/custom locally first)
-      - ./models:/models
+      - vllm_cache:/root/.cache/huggingface
     environment:
-      - CAMERA_INDEX=0
-      - OLLAMA_URL=http://localhost:11434
-      - FLASK_RUN_HOST=0.0.0.0
-      - FLASK_RUN_PORT=8080
-      # Custom model settings (set USE_CUSTOM_MODEL=true after downloading model)
-      - USE_CUSTOM_MODEL=false
-      - CUSTOM_MODEL_DIR=/models/custom
-      - VISION_MODEL=qwen3-vl:8b  
-      - OLLAMA_CONTEXT_LENGTH=32768
+      - HF_HOME=/root/.cache/huggingface
+    command:
+      - vllm
+      - serve
+      - Qwen/Qwen3-VL-8B-Instruct
+      - --host=0.0.0.0
+      - --port=8000
+      - --tensor-parallel-size=1
+      - --gpu-memory-utilization=0.85
+      - --max-model-len=16000
+      - --trust-remote-code
+      - --enable-prefix-caching
 
 volumes:
-  ollama_data:
+  vllm_cache:

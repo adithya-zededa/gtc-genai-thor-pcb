@@ -23,6 +23,14 @@ def video_feed():
 
         try:
             publisher = get_camera_publisher()
+            
+            # Auto-start the publisher if not running
+            if not publisher.is_running:
+                logger.info("Auto-starting camera publisher for video_feed")
+                if not publisher.start():
+                    logger.error("Failed to start camera for video_feed")
+                    return
+            
             if not publisher.subscribe(subscriber_id):
                 logger.warning(f"Failed to subscribe video feed: {subscriber_id}")
                 return
@@ -71,6 +79,13 @@ def capture_frame():
     """Get the latest captured frame."""
     try:
         publisher = get_camera_publisher()
+        
+        # Auto-start the publisher if not running
+        if not publisher.is_running:
+            logger.info("Auto-starting camera publisher for capture_frame")
+            if not publisher.start():
+                return jsonify({"success": False, "error": "Failed to start camera"})
+        
         latest_frame = publisher.get_latest_frame()
 
         if latest_frame:
@@ -86,4 +101,5 @@ def capture_frame():
 
         return jsonify({"success": False, "error": "No frames available yet"})
     except Exception as e:
+        logger.error(f"capture_frame error: {e}")
         return jsonify({"success": False, "error": str(e)})

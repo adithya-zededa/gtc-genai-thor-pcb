@@ -47,7 +47,7 @@ def main():
     logger.info("Configuration loaded from: %s", os.getenv("CAMERA_AGENT_CONFIG", "config.yaml"))
     logger.info("Flask host: %s, port: %d", config.flask.host, config.flask.port)
     logger.info("Inference backend: %s", config.inference.backend)
-    logger.info("Vision model: %s", config.inference.vision_model)
+    logger.info("Vision model: %s", config.inference.model)
     
     # 3. Initialize database
     from app.database import init_db, ensure_database_directory
