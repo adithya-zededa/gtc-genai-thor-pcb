@@ -9,4 +9,6 @@ class TaskType(Enum):
     PPE_DETECTION = "ppe_detection"
     PERSON_COUNTING = "person_counting"
     SCENE_DESCRIPTION = "scene_description"
+    PCB_INSPECTION = "pcb_inspection"
+    RETAIL_BILLING = "retail_billing"
     CUSTOM = "custom"

@@ -32,6 +32,7 @@ from agents.mcp import (
     get_mcp_interpreter,
     get_tool_registry,
 )
+from agents.mcp_manager import get_mcp_manager, DOMAIN_PCB, DOMAIN_RETAIL, DOMAIN_GENERAL
 from core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -370,6 +371,7 @@ def register_chat_handlers(socketio: "SocketIO") -> None:
         """Handle approval of a pending tool call proposal.
         
         This is the EXECUTION PHASE trigger for confirmed tools.
+        Searches all domain executors for the proposal.
         """
         session_id = request.sid
         chat_session = get_chat_session(session_id)
@@ -379,8 +381,9 @@ def register_chat_handlers(socketio: "SocketIO") -> None:
             emit("proposal_error", {"error": "No proposal ID provided"})
             return
         
-        executor = get_mcp_executor()
-        result = executor.approve_proposal(proposal_id)
+        domain = data.get("domain")  # optional hint
+        manager = get_mcp_manager()
+        result = manager.approve_proposal(proposal_id, domain=domain)
         
         # Create response message based on result
         if result["status"] == "executed":
@@ -419,7 +422,7 @@ def register_chat_handlers(socketio: "SocketIO") -> None:
         })
         
         # Broadcast state change if applicable
-        _broadcast_state_update(socketio, executor)
+        _broadcast_state_update(socketio, get_mcp_executor())
 
     @socketio.on("reject_proposal")
     def handle_reject_proposal(data):
@@ -429,13 +432,14 @@ def register_chat_handlers(socketio: "SocketIO") -> None:
         
         proposal_id = data.get("proposal_id")
         reason = data.get("reason", "User rejected")
+        domain = data.get("domain")  # optional hint
         
         if not proposal_id:
             emit("proposal_error", {"error": "No proposal ID provided"})
             return
         
-        executor = get_mcp_executor()
-        result = executor.reject_proposal(proposal_id, reason)
+        manager = get_mcp_manager()
+        result = manager.reject_proposal(proposal_id, reason, domain=domain)
         
         response = ChatMessage.assistant(
             f"🚫 Proposal rejected: {reason}"
@@ -514,11 +518,11 @@ def register_chat_handlers(socketio: "SocketIO") -> None:
 
     @socketio.on("get_pending_proposals")
     def handle_get_pending_proposals(data=None):
-        """Get all proposals pending approval."""
-        executor = get_mcp_executor()
+        """Get all proposals pending approval across all domains."""
+        manager = get_mcp_manager()
         
         emit("pending_proposals", {
-            "proposals": executor.get_pending_proposals(),
+            "proposals": manager.get_pending_proposals(),
         })
 
     @socketio.on("get_audit_metrics")
@@ -542,25 +546,26 @@ def _process_user_message(
     """Process a user message through the interpretation phase.
     
     This function:
-    1. Interprets user intent
-    2. Produces tool call proposals if appropriate
-    3. Submits proposals for approval/auto-execution
-    4. Returns a response message
+    1. Routes to the correct domain MCP (pcb / retail / general)
+    2. Interprets user intent
+    3. Produces tool call proposals if appropriate
+    4. Submits proposals for approval/auto-execution
+    5. Returns a response message
     
     NO TOOLS ARE DIRECTLY EXECUTED HERE.
     Tools are either auto-approved (policy-based) or require explicit approval.
     """
-    interpreter = get_mcp_interpreter()
-    executor = get_mcp_executor()
+    manager = get_mcp_manager()
     state_machine = get_agent_state_machine()
+    executor = get_mcp_executor()
     
     current_state = state_machine.state
     mcp_session = executor.current_session
     session_id_str = mcp_session.id if mcp_session else None
     
-    # INTERPRETATION PHASE: Detect intent and produce proposal
-    proposal = interpreter.interpret(
-        user_message=user_text,
+    # INTERPRETATION PHASE: Route to the correct domain and detect intent
+    resolved_domain, proposal = manager.interpret(
+        message=user_text,
         agent_state=current_state,
         session_id=session_id_str,
     )
@@ -577,21 +582,26 @@ def _process_user_message(
             f"The agent is currently in **{current_state.value}** state."
         )
     
-    # EXECUTION PHASE: Submit proposal
-    result = executor.submit_proposal(proposal)
+    # EXECUTION PHASE: Submit proposal through the correct domain executor
+    result = manager.submit(proposal, domain=resolved_domain)
     
     if result["status"] == "pending_approval":
         # Tool requires user confirmation
         _emit_pending_proposal(socketio, session_id, result)
         
+        domain_label = ""
+        if resolved_domain in (DOMAIN_PCB, DOMAIN_RETAIL):
+            domain_label = f" [{resolved_domain.upper()}]"
+        
         return ChatMessage.assistant(
-            f"🔔 **Confirmation Required**\n\n"
+            f"🔔 **Confirmation Required**{domain_label}\n\n"
             f"I'd like to execute **{proposal.tool_name}**.\n\n"
             f"_{result['confirmation_message']}_\n\n"
             f"Please approve or reject this action using the buttons above.",
             metadata={
                 "proposal_id": proposal.id,
                 "requires_approval": True,
+                "domain": resolved_domain,
             },
         )
     
@@ -674,17 +684,20 @@ def _generate_welcome_message(state: AgentState) -> str:
     
     message = (
         f"# 👋 Hello!\n\n"
-        f"I'm your camera monitoring assistant. The agent is currently {state_desc}.\n\n"
+        f"I'm your AI monitoring assistant. The agent is currently {state_desc}.\n\n"
         f"## What You Can Say\n\n"
-        f"### Session Control\n"
+        f"### 🔌 PCB Inspection\n"
+        f"- **\"Inspect the PCB\"** - Analyze a board for defects\n"
+        f"- **\"Send an alert if you see a defective Arduino\"** - Defect alert\n"
+        f"- **\"Generate a defect report\"** - View defect summary\n\n"
+        f"### 🛒 Retail Billing\n"
+        f"- **\"Scan the tray and count the items\"** - Identify items\n"
+        f"- **\"Create a bill and generate an invoice\"** - Billing workflow\n"
+        f"- **\"Send the invoice to email@example.com\"** - Email invoice\n\n"
+        f"### 📷 Camera Monitoring\n"
         f"- **\"Start monitoring\"** - Begin a new monitoring session\n"
-        f"- **\"End session\"** or **\"Stop monitoring\"** - End the current session\n\n"
-        f"### Analysis\n"
-        f"- **\"What do you see?\"** - Analyze the current frame\n"
-        f"- **\"Show me the history\"** - View recent detections\n\n"
-        f"### Information\n"
-        f"- **\"What's your status?\"** - Get current agent status\n"
-        f"- **\"Help\"** - See all available commands\n\n"
+        f"- **\"End session\"** or **\"Stop monitoring\"** - End the current session\n"
+        f"- **\"What do you see?\"** - Analyze the current frame\n\n"
         f"---\n"
         f"💡 *All actions are controlled through conversation. "
         f"I'll ask for confirmation before doing anything sensitive.*"
@@ -729,21 +742,29 @@ def _generate_help_text(state: AgentState) -> str:
     """Generate help text based on current state."""
     help_text = (
         "## 🤖 Available Commands\n\n"
-        "### Session Control\n"
+        "### 🔌 PCB Inspection\n"
+        "- **\"Inspect the PCB\"** / **\"Check for defects\"** - Analyze board\n"
+        "- **\"Classify board\"** / **\"What board is this?\"** - Identify board type\n"
+        "- **\"Send defect alert\"** - Alert about detected defects\n"
+        "- **\"Log defect\"** - Record a defect to history\n"
+        "- **\"Defect report\"** / **\"Show defects\"** - Generate report\n\n"
+        "### 🛒 Retail Billing\n"
+        "- **\"Scan the tray\"** / **\"Count items\"** - Identify items\n"
+        "- **\"Look up price\"** - Check item price in catalog\n"
+        "- **\"Create a bill\"** - Calculate totals\n"
+        "- **\"Generate invoice\"** - Render HTML invoice\n"
+        "- **\"Send invoice\"** - Email the invoice\n\n"
+        "### 📷 Session Control\n"
         "- **\"Start monitoring\"** - Begin a new monitoring session\n"
         "- **\"Stop monitoring\"** or **\"End session\"** - Stop and get summary\n"
         "- **\"Go idle\"** or **\"Pause\"** - Pause without ending session\n\n"
-        "### Analysis & Information\n"
+        "### ℹ️ Analysis & Information\n"
         "- **\"What do you see?\"** / **\"Analyze\"** - Analyze current frame\n"
         "- **\"What's your status?\"** - Get agent status\n"
-        "- **\"Show history\"** / **\"Recent events\"** - View detection history\n"
-        "- **\"Session summary\"** - Get summary of current session\n\n"
-        "### Alerts & Evidence\n"
-        "- **\"Send an alert\"** - Manually trigger an alert email\n"
-        "- **\"Save evidence\"** - Capture current frame as evidence\n\n"
+        "- **\"Show history\"** / **\"Recent events\"** - View detection history\n\n"
         "---\n"
         f"🔵 **Current State:** {state.value}\n\n"
-        "*Some commands may not be available depending on the current state.*"
+        "*Commands are auto-routed to the correct agent (PCB / Retail / General).*"
     )
     return help_text
 

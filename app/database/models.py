@@ -176,3 +176,138 @@ class LogSettings:
             "log_to_console": self.log_to_console,
             "log_database": self.log_database,
         }
+
+
+@dataclass
+class RetailCatalogItem:
+    """Retail catalog item representing a product in the store catalog."""
+    id: Optional[int] = None
+    item_name: str = ""
+    sku: str = ""
+    price: float = 0.0
+    category: str = "other"
+    created_at: Optional[str] = None
+
+    @classmethod
+    def from_row(cls, row) -> Optional["RetailCatalogItem"]:
+        """Create RetailCatalogItem from database row."""
+        if row is None:
+            return None
+        return cls(
+            id=row["id"],
+            item_name=row["item_name"],
+            sku=row["sku"],
+            price=float(row["price"]),
+            category=row["category"],
+            created_at=row["created_at"],
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "id": self.id,
+            "item_name": self.item_name,
+            "sku": self.sku,
+            "price": self.price,
+            "category": self.category,
+            "created_at": self.created_at,
+        }
+
+
+@dataclass
+class Invoice:
+    """Invoice model representing a generated retail invoice."""
+    id: Optional[int] = None
+    timestamp: Optional[str] = None
+    recipient_email: str = ""
+    items_json: str = "[]"
+    subtotal: float = 0.0
+    tax: float = 0.0
+    total: float = 0.0
+    status: str = "draft"
+    created_at: Optional[str] = None
+
+    @classmethod
+    def from_row(cls, row) -> Optional["Invoice"]:
+        """Create Invoice from database row."""
+        if row is None:
+            return None
+        return cls(
+            id=row["id"],
+            timestamp=row["timestamp"],
+            recipient_email=row["recipient_email"],
+            items_json=row["items_json"],
+            subtotal=float(row["subtotal"]),
+            tax=float(row["tax"]),
+            total=float(row["total"]),
+            status=row["status"],
+            created_at=row["created_at"],
+        )
+
+    @property
+    def items(self) -> List[Dict[str, Any]]:
+        """Parse items from JSON string."""
+        import json
+        try:
+            return json.loads(self.items_json)
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "id": self.id,
+            "timestamp": self.timestamp,
+            "recipient_email": self.recipient_email,
+            "items": self.items,
+            "subtotal": self.subtotal,
+            "tax": self.tax,
+            "total": self.total,
+            "status": self.status,
+            "created_at": self.created_at,
+        }
+
+
+@dataclass
+class PCBDefect:
+    """PCB defect record from inspection analysis."""
+    id: Optional[int] = None
+    timestamp: Optional[str] = None
+    board_type: str = "unknown"
+    defect_type: str = ""
+    severity: str = "low"
+    confidence: float = 0.0
+    image_path: str = ""
+    description: str = ""
+    created_at: Optional[str] = None
+
+    @classmethod
+    def from_row(cls, row) -> Optional["PCBDefect"]:
+        """Create PCBDefect from database row."""
+        if row is None:
+            return None
+        return cls(
+            id=row["id"],
+            timestamp=row["timestamp"],
+            board_type=row["board_type"],
+            defect_type=row["defect_type"],
+            severity=row["severity"],
+            confidence=float(row["confidence"]),
+            image_path=row["image_path"],
+            description=row["description"],
+            created_at=row["created_at"],
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "id": self.id,
+            "timestamp": self.timestamp,
+            "board_type": self.board_type,
+            "defect_type": self.defect_type,
+            "severity": self.severity,
+            "confidence": self.confidence,
+            "image_path": self.image_path,
+            "description": self.description,
+            "created_at": self.created_at,
+        }

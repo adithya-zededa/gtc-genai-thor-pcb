@@ -4,12 +4,23 @@ Provides SQLite database setup, migrations, and connection pooling.
 """
 
 from .connection import get_db_connection, init_db, ensure_database_directory
-from .models import DetectionLog, User, ConfigHistory, LogSettings
+from .models import (
+    DetectionLog,
+    User,
+    ConfigHistory,
+    LogSettings,
+    RetailCatalogItem,
+    Invoice,
+    PCBDefect,
+)
 from .repositories import (
     DetectionLogRepository,
     UserRepository,
     ConfigHistoryRepository,
     LogSettingsRepository,
+    RetailCatalogRepository,
+    InvoiceRepository,
+    PCBDefectRepository,
 )
 
 __all__ = [
@@ -19,12 +30,18 @@ __all__ = [
     "ensure_database_directory",
     # Models
     "DetectionLog",
-    "User", 
+    "User",
     "ConfigHistory",
     "LogSettings",
+    "RetailCatalogItem",
+    "Invoice",
+    "PCBDefect",
     # Repositories
     "DetectionLogRepository",
     "UserRepository",
     "ConfigHistoryRepository",
     "LogSettingsRepository",
+    "RetailCatalogRepository",
+    "InvoiceRepository",
+    "PCBDefectRepository",
 ]

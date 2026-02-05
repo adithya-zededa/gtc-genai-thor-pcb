@@ -134,6 +134,80 @@ def init_db() -> None:
     # Seed default log settings
     _seed_log_settings(cursor)
 
+    # Retail catalog table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS retail_catalog (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_name TEXT NOT NULL,
+            sku TEXT UNIQUE NOT NULL,
+            price REAL NOT NULL DEFAULT 0.0,
+            category TEXT DEFAULT 'other',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_retail_catalog_sku
+        ON retail_catalog(sku)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_retail_catalog_category
+        ON retail_catalog(category)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_retail_catalog_item_name
+        ON retail_catalog(item_name)
+    """)
+
+    # Invoices table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS invoices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            recipient_email TEXT,
+            items_json TEXT DEFAULT '[]',
+            subtotal REAL NOT NULL DEFAULT 0.0,
+            tax REAL NOT NULL DEFAULT 0.0,
+            total REAL NOT NULL DEFAULT 0.0,
+            status TEXT DEFAULT 'draft',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_invoices_status
+        ON invoices(status)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_invoices_timestamp
+        ON invoices(timestamp DESC)
+    """)
+
+    # PCB defects table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pcb_defects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            board_type TEXT DEFAULT 'unknown',
+            defect_type TEXT NOT NULL,
+            severity TEXT DEFAULT 'low',
+            confidence REAL DEFAULT 0.0,
+            image_path TEXT DEFAULT '',
+            description TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_pcb_defects_board_type
+        ON pcb_defects(board_type)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_pcb_defects_severity
+        ON pcb_defects(severity)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_pcb_defects_timestamp
+        ON pcb_defects(timestamp DESC)
+    """)
+
     conn.commit()
     conn.close()
     

@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from core.logging import get_logger
 from .connection import get_db_connection
-from .models import DetectionLog, User, ConfigHistory, LogSettings
+from .models import DetectionLog, User, ConfigHistory, LogSettings, RetailCatalogItem, Invoice, PCBDefect
 
 logger = get_logger(__name__)
 
@@ -266,3 +266,298 @@ class LogSettingsRepository:
             )
             conn.commit()
         return settings
+
+
+class RetailCatalogRepository:
+    """Repository for RetailCatalogItem data operations."""
+
+    @staticmethod
+    def get_all() -> List[RetailCatalogItem]:
+        """Get all catalog items."""
+        with get_db_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM retail_catalog ORDER BY category, item_name"
+            ).fetchall()
+        return [RetailCatalogItem.from_row(row) for row in rows]
+
+    @staticmethod
+    def get_by_id(item_id: int) -> Optional[RetailCatalogItem]:
+        """Get a catalog item by ID."""
+        with get_db_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM retail_catalog WHERE id = ?", (item_id,)
+            ).fetchone()
+        return RetailCatalogItem.from_row(row)
+
+    @staticmethod
+    def get_by_sku(sku: str) -> Optional[RetailCatalogItem]:
+        """Get a catalog item by SKU."""
+        with get_db_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM retail_catalog WHERE sku = ?", (sku,)
+            ).fetchone()
+        return RetailCatalogItem.from_row(row)
+
+    @staticmethod
+    def search_by_name(query: str) -> List[RetailCatalogItem]:
+        """Search catalog items by name (case-insensitive fuzzy match)."""
+        with get_db_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM retail_catalog WHERE LOWER(item_name) LIKE ? ORDER BY item_name",
+                (f"%{query.lower()}%",),
+            ).fetchall()
+        return [RetailCatalogItem.from_row(row) for row in rows]
+
+    @staticmethod
+    def search_by_category(category: str) -> List[RetailCatalogItem]:
+        """Get all items in a given category."""
+        with get_db_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM retail_catalog WHERE LOWER(category) = ? ORDER BY item_name",
+                (category.lower(),),
+            ).fetchall()
+        return [RetailCatalogItem.from_row(row) for row in rows]
+
+    @staticmethod
+    def create(item_name: str, sku: str, price: float, category: str = "other") -> int:
+        """Create a new catalog item and return the ID."""
+        with get_db_connection() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO retail_catalog (item_name, sku, price, category)
+                VALUES (?, ?, ?, ?)
+                """,
+                (item_name, sku, price, category),
+            )
+            conn.commit()
+            return cursor.lastrowid
+
+    @staticmethod
+    def update(item_id: int, **fields) -> bool:
+        """Update a catalog item's fields."""
+        allowed = {"item_name", "sku", "price", "category"}
+        updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
+        if not updates:
+            return False
+
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        values = list(updates.values()) + [item_id]
+
+        with get_db_connection() as conn:
+            conn.execute(
+                f"UPDATE retail_catalog SET {set_clause} WHERE id = ?",
+                values,
+            )
+            conn.commit()
+        return True
+
+    @staticmethod
+    def delete(item_id: int) -> bool:
+        """Delete a catalog item."""
+        with get_db_connection() as conn:
+            conn.execute("DELETE FROM retail_catalog WHERE id = ?", (item_id,))
+            conn.commit()
+        return True
+
+    @staticmethod
+    def bulk_create(items: List[Dict[str, Any]]) -> int:
+        """Bulk insert catalog items. Returns count of inserted items."""
+        count = 0
+        with get_db_connection() as conn:
+            for item in items:
+                try:
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO retail_catalog (item_name, sku, price, category)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (
+                            item.get("item_name", ""),
+                            item.get("sku", ""),
+                            float(item.get("price", 0.0)),
+                            item.get("category", "other"),
+                        ),
+                    )
+                    count += 1
+                except Exception as e:
+                    logger.warning("Skipping catalog item: %s", e)
+            conn.commit()
+        return count
+
+
+class InvoiceRepository:
+    """Repository for Invoice data operations."""
+
+    @staticmethod
+    def create(
+        recipient_email: str,
+        items_json: str,
+        subtotal: float,
+        tax: float,
+        total: float,
+        status: str = "draft",
+    ) -> int:
+        """Create a new invoice and return the ID."""
+        with get_db_connection() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO invoices (
+                    timestamp, recipient_email, items_json,
+                    subtotal, tax, total, status
+                )
+                VALUES (CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?)
+                """,
+                (recipient_email, items_json, subtotal, tax, total, status),
+            )
+            conn.commit()
+            return cursor.lastrowid
+
+    @staticmethod
+    def get_by_id(invoice_id: int) -> Optional[Invoice]:
+        """Get an invoice by ID."""
+        with get_db_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM invoices WHERE id = ?", (invoice_id,)
+            ).fetchone()
+        return Invoice.from_row(row)
+
+    @staticmethod
+    def get_paginated(
+        page: int = 1,
+        per_page: int = 50,
+        status: Optional[str] = None,
+    ) -> tuple:
+        """Get paginated invoices. Returns (invoices, total_count)."""
+        offset = (page - 1) * per_page
+
+        with get_db_connection() as conn:
+            count_query = "SELECT COUNT(*) FROM invoices"
+            data_query = "SELECT * FROM invoices"
+
+            if status:
+                count_query += " WHERE status = ?"
+                data_query += " WHERE status = ?"
+                params_count = (status,)
+                params_data = (status, per_page, offset)
+            else:
+                params_count = ()
+                params_data = (per_page, offset)
+
+            total = conn.execute(count_query, params_count).fetchone()[0]
+            data_query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+            rows = conn.execute(data_query, params_data).fetchall()
+
+        return [Invoice.from_row(row) for row in rows], total
+
+    @staticmethod
+    def update_status(invoice_id: int, status: str) -> bool:
+        """Update an invoice's status."""
+        with get_db_connection() as conn:
+            conn.execute(
+                "UPDATE invoices SET status = ? WHERE id = ?",
+                (status, invoice_id),
+            )
+            conn.commit()
+        return True
+
+
+class PCBDefectRepository:
+    """Repository for PCBDefect data operations."""
+
+    @staticmethod
+    def create(
+        board_type: str,
+        defect_type: str,
+        severity: str = "low",
+        confidence: float = 0.0,
+        image_path: str = "",
+        description: str = "",
+    ) -> int:
+        """Record a new PCB defect and return the ID."""
+        with get_db_connection() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO pcb_defects (
+                    timestamp, board_type, defect_type, severity,
+                    confidence, image_path, description
+                )
+                VALUES (CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?)
+                """,
+                (board_type, defect_type, severity, confidence, image_path, description),
+            )
+            conn.commit()
+            return cursor.lastrowid
+
+    @staticmethod
+    def get_by_id(defect_id: int) -> Optional[PCBDefect]:
+        """Get a defect record by ID."""
+        with get_db_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM pcb_defects WHERE id = ?", (defect_id,)
+            ).fetchone()
+        return PCBDefect.from_row(row)
+
+    @staticmethod
+    def get_paginated(
+        page: int = 1,
+        per_page: int = 50,
+        board_type: Optional[str] = None,
+        severity: Optional[str] = None,
+    ) -> tuple:
+        """Get paginated defect records. Returns (defects, total_count)."""
+        offset = (page - 1) * per_page
+        conditions = []
+        params: List[Any] = []
+
+        if board_type:
+            conditions.append("LOWER(board_type) = ?")
+            params.append(board_type.lower())
+        if severity:
+            conditions.append("severity = ?")
+            params.append(severity)
+
+        where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+
+        with get_db_connection() as conn:
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM pcb_defects{where}", params
+            ).fetchone()[0]
+
+            rows = conn.execute(
+                f"SELECT * FROM pcb_defects{where} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                params + [per_page, offset],
+            ).fetchall()
+
+        return [PCBDefect.from_row(row) for row in rows], total
+
+    @staticmethod
+    def get_by_board_type(board_type: str) -> List[PCBDefect]:
+        """Get all defects for a specific board type."""
+        with get_db_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM pcb_defects WHERE LOWER(board_type) = ? ORDER BY timestamp DESC",
+                (board_type.lower(),),
+            ).fetchall()
+        return [PCBDefect.from_row(row) for row in rows]
+
+    @staticmethod
+    def get_summary() -> Dict[str, Any]:
+        """Get a summary of all defect records."""
+        with get_db_connection() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM pcb_defects").fetchone()[0]
+            by_severity = conn.execute(
+                "SELECT severity, COUNT(*) as cnt FROM pcb_defects GROUP BY severity"
+            ).fetchall()
+            by_board = conn.execute(
+                "SELECT board_type, COUNT(*) as cnt FROM pcb_defects GROUP BY board_type"
+            ).fetchall()
+            by_type = conn.execute(
+                "SELECT defect_type, COUNT(*) as cnt FROM pcb_defects GROUP BY defect_type ORDER BY cnt DESC"
+            ).fetchall()
+
+        return {
+            "total_defects": total,
+            "by_severity": {row["severity"]: row["cnt"] for row in by_severity},
+            "by_board_type": {row["board_type"]: row["cnt"] for row in by_board},
+            "by_defect_type": {row["defect_type"]: row["cnt"] for row in by_type},
+        }

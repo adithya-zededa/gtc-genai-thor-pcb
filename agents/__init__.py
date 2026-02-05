@@ -42,6 +42,23 @@ from .mcp import (
     get_mcp_executor,
     get_mcp_interpreter,
 )
+from .mcp_manager import MCPManager, get_mcp_manager
+from .pcb_mcp import (
+    PCBToolRegistry,
+    PCBInterpreter,
+    PCBExecutor,
+    get_pcb_registry,
+    get_pcb_interpreter,
+    get_pcb_executor,
+)
+from .retail_mcp import (
+    RetailToolRegistry,
+    RetailInterpreter,
+    RetailExecutor,
+    get_retail_registry,
+    get_retail_interpreter,
+    get_retail_executor,
+)
 
 __all__ = [
     # Camera agent
@@ -82,4 +99,21 @@ __all__ = [
     "get_tool_registry",
     "get_mcp_executor",
     "get_mcp_interpreter",
+    # MCP Manager
+    "MCPManager",
+    "get_mcp_manager",
+    # PCB MCP
+    "PCBToolRegistry",
+    "PCBInterpreter",
+    "PCBExecutor",
+    "get_pcb_registry",
+    "get_pcb_interpreter",
+    "get_pcb_executor",
+    # Retail MCP
+    "RetailToolRegistry",
+    "RetailInterpreter",
+    "RetailExecutor",
+    "get_retail_registry",
+    "get_retail_interpreter",
+    "get_retail_executor",
 ]

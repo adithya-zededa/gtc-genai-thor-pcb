@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice{% if invoice_id %} #{{ invoice_id }}{% endif %}</title>
+    <style>
+        /* Reset */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f4f6f8;
+            color: #333;
+            padding: 40px 20px;
+        }
+
+        .invoice-container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            overflow: hidden;
+        }
+
+        /* Header */
+        .invoice-header {
+            background: linear-gradient(135deg, #1a73e8, #0d47a1);
+            color: #fff;
+            padding: 32px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .invoice-header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+
+        .invoice-header .invoice-meta {
+            text-align: right;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .invoice-header .invoice-meta strong {
+            display: block;
+            font-size: 16px;
+        }
+
+        /* Body */
+        .invoice-body {
+            padding: 32px 40px;
+        }
+
+        /* Recipient */
+        .invoice-recipient {
+            margin-bottom: 28px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .invoice-recipient h3 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+            margin-bottom: 6px;
+        }
+
+        .invoice-recipient p {
+            font-size: 15px;
+            color: #333;
+        }
+
+        /* Table */
+        .invoice-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 28px;
+        }
+
+        .invoice-table thead th {
+            background: #f7f9fc;
+            text-align: left;
+            padding: 12px 16px;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #666;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .invoice-table thead th.num {
+            text-align: center;
+        }
+
+        .invoice-table thead th.amount {
+            text-align: right;
+        }
+
+        .invoice-table tbody td {
+            padding: 12px 16px;
+            font-size: 14px;
+            border-bottom: 1px solid #f0f0f0;
+            vertical-align: middle;
+        }
+
+        .invoice-table tbody td.num {
+            text-align: center;
+        }
+
+        .invoice-table tbody td.amount {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .invoice-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .invoice-table tbody td .sku {
+            display: block;
+            font-size: 11px;
+            color: #999;
+            margin-top: 2px;
+        }
+
+        /* Totals */
+        .invoice-totals {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 28px;
+        }
+
+        .invoice-totals table {
+            min-width: 280px;
+            border-collapse: collapse;
+        }
+
+        .invoice-totals table tr td {
+            padding: 8px 16px;
+            font-size: 14px;
+        }
+
+        .invoice-totals table tr td:first-child {
+            color: #666;
+            text-align: right;
+            padding-right: 24px;
+        }
+
+        .invoice-totals table tr td:last-child {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .invoice-totals table tr.subtotal td {
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .invoice-totals table tr.total td {
+            font-size: 18px;
+            font-weight: 700;
+            color: #1a73e8;
+            border-top: 2px solid #1a73e8;
+            padding-top: 12px;
+        }
+
+        /* Footer */
+        .invoice-footer {
+            background: #f7f9fc;
+            padding: 20px 40px;
+            text-align: center;
+            font-size: 12px;
+            color: #999;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .invoice-footer a {
+            color: #1a73e8;
+            text-decoration: none;
+        }
+
+        /* Badge */
+        .status-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .status-badge.draft {
+            background: rgba(255,255,255,0.2);
+            color: #fff;
+        }
+
+        .status-badge.sent {
+            background: #4caf50;
+            color: #fff;
+        }
+
+        /* Print */
+        @media print {
+            body { background: #fff; padding: 0; }
+            .invoice-container { box-shadow: none; border-radius: 0; }
+            .invoice-header { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+    </style>
+</head>
+<body>
+    <div class="invoice-container">
+        <!-- Header -->
+        <div class="invoice-header">
+            <div>
+                <h1>INVOICE</h1>
+            </div>
+            <div class="invoice-meta">
+                {% if invoice_id %}
+                <strong>#{{ invoice_id }}</strong>
+                {% endif %}
+                <span>{{ generated_at[:10] if generated_at else "" }}</span>
+            </div>
+        </div>
+
+        <!-- Body -->
+        <div class="invoice-body">
+            <!-- Recipient -->
+            {% if recipient %}
+            <div class="invoice-recipient">
+                <h3>Bill To</h3>
+                <p>{{ recipient }}</p>
+            </div>
+            {% endif %}
+
+            <!-- Line Items Table -->
+            <table class="invoice-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Item</th>
+                        <th class="num">Qty</th>
+                        <th class="amount">Unit Price</th>
+                        <th class="amount">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in bill.line_items %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td>
+                            {{ item.name }}
+                            {% if item.sku %}<span class="sku">SKU: {{ item.sku }}</span>{% endif %}
+                        </td>
+                        <td class="num">{{ item.quantity }}</td>
+                        <td class="amount">{{ bill.currency }} {{ "%.2f"|format(item.unit_price) }}</td>
+                        <td class="amount">{{ bill.currency }} {{ "%.2f"|format(item.line_total) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <!-- Totals -->
+            <div class="invoice-totals">
+                <table>
+                    <tr class="subtotal">
+                        <td>Subtotal</td>
+                        <td>{{ bill.currency }} {{ "%.2f"|format(bill.subtotal) }}</td>
+                    </tr>
+                    <tr>
+                        <td>Tax ({{ "%.0f"|format(bill.tax_rate * 100) }}%)</td>
+                        <td>{{ bill.currency }} {{ "%.2f"|format(bill.tax) }}</td>
+                    </tr>
+                    <tr class="total">
+                        <td>Total</td>
+                        <td>{{ bill.currency }} {{ "%.2f"|format(bill.total) }}</td>
+                    </tr>
+                </table>
+            </div>
+
+            <!-- Summary -->
+            <p style="font-size: 13px; color: #888;">
+                {{ bill.unique_items }} unique item{{ "s" if bill.unique_items != 1 else "" }},
+                {{ bill.item_count }} total unit{{ "s" if bill.item_count != 1 else "" }}
+            </p>
+        </div>
+
+        <!-- Footer -->
+        <div class="invoice-footer">
+            Generated by AI Retail Assistant &middot; {{ generated_at[:10] if generated_at else "" }}
+        </div>
+    </div>
+</body>
+</html>

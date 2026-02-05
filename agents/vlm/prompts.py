@@ -118,13 +118,121 @@ Respond with ONLY valid JSON (no other text):
 }}
 """
 
+# PCB (Printed Circuit Board) Inspection
+PCB_INSPECTION_PROMPT = """Analyze this image for PCB (Printed Circuit Board) defects and quality issues.
+
+TASK: Inspect the PCB for manufacturing defects, component placement issues, and board identification.
+
+Defect types to look for:
+- Solder bridges (unintended solder connections between pads/traces)
+- Missing components (empty pads where components should be placed)
+- Cold solder joints (dull, grainy, or cracked solder connections)
+- Trace cuts or damage (broken copper traces)
+- Component misalignment (rotated or offset components)
+- Burn marks or discoloration
+- Lifted pads or delamination
+
+Board identification:
+- Identify the board type if recognizable (e.g., Arduino Uno, Raspberry Pi, custom PCB)
+- Note any visible text, logos, or version markings
+
+Respond with ONLY valid JSON (no other text):
+{{
+  "detected": boolean (true if a PCB is visible in the image),
+  "confidence": number between 0.0 and 1.0,
+  "reasoning": "Detailed description of the PCB and any defects found",
+  "board_type": "identified board type or 'unknown'",
+  "board_markings": "any visible text, logos, or version numbers",
+  "has_defects": boolean (true if any defects were detected),
+  "defects": [
+    {{
+      "type": "defect type (solder_bridge, missing_component, cold_joint, trace_damage, misalignment, burn_mark, lifted_pad, other)",
+      "severity": "low, medium, or high",
+      "location": "description of where on the board",
+      "description": "detailed description of the defect"
+    }}
+  ],
+  "component_count": integer (estimated number of components visible),
+  "overall_quality": "good, acceptable, or defective",
+  "should_alert": boolean (true if any medium or high severity defects found)
+}}
+
+RULES:
+- detected=true if ANY PCB is visible in the image
+- has_defects=true if ANY manufacturing defect is found
+- should_alert=true if any defect has medium or high severity
+- If no PCB visible, set detected=false and empty defects list
+- Be thorough but avoid false positives - only flag clear defects
+"""
+
+# Retail Billing / Tray Item Detection
+RETAIL_BILLING_PROMPT = """Analyze this image of items placed on a tray or counter for retail billing purposes.
+
+TASK: Identify, classify, and count each distinct item visible. This is for generating a retail bill/invoice.
+
+For each item, determine:
+- Product name / description
+- Category (electronics, food, beverage, household, clothing, stationery, other)
+- Quantity (count of identical items)
+- Any visible price tags or barcodes
+- Brand name if visible
+- Size/variant if distinguishable
+
+Respond with ONLY valid JSON (no other text):
+{{
+  "detected": boolean (true if any items are visible on the tray),
+  "confidence": number between 0.0 and 1.0,
+  "reasoning": "Overview of what is visible on the tray",
+  "items": [
+    {{
+      "name": "product name or best description",
+      "category": "electronics|food|beverage|household|clothing|stationery|other",
+      "quantity": integer,
+      "brand": "brand name or null",
+      "variant": "size/color/variant or null",
+      "visible_price": "price if visible on tag, or null",
+      "barcode_visible": boolean
+    }}
+  ],
+  "total_item_count": integer (total number of individual items),
+  "total_unique_items": integer (number of distinct product types),
+  "tray_description": "brief description of the tray/surface layout",
+  "should_alert": false
+}}
+
+RULES:
+- detected=true if ANY item is visible on the tray/counter
+- Count each identical item separately in the quantity field
+- Group identical items into a single entry with quantity > 1
+- Be specific with product names when possible
+- If a barcode or price tag is visible, note it
+- should_alert is always false for retail billing
+"""
+
 # Registry mapping task types to their prompts
 TASK_PROMPTS: Dict[TaskType, str] = {
     TaskType.PACKAGE_DETECTION: PACKAGE_DETECTION_PROMPT,
     TaskType.PPE_DETECTION: PPE_DETECTION_PROMPT,
     TaskType.PERSON_COUNTING: PERSON_COUNTING_PROMPT,
     TaskType.SCENE_DESCRIPTION: SCENE_DESCRIPTION_PROMPT,
+    TaskType.PCB_INSPECTION: PCB_INSPECTION_PROMPT,
+    TaskType.RETAIL_BILLING: RETAIL_BILLING_PROMPT,
 }
 
 # Legacy alias
 DEFAULT_DETECTION_PROMPT = PACKAGE_DETECTION_PROMPT
+
+
+def get_prompt(task_type: TaskType, custom_query: str = "") -> str:
+    """Get the prompt for a given task type.
+    
+    Args:
+        task_type: The task type to get the prompt for.
+        custom_query: Custom query text for CUSTOM task type.
+        
+    Returns:
+        The prompt string for the task type.
+    """
+    if task_type == TaskType.CUSTOM:
+        return CUSTOM_QUERY_TEMPLATE.format(user_query=custom_query)
+    return TASK_PROMPTS.get(task_type, SCENE_DESCRIPTION_PROMPT)

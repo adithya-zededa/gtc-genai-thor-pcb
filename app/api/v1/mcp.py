@@ -24,6 +24,7 @@ from agents.mcp import (
     get_mcp_interpreter,
     get_tool_registry,
 )
+from agents.mcp_manager import get_mcp_manager, VALID_DOMAINS
 from core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -39,28 +40,50 @@ def list_tools():
     
     Query params:
         state: Filter tools available in a specific agent state
+        domain: Filter by domain (pcb, retail, general). Omit for all.
     """
-    registry = get_tool_registry()
     state_machine = get_agent_state_machine()
+    domain = request.args.get("domain", "").strip() or None
     
     state_filter = request.args.get("state")
     if state_filter:
         try:
             state = AgentState(state_filter)
-            tools = registry.get_display_list(state)
         except ValueError:
             return jsonify({
                 "success": False,
                 "error": f"Invalid state: {state_filter}",
             }), 400
     else:
-        tools = registry.get_display_list(state_machine.state)
-    
+        state = state_machine.state
+
+    if domain and domain in VALID_DOMAINS:
+        # Return tools for a specific domain
+        _, _interp, _exec, registry = get_mcp_manager().route("", domain)
+        tools = registry.get_display_list(state)
+        return jsonify({
+            "success": True,
+            "domain": domain,
+            "tools": tools,
+            "count": len(tools),
+            "current_state": state.value,
+        })
+
+    # Return all tools grouped by domain
+    manager = get_mcp_manager()
+    all_tools = manager.get_all_tools(state)
+    flat_tools = []
+    for d, t_list in all_tools.items():
+        for t in t_list:
+            t["domain"] = d
+            flat_tools.append(t)
+
     return jsonify({
         "success": True,
-        "tools": tools,
-        "count": len(tools),
-        "current_state": state_machine.state.value,
+        "tools": flat_tools,
+        "count": len(flat_tools),
+        "current_state": state.value,
+        "domains": list(all_tools.keys()),
     })
 
 
@@ -107,18 +130,21 @@ def interpret_message():
     
     Request body:
         {
-            "message": "Start monitoring the camera"
+            "message": "Start monitoring the camera",
+            "domain": "pcb"  // optional — auto-detected if omitted
         }
     
     Response:
         {
             "success": true,
             "has_proposal": true,
+            "domain": "pcb",
             "proposal": { ... }
         }
     """
     data = request.get_json() or {}
     message = data.get("message", "").strip()
+    domain = data.get("domain", request.args.get("domain", "")).strip() or None
     
     if not message:
         return jsonify({
@@ -126,22 +152,24 @@ def interpret_message():
             "error": "No message provided",
         }), 400
     
-    interpreter = get_mcp_interpreter()
+    manager = get_mcp_manager()
     state_machine = get_agent_state_machine()
     executor = get_mcp_executor()
     
     session_id = executor.current_session.id if executor.current_session else None
     
-    proposal = interpreter.interpret(
-        user_message=message,
+    resolved_domain, proposal = manager.interpret(
+        message=message,
         agent_state=state_machine.state,
         session_id=session_id,
+        domain=domain,
     )
     
     if proposal is None:
         return jsonify({
             "success": True,
             "has_proposal": False,
+            "domain": resolved_domain,
             "message": "No tool call needed for this message",
         })
     
@@ -149,6 +177,7 @@ def interpret_message():
         return jsonify({
             "success": True,
             "has_proposal": True,
+            "domain": resolved_domain,
             "proposal": proposal.to_dict(),
             "rejected": True,
             "rejection_reason": proposal.rejection_reason,
@@ -157,6 +186,7 @@ def interpret_message():
     return jsonify({
         "success": True,
         "has_proposal": True,
+        "domain": resolved_domain,
         "proposal": proposal.to_dict(),
     })
 
@@ -172,13 +202,15 @@ def submit_proposal():
     
     Request body:
         {
-            "message": "Start monitoring the camera"
+            "message": "Start monitoring the camera",
+            "domain": "pcb"  // optional — auto-detected if omitted
         }
     
     Response (auto-executed):
         {
             "success": true,
             "status": "executed",
+            "domain": "pcb",
             "result": { ... }
         }
     
@@ -186,12 +218,14 @@ def submit_proposal():
         {
             "success": true,
             "status": "pending_approval",
+            "domain": "pcb",
             "proposal_id": "...",
             "confirmation_message": "..."
         }
     """
     data = request.get_json() or {}
     message = data.get("message", "").strip()
+    domain = data.get("domain", request.args.get("domain", "")).strip() or None
     
     if not message:
         return jsonify({
@@ -199,23 +233,25 @@ def submit_proposal():
             "error": "No message provided",
         }), 400
     
-    interpreter = get_mcp_interpreter()
-    executor = get_mcp_executor()
+    manager = get_mcp_manager()
     state_machine = get_agent_state_machine()
+    executor = get_mcp_executor()
     
     session_id = executor.current_session.id if executor.current_session else None
     
-    # Interpret the message
-    proposal = interpreter.interpret(
-        user_message=message,
+    # Interpret the message through the domain router
+    resolved_domain, proposal = manager.interpret(
+        message=message,
         agent_state=state_machine.state,
         session_id=session_id,
+        domain=domain,
     )
     
     if proposal is None:
         return jsonify({
             "success": True,
             "status": "no_action",
+            "domain": resolved_domain,
             "message": "No tool call needed",
         })
     
@@ -223,15 +259,17 @@ def submit_proposal():
         return jsonify({
             "success": True,
             "status": "rejected",
+            "domain": resolved_domain,
             "reason": proposal.rejection_reason,
             "proposal": proposal.to_dict(),
         })
     
-    # Submit to executor
-    result = executor.submit_proposal(proposal)
+    # Submit to the correct domain executor
+    result = manager.submit(proposal, domain=resolved_domain)
     
     return jsonify({
         "success": True,
+        "domain": resolved_domain,
         **result,
     })
 
@@ -242,12 +280,17 @@ def submit_proposal():
 
 @api_bp.route("/mcp/proposals", methods=["GET"])
 def get_pending_proposals():
-    """Get all proposals pending approval."""
-    executor = get_mcp_executor()
+    """Get all proposals pending approval.
+    
+    Query params:
+        domain: Filter by domain (pcb, retail, general). Omit for all.
+    """
+    domain = request.args.get("domain", "").strip() or None
+    manager = get_mcp_manager()
     
     return jsonify({
         "success": True,
-        "proposals": executor.get_pending_proposals(),
+        "proposals": manager.get_pending_proposals(domain=domain),
     })
 
 
@@ -256,9 +299,13 @@ def approve_proposal(proposal_id: str):
     """Approve a pending proposal for execution.
     
     This triggers the EXECUTION PHASE for a confirmed tool.
+    The manager searches all domain executors for the proposal.
     """
-    executor = get_mcp_executor()
-    result = executor.approve_proposal(proposal_id)
+    data = request.get_json() or {}
+    domain = data.get("domain", request.args.get("domain", "")).strip() or None
+
+    manager = get_mcp_manager()
+    result = manager.approve_proposal(proposal_id, domain=domain)
     
     return jsonify({
         "success": result["status"] in ("executed", "approved"),
@@ -271,9 +318,10 @@ def reject_proposal(proposal_id: str):
     """Reject a pending proposal."""
     data = request.get_json() or {}
     reason = data.get("reason", "Rejected via API")
+    domain = data.get("domain", request.args.get("domain", "")).strip() or None
     
-    executor = get_mcp_executor()
-    result = executor.reject_proposal(proposal_id, reason)
+    manager = get_mcp_manager()
+    result = manager.reject_proposal(proposal_id, reason, domain=domain)
     
     return jsonify({
         "success": True,
