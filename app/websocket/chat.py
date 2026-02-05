@@ -572,7 +572,7 @@ def _process_user_message(
     
     # If no tool call needed, generate conversational response
     if proposal is None:
-        return _generate_conversational_response(user_text, current_state)
+        return _generate_conversational_response(user_text, current_state, chat_session)
     
     # If proposal was rejected during interpretation (e.g., state violation)
     if proposal.is_rejected:
@@ -669,6 +669,79 @@ def _process_user_message(
 # RESPONSE GENERATION
 # =============================================================================
 
+def _get_chat_router():
+    """Get the LLM router for chat responses, or None if not configured."""
+    try:
+        from core.config import get_config
+        cfg = get_config()
+        if cfg.router.enabled and cfg.router.use_for_chat:
+            from router import get_router
+            router = get_router()
+            if router.list_providers():
+                return router
+    except Exception as exc:
+        logger.debug("LLM router not available for chat: %s", exc)
+    return None
+
+
+def _generate_llm_response(
+    user_text: str,
+    state: AgentState,
+    chat_session: ChatSession,
+) -> Optional[ChatMessage]:
+    """Generate a response via the LLM router (cloud or local LLM).
+
+    Returns None if the router is not available or the call fails,
+    so callers can fall back to the hardcoded response.
+    """
+    router = _get_chat_router()
+    if router is None:
+        return None
+
+    try:
+        # Build messages with system prompt + recent history for context
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a helpful AI assistant embedded in an industrial camera "
+                    "monitoring system. You help users with PCB inspection, retail "
+                    "billing, and camera monitoring tasks.\n\n"
+                    f"The agent is currently in **{state.value}** state.\n\n"
+                    "Available capabilities:\n"
+                    "- PCB inspection: inspect boards, classify boards, detect defects, send alerts\n"
+                    "- Retail billing: scan items, look up prices, create bills, generate invoices\n"
+                    "- Camera monitoring: start/stop monitoring, analyze frames\n\n"
+                    "Keep responses concise and helpful. Use markdown formatting."
+                ),
+            },
+        ]
+
+        # Add recent chat history for context (last 6 messages)
+        for msg in chat_session.get_history(limit=6):
+            role = msg.get("role", "user")
+            if role in ("user", "assistant"):
+                messages.append({"role": role, "content": msg.get("content", "")})
+
+        # Add the current user message if not already at the end
+        if not messages or messages[-1].get("content") != user_text:
+            messages.append({"role": "user", "content": user_text})
+
+        response = router.chat(messages=messages)
+        if response and response.content:
+            return ChatMessage.assistant(
+                response.content,
+                metadata={
+                    "llm_provider": response.provider,
+                    "llm_model": response.model,
+                    "generated": True,
+                },
+            )
+    except Exception as exc:
+        logger.warning("LLM router chat failed: %s", exc)
+
+    return None
+
 def _generate_welcome_message(state: AgentState) -> str:
     """Generate a welcome message based on current state."""
     state_descriptions = {
@@ -706,8 +779,22 @@ def _generate_welcome_message(state: AgentState) -> str:
     return message
 
 
-def _generate_conversational_response(user_text: str, state: AgentState) -> ChatMessage:
-    """Generate a conversational response for general queries."""
+def _generate_conversational_response(
+    user_text: str,
+    state: AgentState,
+    chat_session: Optional[ChatSession] = None,
+) -> ChatMessage:
+    """Generate a conversational response for general queries.
+
+    Tries the LLM router first for intelligent responses; falls back
+    to hardcoded pattern matching when unavailable.
+    """
+    # Try LLM-powered response via router
+    if chat_session is not None:
+        llm_response = _generate_llm_response(user_text, state, chat_session)
+        if llm_response is not None:
+            return llm_response
+
     text_lower = user_text.lower()
     
     # Help request

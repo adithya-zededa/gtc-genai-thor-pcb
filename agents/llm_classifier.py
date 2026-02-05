@@ -290,6 +290,10 @@ class LLMIntentClassifier:
 
     Falls back to keyword matching when the inference backend is
     unreachable or returns an unparsable response.
+
+    When the LLM router is enabled (LLM_ROUTER_ENABLED=true), classification
+    requests are sent through the router, which supports cloud LLMs
+    (Anthropic, OpenAI, Google) alongside local backends (vLLM, Ollama).
     """
 
     def __init__(
@@ -313,6 +317,10 @@ class LLMIntentClassifier:
         self._max_failures = 3
         self._circuit_open_until: float = 0.0  # timestamp
         self._backoff_seconds = 30.0
+
+        # Router integration
+        self._router = None
+        self._router_checked = False
 
     # ------------------------------------------------------------------
     # Lazy resolution of URL / model from env
@@ -338,6 +346,35 @@ class LLMIntentClassifier:
             return classifier_model
         from core.config import get_config
         return os.getenv("VISION_MODEL", get_config().inference.model)
+
+    # ------------------------------------------------------------------
+    # Router integration
+    # ------------------------------------------------------------------
+
+    def _get_router(self):
+        """Lazily initialise and return the LLM router, or None."""
+        if self._router_checked:
+            return self._router
+        self._router_checked = True
+        try:
+            from core.config import get_config
+            cfg = get_config()
+            if cfg.router.enabled and cfg.router.use_for_classification:
+                from router import get_router
+                router = get_router()
+                providers = router.list_providers()
+                if providers:
+                    self._router = router
+                    logger.info(
+                        "LLM classifier using router with %d provider(s): %s",
+                        len(providers),
+                        ", ".join(p["name"] for p in providers),
+                    )
+                else:
+                    logger.warning("LLM router enabled but no providers registered")
+        except Exception as exc:
+            logger.warning("Failed to initialise LLM router for classifier: %s", exc)
+        return self._router
 
     # ------------------------------------------------------------------
     # Public API
@@ -378,10 +415,16 @@ class LLMIntentClassifier:
     def _call_llm(self, message: str) -> ClassificationResult:
         prompt = _CLASSIFICATION_PROMPT + message
 
-        if self._backend == "vllm":
-            raw = self._vllm_completion(prompt)
+        # Try the router first if available
+        router = self._get_router()
+        if router:
+            try:
+                raw = self._router_completion(router, prompt)
+            except Exception as exc:
+                logger.warning("Router classification failed (%s), falling back to direct backend", exc)
+                raw = self._direct_completion(prompt)
         else:
-            raw = self._ollama_completion(prompt)
+            raw = self._direct_completion(prompt)
 
         parsed = self._parse_response(raw)
         if parsed is None:
@@ -406,6 +449,25 @@ class LLMIntentClassifier:
             rationale=parsed.get("rationale", ""),
             source="llm",
         )
+
+    def _router_completion(self, router, prompt: str) -> str:
+        """Send classification request through the LLM router."""
+        from router.config import ChatResponse
+        response: ChatResponse = router.chat(
+            messages=[{"role": "user", "content": prompt}],
+            # Override settings for classification: fast, deterministic
+        )
+        logger.debug(
+            "Router classification via %s/%s",
+            response.provider, response.model,
+        )
+        return response.content
+
+    def _direct_completion(self, prompt: str) -> str:
+        """Send classification request directly to vLLM or Ollama."""
+        if self._backend == "vllm":
+            return self._vllm_completion(prompt)
+        return self._ollama_completion(prompt)
 
     def _vllm_completion(self, prompt: str) -> str:
         payload = {

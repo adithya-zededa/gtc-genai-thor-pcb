@@ -79,6 +79,16 @@ class InferenceConfig:
 
 
 @dataclass
+class RouterConfig:
+    """LLM Router configuration for multi-provider support."""
+    enabled: bool = False  # Set LLM_ROUTER_ENABLED=true to activate
+    routing_strategy: str = "failover"  # priority, round_robin, failover, latency
+    auto_discover: bool = True  # Auto-discover providers from env vars
+    use_for_classification: bool = True  # Use router for intent classification
+    use_for_chat: bool = True  # Use router for conversational responses
+
+
+@dataclass
 class FlaskConfig:
     """Flask web server configuration."""
     secret_key: str = ""
@@ -100,6 +110,7 @@ class Config:
     camera: CameraConfig = field(default_factory=CameraConfig)
     inference: InferenceConfig = field(default_factory=InferenceConfig)
     flask: FlaskConfig = field(default_factory=FlaskConfig)
+    router: RouterConfig = field(default_factory=RouterConfig)
     
     # Raw YAML config for backward compatibility
     _yaml_config: Dict[str, Any] = field(default_factory=dict)
@@ -140,6 +151,13 @@ class Config:
                 host=os.getenv("FLASK_RUN_HOST", "0.0.0.0"),
                 port=_safe_int_env("FLASK_RUN_PORT", 8080),
                 socketio_cors=os.getenv(ENV_SOCKETIO_CORS, DEFAULT_SOCKETIO_CORS),
+            ),
+            router=RouterConfig(
+                enabled=os.getenv("LLM_ROUTER_ENABLED", "").lower() in {"1", "true", "yes"},
+                routing_strategy=os.getenv("LLM_ROUTING_STRATEGY", "failover"),
+                auto_discover=os.getenv("LLM_AUTO_DISCOVER", "true").lower() in {"1", "true", "yes"},
+                use_for_classification=os.getenv("LLM_ROUTER_FOR_CLASSIFICATION", "true").lower() in {"1", "true", "yes"},
+                use_for_chat=os.getenv("LLM_ROUTER_FOR_CHAT", "true").lower() in {"1", "true", "yes"},
             ),
         )
         

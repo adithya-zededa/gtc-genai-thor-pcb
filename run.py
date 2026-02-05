@@ -49,6 +49,45 @@ def main():
     logger.info("Inference backend: %s", config.inference.backend)
     logger.info("Vision model: %s", config.inference.model)
     
+    # 2b. Initialize LLM router if enabled (env var) or if saved config exists
+    _llm_config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "llm_providers.json")
+    if config.router.enabled or os.path.isfile(_llm_config_path):
+        try:
+            if not config.router.enabled and os.path.isfile(_llm_config_path):
+                config.router.enabled = True
+                logger.info("LLM Router auto-enabled from saved config")
+
+            from router import get_router
+            router = get_router()
+
+            # Load saved provider configs if present
+            if os.path.isfile(_llm_config_path):
+                import json as _json
+                with open(_llm_config_path, "r", encoding="utf-8") as _f:
+                    _bundle = _json.load(_f)
+                from router.config import LLMProviderConfig, RoutingStrategy
+                _strat = _bundle.get("routing_strategy", "failover")
+                try:
+                    router.set_routing_strategy(RoutingStrategy(_strat))
+                except ValueError:
+                    pass
+                for _p in _bundle.get("providers", []):
+                    try:
+                        router.register_provider(LLMProviderConfig.from_dict(_p))
+                    except Exception:
+                        pass
+                logger.info("Loaded %d saved LLM provider config(s)", len(_bundle.get("providers", [])))
+
+            providers = router.list_providers()
+            logger.info("LLM Router enabled with %d provider(s):", len(providers))
+            for p in providers:
+                status = "✅" if p.get("status", {}).get("available") else "❌"
+                logger.info("  %s %s (%s) model=%s", status, p["name"], p["provider_type"], p.get("model", "auto"))
+        except Exception as exc:
+            logger.warning("LLM Router failed to initialize: %s", exc)
+    else:
+        logger.info("LLM Router: disabled (set LLM_ROUTER_ENABLED=true to enable)")
+    
     # 3. Initialize database
     from app.database import init_db, ensure_database_directory
     ensure_database_directory()

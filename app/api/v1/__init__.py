@@ -16,6 +16,7 @@ from . import (
     camera,
     mcp,
     retail,
+    llm,
 )
 
 __all__ = ["api_bp"]

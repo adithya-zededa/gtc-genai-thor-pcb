@@ -9,6 +9,7 @@ Provides business logic for:
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import threading
@@ -23,6 +24,11 @@ _service_lock = threading.Lock()
 
 # Default tax rate (can be overridden via env var RETAIL_TAX_RATE)
 DEFAULT_TAX_RATE = 0.18  # 18% GST
+
+# Quantity bounds for sanity checking
+MIN_QUANTITY = 1
+MAX_QUANTITY = 9999
+MAX_UNIT_PRICE = 10_000_000.0  # 1 crore
 
 
 def get_tax_rate() -> float:
@@ -106,14 +112,25 @@ def calculate_bill(
     """
     if tax_rate is None:
         tax_rate = get_tax_rate()
+    tax_rate = max(0.0, min(1.0, float(tax_rate)))
 
     line_items: List[Dict[str, Any]] = []
     subtotal = 0.0
 
     for item in items:
-        name = item.get("name", item.get("item_name", "Unknown Item"))
-        quantity = int(item.get("quantity", 1))
-        unit_price = float(item.get("price", 0.0))
+        name = str(item.get("name", item.get("item_name", "Unknown Item")))[:200]
+        try:
+            quantity = int(item.get("quantity", 1))
+        except (ValueError, TypeError):
+            quantity = 1
+        quantity = max(MIN_QUANTITY, min(MAX_QUANTITY, quantity))
+
+        try:
+            unit_price = float(item.get("price", 0.0))
+        except (ValueError, TypeError):
+            unit_price = 0.0
+        unit_price = max(0.0, min(MAX_UNIT_PRICE, unit_price))
+
         line_total = round(unit_price * quantity, 2)
 
         line_items.append({
@@ -121,8 +138,8 @@ def calculate_bill(
             "quantity": quantity,
             "unit_price": unit_price,
             "line_total": line_total,
-            "sku": item.get("sku", ""),
-            "category": item.get("category", ""),
+            "sku": str(item.get("sku", ""))[:50],
+            "category": str(item.get("category", ""))[:100],
         })
         subtotal += line_total
 
@@ -187,16 +204,18 @@ def _generate_invoice_html_fallback(
     invoice_id: Optional[int],
 ) -> str:
     """Simple fallback HTML invoice when Jinja2 template is unavailable."""
-    currency = bill.get("currency", "INR")
+    currency = html.escape(str(bill.get("currency", "INR")))
     rows = ""
     for li in bill.get("line_items", []):
+        safe_name = html.escape(str(li.get("name", "")))
+        safe_sku = html.escape(str(li.get("sku", "")))
         rows += (
             f"<tr>"
-            f"<td>{li['name']}</td>"
-            f"<td>{li.get('sku', '')}</td>"
-            f"<td style='text-align:center'>{li['quantity']}</td>"
-            f"<td style='text-align:right'>{currency} {li['unit_price']:.2f}</td>"
-            f"<td style='text-align:right'>{currency} {li['line_total']:.2f}</td>"
+            f"<td>{safe_name}</td>"
+            f"<td>{safe_sku}</td>"
+            f"<td style='text-align:center'>{int(li.get('quantity', 0))}</td>"
+            f"<td style='text-align:right'>{currency} {float(li.get('unit_price', 0)):.2f}</td>"
+            f"<td style='text-align:right'>{currency} {float(li.get('line_total', 0)):.2f}</td>"
             f"</tr>"
         )
 
@@ -212,7 +231,7 @@ th {{ background: #f5f5f5; }}
 <body>
 <h1>Invoice{f' #{invoice_id}' if invoice_id else ''}</h1>
 <p><strong>Date:</strong> {bill.get('generated_at', '')}</p>
-<p><strong>Recipient:</strong> {recipient or 'N/A'}</p>
+<p><strong>Recipient:</strong> {html.escape(recipient) if recipient else 'N/A'}</p>
 <table>
 <thead><tr><th>Item</th><th>SKU</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
 <tbody>{rows}</tbody>

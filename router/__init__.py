@@ -15,7 +15,7 @@ Supported Providers:
     - Any OpenAI-compatible API
 
 Usage:
-    from webapp.router import get_router, LLMProviderConfig
+    from router import get_router, LLMProviderConfig
     
     router = get_router()
     router.register_provider(LLMProviderConfig(

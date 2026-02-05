@@ -8,7 +8,7 @@ The router provides:
 - Thread-safe operations
 
 Usage:
-    from webapp.router import get_router, LLMProviderConfig
+    from router import get_router, LLMProviderConfig
     
     router = get_router()
     response = router.chat(messages=[{"role": "user", "content": "Hello!"}])
