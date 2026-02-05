@@ -4,39 +4,41 @@ Provides a self-contained MCP (Model Context Protocol) for PCB defect
 detection workflows.  Reuses the core MCP infrastructure (state machine,
 audit log, lifecycle types) from ``agents.mcp`` but registers only
 PCB-specific tools and intent phrases.
+
+Hardened executor features:
+- Session-scoped inspection state
+- Deduplication window to reject repeated identical proposals
+- Context allowlist to prevent pollution from arbitrary keys
+- Timeout on tool invocation with configurable limit
+- LLM-powered intent interpretation with keyword fallback
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 import threading
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, FrozenSet, List, Optional
 
 from agents.mcp import (
-    # Schema types
     MCPSchemaType,
     MCPParameterSchema,
     MCPOutputSchema,
-    # Lifecycle
     ToolLifecycleState,
     MCPToolCallProposal,
     MCPToolResult,
-    # State machine
     AgentState,
     AgentStateMachine,
-    # Session
     SessionType,
     MCPSession,
-    # Tool definition
     MCPToolDefinition,
     MCPToolRegistry,
-    # Audit
     AuditEventType,
     AuditLogEntry,
     MCPAuditLog,
-    # Globals
     get_agent_state_machine,
     get_audit_log,
 )
@@ -215,7 +217,6 @@ class PCBToolRegistry(MCPToolRegistry):
     """Registry containing only PCB-domain tools."""
 
     def _register_default_tools(self) -> None:
-        """Override: register PCB-specific tools instead of generic ones."""
         for tool in [
             TOOL_INSPECT_PCB,
             TOOL_CLASSIFY_BOARD,
@@ -227,80 +228,28 @@ class PCBToolRegistry(MCPToolRegistry):
 
 
 # ---------------------------------------------------------------------------
-# PCB Interpreter
+# Context allowlist
+# ---------------------------------------------------------------------------
+
+_TOOL_PARAM_ALLOWLIST: Dict[str, FrozenSet[str]] = {
+    "inspect_pcb": frozenset(["query"]),
+    "classify_board": frozenset(),
+    "send_defect_alert": frozenset(["recipients", "board_type", "defect_summary", "severity", "include_image", "image_data"]),
+    "log_defect": frozenset(["board_type", "defect_type", "severity", "confidence", "description", "image_path"]),
+    "generate_defect_report": frozenset(["board_type"]),
+}
+
+
+# ---------------------------------------------------------------------------
+# PCB Interpreter (LLM-first, keyword fallback)
 # ---------------------------------------------------------------------------
 
 class PCBInterpreter:
-    """Intent interpreter tuned for PCB inspection phrases."""
+    """Intent interpreter for PCB inspection — LLM-first with keyword fallback."""
 
-    INSPECT_PHRASES = frozenset([
-        "inspect pcb",
-        "inspect the pcb",
-        "inspect board",
-        "inspect the board",
-        "check for defects",
-        "check pcb",
-        "check the pcb",
-        "pcb inspection",
-        "look for defects",
-        "scan pcb",
-        "scan the pcb",
-        "analyze pcb",
-        "analyze the pcb",
-        "any defects",
-        "is there a defect",
-        "is this defective",
-        "defect check",
-        "quality check",
-        "quality inspection",
-        "solder check",
-        "see a pcb",
-    ])
-
-    CLASSIFY_PHRASES = frozenset([
-        "classify board",
-        "what board is this",
-        "identify board",
-        "identify the board",
-        "board type",
-        "what type of board",
-        "is this an arduino",
-        "is it an arduino",
-        "is this a raspberry pi",
-        "what pcb is this",
-        "recognize board",
-    ])
-
-    ALERT_PHRASES = frozenset([
-        "send defect alert",
-        "send an alert",
-        "alert about defect",
-        "email defect",
-        "notify about defect",
-        "send alert if",
-        "send an email",
-        "alert when",
-        "email when",
-        "notify when",
-    ])
-
-    LOG_PHRASES = frozenset([
-        "log defect",
-        "record defect",
-        "save defect",
-        "store defect",
-        "log this defect",
-    ])
-
-    REPORT_PHRASES = frozenset([
-        "defect report",
-        "generate report",
-        "show defects",
-        "defect summary",
-        "defect history",
-        "pcb report",
-        "all defects",
-        "list defects",
+    _VALID_TOOLS: FrozenSet[str] = frozenset([
+        "inspect_pcb", "classify_board", "send_defect_alert",
+        "log_defect", "generate_defect_report",
     ])
 
     def __init__(self, registry: Optional[PCBToolRegistry] = None):
@@ -314,7 +263,6 @@ class PCBInterpreter:
         session_id: Optional[str] = None,
     ) -> Optional[MCPToolCallProposal]:
         start_time = time.time()
-        msg = user_message.lower().strip()
 
         self.audit_log.log(AuditLogEntry.create(
             event_type=AuditEventType.INTENT_DETECTED,
@@ -322,112 +270,47 @@ class PCBInterpreter:
             session_id=session_id,
         ))
 
-        # --- Alert (check first — contains "send" + context words) ---
-        for phrase in self.ALERT_PHRASES:
-            if phrase in msg:
-                tool = self.registry.get("send_defect_alert")
-                if tool and agent_state in tool.allowed_in_states:
-                    # Try to extract recipients from message
-                    recipients = self._extract_emails(user_message)
-                    board_filter = self._extract_board_type(msg)
-                    return self._finalize(MCPToolCallProposal.create(
-                        tool_name="send_defect_alert",
-                        arguments={
-                            "recipients": recipients,
-                            "defect_summary": user_message,
-                            "board_type": board_filter,
-                            "severity": "medium",
-                        },
-                        rationale=f"User requested defect alert: '{msg}'",
-                        confidence=0.90,
-                        requires_confirmation=True,
-                        session_id=session_id,
-                    ), start_time, session_id)
+        # --- Use LLM classifier ---
+        from agents.llm_classifier import get_classifier
 
-        # --- Inspect ---
-        for phrase in self.INSPECT_PHRASES:
-            if phrase in msg:
-                tool = self.registry.get("inspect_pcb")
-                if tool and agent_state in tool.allowed_in_states:
-                    return self._finalize(MCPToolCallProposal.create(
-                        tool_name="inspect_pcb",
-                        arguments={"query": user_message},
-                        rationale=f"User requested PCB inspection: '{msg}'",
-                        confidence=0.90,
-                        requires_confirmation=False,
-                        session_id=session_id,
-                    ), start_time, session_id)
+        result = get_classifier().classify(user_message)
+        logger.info(
+            "PCB interpreter: LLM classified as domain=%s tool=%s confidence=%.2f source=%s",
+            result.domain, result.tool, result.confidence, result.source,
+        )
 
-        # --- Classify ---
-        for phrase in self.CLASSIFY_PHRASES:
-            if phrase in msg:
-                tool = self.registry.get("classify_board")
-                if tool and agent_state in tool.allowed_in_states:
-                    return self._finalize(MCPToolCallProposal.create(
-                        tool_name="classify_board",
-                        arguments={},
-                        rationale=f"User requested board classification: '{msg}'",
-                        confidence=0.85,
-                        requires_confirmation=False,
-                        session_id=session_id,
-                    ), start_time, session_id)
+        if result.domain != "pcb" or result.tool not in self._VALID_TOOLS:
+            return None
 
-        # --- Log ---
-        for phrase in self.LOG_PHRASES:
-            if phrase in msg:
-                tool = self.registry.get("log_defect")
-                if tool and agent_state in tool.allowed_in_states:
-                    board_type = self._extract_board_type(msg)
-                    return self._finalize(MCPToolCallProposal.create(
-                        tool_name="log_defect",
-                        arguments={
-                            "board_type": board_type,
-                            "defect_type": "other",
-                            "description": user_message,
-                        },
-                        rationale=f"User requested to log defect: '{msg}'",
-                        confidence=0.85,
-                        requires_confirmation=False,
-                        session_id=session_id,
-                    ), start_time, session_id)
+        tool_def = self.registry.get(result.tool)
+        if not tool_def or agent_state not in tool_def.allowed_in_states:
+            return None
 
-        # --- Report ---
-        for phrase in self.REPORT_PHRASES:
-            if phrase in msg:
-                tool = self.registry.get("generate_defect_report")
-                if tool and agent_state in tool.allowed_in_states:
-                    board_type = self._extract_board_type(msg)
-                    return self._finalize(MCPToolCallProposal.create(
-                        tool_name="generate_defect_report",
-                        arguments={"board_type": board_type} if board_type != "unknown" else {},
-                        rationale=f"User requested defect report: '{msg}'",
-                        confidence=0.85,
-                        requires_confirmation=False,
-                        session_id=session_id,
-                    ), start_time, session_id)
+        # Build arguments from classifier params
+        arguments: Dict[str, Any] = {}
+        allowed = _TOOL_PARAM_ALLOWLIST.get(result.tool, frozenset())
+        for key, value in result.params.items():
+            if key in allowed and value:
+                arguments[key] = value
 
-        return None
+        # For inspect, pass user message as query
+        if result.tool == "inspect_pcb" and "query" not in arguments:
+            arguments["query"] = user_message
 
-    # -- helpers --
+        # For alert, ensure defect_summary is present
+        if result.tool == "send_defect_alert" and "defect_summary" not in arguments:
+            arguments["defect_summary"] = user_message
 
-    @staticmethod
-    def _extract_emails(text: str) -> List[str]:
-        """Extract email addresses from text."""
-        import re
-        return re.findall(r"[\w.+-]+@[\w-]+\.[\w.-]+", text)
+        proposal = MCPToolCallProposal.create(
+            tool_name=result.tool,
+            arguments=arguments,
+            rationale=result.rationale or f"LLM classified as {result.tool}",
+            confidence=result.confidence,
+            requires_confirmation=tool_def.requires_confirmation,
+            session_id=session_id,
+        )
 
-    @staticmethod
-    def _extract_board_type(text: str) -> str:
-        """Try to detect a board type mentioned in the text."""
-        known = [
-            "arduino uno", "arduino mega", "arduino nano", "arduino",
-            "raspberry pi", "esp32", "esp8266", "stm32", "teensy",
-            "nodemcu", "micro:bit", "beaglebone",
-        ]
-        for board in known:
-            if board in text:
-                return board.title()
-        return "unknown"
+        return self._finalize(proposal, start_time, session_id)
 
     def _finalize(
         self,
@@ -451,14 +334,18 @@ class PCBInterpreter:
 
 
 # ---------------------------------------------------------------------------
-# PCB Executor
+# PCB Executor (hardened)
 # ---------------------------------------------------------------------------
+
+_DEFAULT_INVOKE_TIMEOUT = 60
+_DEDUP_WINDOW = 5.0
+
 
 class PCBExecutor:
     """Executes approved PCB tool call proposals.
 
-    Follows the same two-phase pattern as the generic ``MCPExecutor`` but
-    routes tool invocations to ``agents.pcb_tools`` handlers.
+    Hardened features match RetailExecutor: session-scoped state,
+    dedup, context allowlist, timeout.
     """
 
     def __init__(
@@ -466,11 +353,13 @@ class PCBExecutor:
         registry: Optional[PCBToolRegistry] = None,
         state_machine: Optional[AgentStateMachine] = None,
         context: Optional[Dict[str, Any]] = None,
+        invoke_timeout: int = _DEFAULT_INVOKE_TIMEOUT,
     ):
         self.registry = registry or PCBToolRegistry()
         self.state_machine = state_machine or get_agent_state_machine()
         self.audit_log = get_audit_log()
         self.context = context or {}
+        self._invoke_timeout = invoke_timeout
 
         self._current_session: Optional[MCPSession] = None
         self._sessions: List[MCPSession] = []
@@ -479,7 +368,29 @@ class PCBExecutor:
         self._pending_proposals: Dict[str, MCPToolCallProposal] = {}
         self._proposals_lock = threading.Lock()
 
-    # -- public API (mirrors MCPExecutor interface) --
+        # Dedup tracking
+        self._recent_hashes: Dict[str, float] = {}
+        self._dedup_lock = threading.Lock()
+
+        self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="pcb-exec")
+
+    # -- dedup --
+
+    def _is_duplicate(self, tool_name: str, arguments: Dict[str, Any]) -> bool:
+        sig = hashlib.sha256(
+            json.dumps({"t": tool_name, "a": arguments}, sort_keys=True, default=str).encode()
+        ).hexdigest()
+        now = time.time()
+        with self._dedup_lock:
+            expired = [h for h, ts in self._recent_hashes.items() if now - ts > _DEDUP_WINDOW]
+            for h in expired:
+                del self._recent_hashes[h]
+            if sig in self._recent_hashes:
+                return True
+            self._recent_hashes[sig] = now
+        return False
+
+    # -- public API --
 
     def update_context(self, **kwargs) -> None:
         self.context.update(kwargs)
@@ -508,6 +419,12 @@ class PCBExecutor:
                 f"Tool not allowed in state '{current_state.value}'. "
                 f"Allowed: {[s.value for s in tool.allowed_in_states]}"
             )
+            self._log_rejection(proposal)
+            return {"status": "rejected", "reason": proposal.rejection_reason, "proposal": proposal.to_dict()}
+
+        # Deduplication check
+        if self._is_duplicate(proposal.tool_name, proposal.arguments):
+            proposal.reject("Duplicate request (already submitted recently)")
             self._log_rejection(proposal)
             return {"status": "rejected", "reason": proposal.rejection_reason, "proposal": proposal.to_dict()}
 
@@ -569,7 +486,8 @@ class PCBExecutor:
         ))
 
         try:
-            result = self._invoke(proposal.tool_name, proposal.arguments)
+            future = self._pool.submit(self._invoke, proposal.tool_name, proposal.arguments)
+            result = future.result(timeout=self._invoke_timeout)
             duration = (time.time() - start) * 1000
             proposal.complete(success=True)
             tr = MCPToolResult(
@@ -583,19 +501,36 @@ class PCBExecutor:
             ))
             return {"status": "executed", "result": tr.to_dict(), "proposal": proposal.to_dict()}
 
+        except FuturesTimeout:
+            duration = (time.time() - start) * 1000
+            error_msg = f"Tool '{proposal.tool_name}' timed out after {self._invoke_timeout}s"
+            proposal.complete(success=False, error=error_msg)
+            logger.error(error_msg)
+            tr = MCPToolResult(
+                proposal_id=proposal.id, tool_name=proposal.tool_name,
+                success=False, output=None, error="Operation timed out", duration_ms=duration,
+            )
+            self.audit_log.log(AuditLogEntry.create(
+                event_type=AuditEventType.TOOL_FAILED,
+                details={"proposal_id": proposal.id, "error": error_msg},
+                session_id=proposal.session_id, latency_ms=duration,
+            ))
+            return {"status": "failed", "error": "Operation timed out", "result": tr.to_dict(), "proposal": proposal.to_dict()}
+
         except Exception as e:
             duration = (time.time() - start) * 1000
+            logger.error("PCB tool execution failed: %s", e, exc_info=True)
             proposal.complete(success=False, error=str(e))
             tr = MCPToolResult(
                 proposal_id=proposal.id, tool_name=proposal.tool_name,
-                success=False, output=None, error=str(e), duration_ms=duration,
+                success=False, output=None, error="An internal error occurred", duration_ms=duration,
             )
             self.audit_log.log(AuditLogEntry.create(
                 event_type=AuditEventType.TOOL_FAILED,
                 details={"proposal_id": proposal.id, "error": str(e)},
                 session_id=proposal.session_id, latency_ms=duration,
             ))
-            return {"status": "failed", "error": str(e), "result": tr.to_dict(), "proposal": proposal.to_dict()}
+            return {"status": "failed", "error": "An internal error occurred", "result": tr.to_dict(), "proposal": proposal.to_dict()}
 
     def _invoke(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         from agents.pcb_tools import (
@@ -618,9 +553,10 @@ class PCBExecutor:
         if not handler:
             raise ValueError(f"No PCB handler for: {tool_name}")
 
-        # Merge execution context
-        merged = {**self.context, **arguments}
-        return handler(**merged)
+        # Filter through allowlist — no context pollution
+        allowed = _TOOL_PARAM_ALLOWLIST.get(tool_name, frozenset())
+        filtered = {k: v for k, v in arguments.items() if k in allowed}
+        return handler(**filtered)
 
     # -- helpers --
 

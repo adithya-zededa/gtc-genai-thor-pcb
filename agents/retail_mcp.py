@@ -4,15 +4,24 @@ Provides a self-contained MCP (Model Context Protocol) for retail
 billing/invoicing workflows.  Reuses the core MCP infrastructure
 (state machine, audit log, lifecycle types) from ``agents.mcp`` but
 registers only retail-specific tools and intent phrases.
+
+Hardened executor features:
+- Session-scoped pipeline state (scan → bill → invoice → send)
+- Deduplication window to reject repeated identical proposals
+- Context allowlist to prevent pollution from arbitrary keys
+- Timeout on tool invocation with configurable limit
+- LLM-powered intent interpretation with keyword fallback
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 import threading
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, FrozenSet, List, Optional, Set
 
 from agents.mcp import (
     # Schema types
@@ -184,83 +193,29 @@ class RetailToolRegistry(MCPToolRegistry):
 
 
 # ---------------------------------------------------------------------------
-# Retail Interpreter
+# Context allowlist — only these keys are forwarded to tool handlers
+# ---------------------------------------------------------------------------
+
+_TOOL_PARAM_ALLOWLIST: Dict[str, FrozenSet[str]] = {
+    "scan_tray_items": frozenset(["query"]),
+    "lookup_item_price": frozenset(["item_name", "sku"]),
+    "create_bill": frozenset(["items", "scan_result"]),
+    "generate_invoice": frozenset(["bill", "recipient_email"]),
+    "send_invoice_email": frozenset(["recipient_email", "bill", "invoice_id"]),
+}
+
+
+# ---------------------------------------------------------------------------
+# Retail Interpreter (LLM-first, keyword fallback)
 # ---------------------------------------------------------------------------
 
 class RetailInterpreter:
-    """Intent interpreter tuned for retail billing phrases."""
+    """Intent interpreter for retail billing — LLM-first with keyword fallback."""
 
-    SCAN_PHRASES = frozenset([
-        "scan tray",
-        "scan the tray",
-        "scan items",
-        "scan the items",
-        "look at the items",
-        "look at the tray",
-        "what items",
-        "what's on the tray",
-        "count items",
-        "count the items",
-        "identify items",
-        "identify the items",
-        "items on the tray",
-        "items placed",
-        "take a look at the items",
-        "check the tray",
-        "see the items",
-        "detect items",
-        "retail scan",
-    ])
-
-    LOOKUP_PHRASES = frozenset([
-        "lookup price",
-        "look up price",
-        "price of",
-        "how much is",
-        "how much does",
-        "what does it cost",
-        "price check",
-        "item price",
-        "check price",
-        "find price",
-    ])
-
-    BILL_PHRASES = frozenset([
-        "create bill",
-        "create a bill",
-        "make a bill",
-        "generate bill",
-        "calculate bill",
-        "prepare bill",
-        "billing",
-        "make bill",
-        "total bill",
-        "compute bill",
-        "tally up",
-        "add up",
-        "ring up",
-    ])
-
-    INVOICE_PHRASES = frozenset([
-        "generate invoice",
-        "generate an invoice",
-        "create invoice",
-        "create an invoice",
-        "make invoice",
-        "prepare invoice",
-        "render invoice",
-    ])
-
-    SEND_INVOICE_PHRASES = frozenset([
-        "send invoice",
-        "send the invoice",
-        "email invoice",
-        "email the invoice",
-        "mail invoice",
-        "mail the invoice",
-        "send bill",
-        "send the bill",
-        "email bill",
+    # Retail tool names for validation
+    _VALID_TOOLS: FrozenSet[str] = frozenset([
+        "scan_tray_items", "lookup_item_price", "create_bill",
+        "generate_invoice", "send_invoice_email",
     ])
 
     def __init__(self, registry: Optional[RetailToolRegistry] = None):
@@ -274,7 +229,6 @@ class RetailInterpreter:
         session_id: Optional[str] = None,
     ) -> Optional[MCPToolCallProposal]:
         start_time = time.time()
-        msg = user_message.lower().strip()
 
         self.audit_log.log(AuditLogEntry.create(
             event_type=AuditEventType.INTENT_DETECTED,
@@ -282,101 +236,44 @@ class RetailInterpreter:
             session_id=session_id,
         ))
 
-        # --- Send invoice (check before generic invoice) ---
-        for phrase in self.SEND_INVOICE_PHRASES:
-            if phrase in msg:
-                tool = self.registry.get("send_invoice_email")
-                if tool and agent_state in tool.allowed_in_states:
-                    email = self._extract_email(user_message)
-                    return self._finalize(MCPToolCallProposal.create(
-                        tool_name="send_invoice_email",
-                        arguments={"recipient_email": email},
-                        rationale=f"User requested to send invoice: '{msg}'",
-                        confidence=0.90,
-                        requires_confirmation=True,
-                        session_id=session_id,
-                    ), start_time, session_id)
+        # --- Use LLM classifier ---
+        from agents.llm_classifier import get_classifier
 
-        # --- Generate invoice ---
-        for phrase in self.INVOICE_PHRASES:
-            if phrase in msg:
-                tool = self.registry.get("generate_invoice")
-                if tool and agent_state in tool.allowed_in_states:
-                    email = self._extract_email(user_message)
-                    return self._finalize(MCPToolCallProposal.create(
-                        tool_name="generate_invoice",
-                        arguments={"recipient_email": email},
-                        rationale=f"User requested invoice generation: '{msg}'",
-                        confidence=0.90,
-                        requires_confirmation=False,
-                        session_id=session_id,
-                    ), start_time, session_id)
+        result = get_classifier().classify(user_message)
+        logger.info(
+            "Retail interpreter: LLM classified as domain=%s tool=%s confidence=%.2f source=%s",
+            result.domain, result.tool, result.confidence, result.source,
+        )
 
-        # --- Create bill ---
-        for phrase in self.BILL_PHRASES:
-            if phrase in msg:
-                tool = self.registry.get("create_bill")
-                if tool and agent_state in tool.allowed_in_states:
-                    return self._finalize(MCPToolCallProposal.create(
-                        tool_name="create_bill",
-                        arguments={},
-                        rationale=f"User requested bill creation: '{msg}'",
-                        confidence=0.90,
-                        requires_confirmation=False,
-                        session_id=session_id,
-                    ), start_time, session_id)
+        # Only accept if classifier picked a valid retail tool
+        if result.domain != "retail" or result.tool not in self._VALID_TOOLS:
+            return None
 
-        # --- Scan tray ---
-        for phrase in self.SCAN_PHRASES:
-            if phrase in msg:
-                tool = self.registry.get("scan_tray_items")
-                if tool and agent_state in tool.allowed_in_states:
-                    return self._finalize(MCPToolCallProposal.create(
-                        tool_name="scan_tray_items",
-                        arguments={"query": user_message},
-                        rationale=f"User requested tray scan: '{msg}'",
-                        confidence=0.90,
-                        requires_confirmation=False,
-                        session_id=session_id,
-                    ), start_time, session_id)
+        tool_def = self.registry.get(result.tool)
+        if not tool_def or agent_state not in tool_def.allowed_in_states:
+            return None
 
-        # --- Lookup price ---
-        for phrase in self.LOOKUP_PHRASES:
-            if phrase in msg:
-                tool = self.registry.get("lookup_item_price")
-                if tool and agent_state in tool.allowed_in_states:
-                    item_name = self._extract_item_name(msg, phrase)
-                    return self._finalize(MCPToolCallProposal.create(
-                        tool_name="lookup_item_price",
-                        arguments={"item_name": item_name},
-                        rationale=f"User requested price lookup: '{msg}'",
-                        confidence=0.85,
-                        requires_confirmation=False,
-                        session_id=session_id,
-                    ), start_time, session_id)
+        # Build arguments from classifier params
+        arguments: Dict[str, Any] = {}
+        allowed = _TOOL_PARAM_ALLOWLIST.get(result.tool, frozenset())
+        for key, value in result.params.items():
+            if key in allowed and value:
+                arguments[key] = value
 
-        return None
+        # For scan/inspect, pass user message as query
+        if result.tool == "scan_tray_items" and "query" not in arguments:
+            arguments["query"] = user_message
 
-    # -- helpers --
+        proposal = MCPToolCallProposal.create(
+            tool_name=result.tool,
+            arguments=arguments,
+            rationale=result.rationale or f"LLM classified as {result.tool}",
+            confidence=result.confidence,
+            requires_confirmation=tool_def.requires_confirmation,
+            session_id=session_id,
+        )
 
-    @staticmethod
-    def _extract_email(text: str) -> str:
-        import re
-        matches = re.findall(r"[\w.+-]+@[\w-]+\.[\w.-]+", text)
-        return matches[0] if matches else ""
-
-    @staticmethod
-    def _extract_item_name(msg: str, trigger_phrase: str) -> str:
-        """Extract item name from the text after the trigger phrase."""
-        idx = msg.find(trigger_phrase)
-        if idx >= 0:
-            remainder = msg[idx + len(trigger_phrase):].strip()
-            # Remove common prepositions
-            for prefix in ["of ", "for ", "the ", "a "]:
-                if remainder.startswith(prefix):
-                    remainder = remainder[len(prefix):]
-            return remainder.strip("?. ") or msg
-        return msg
+        return self._finalize(proposal, start_time, session_id)
 
     def _finalize(
         self,
@@ -400,15 +297,43 @@ class RetailInterpreter:
 
 
 # ---------------------------------------------------------------------------
-# Retail Executor
+# Pipeline State (session-scoped)
 # ---------------------------------------------------------------------------
+
+class _PipelineState:
+    """Session-scoped state that flows data through scan -> bill -> invoice -> send."""
+
+    __slots__ = ("scan_result", "bill", "invoice_id", "updated_at")
+
+    def __init__(self) -> None:
+        self.scan_result: Optional[Dict[str, Any]] = None
+        self.bill: Optional[Dict[str, Any]] = None
+        self.invoice_id: Optional[int] = None
+        self.updated_at: float = time.time()
+
+
+# ---------------------------------------------------------------------------
+# Retail Executor (hardened)
+# ---------------------------------------------------------------------------
+
+# Timeout for individual tool calls (seconds)
+_DEFAULT_INVOKE_TIMEOUT = 60
+# Deduplication window (seconds)
+_DEDUP_WINDOW = 5.0
+
 
 class RetailExecutor:
     """Executes approved retail tool call proposals.
 
-    Maintains a ``_last_scan_result`` and ``_last_bill`` in context so that
-    sequential tool calls (scan → bill → invoice → send) can flow data
-    through the pipeline automatically.
+    Hardened features:
+    - **Session-scoped pipeline state**: each session_id gets its own
+      ``_PipelineState`` so concurrent users don't overwrite each other.
+    - **Deduplication**: identical (tool + args) proposals within
+      ``_DEDUP_WINDOW`` seconds are rejected.
+    - **Context allowlist**: only declared parameter names are forwarded
+      to tool handlers.
+    - **Timeout**: tool invocations are wrapped in a thread-pool future
+      with a configurable timeout.
     """
 
     def __init__(
@@ -416,11 +341,13 @@ class RetailExecutor:
         registry: Optional[RetailToolRegistry] = None,
         state_machine: Optional[AgentStateMachine] = None,
         context: Optional[Dict[str, Any]] = None,
+        invoke_timeout: int = _DEFAULT_INVOKE_TIMEOUT,
     ):
         self.registry = registry or RetailToolRegistry()
         self.state_machine = state_machine or get_agent_state_machine()
         self.audit_log = get_audit_log()
         self.context = context or {}
+        self._invoke_timeout = invoke_timeout
 
         self._current_session: Optional[MCPSession] = None
         self._sessions: List[MCPSession] = []
@@ -429,10 +356,43 @@ class RetailExecutor:
         self._pending_proposals: Dict[str, MCPToolCallProposal] = {}
         self._proposals_lock = threading.Lock()
 
-        # Pipeline state: carry data between sequential tool calls
-        self._last_scan_result: Optional[Dict[str, Any]] = None
-        self._last_bill: Optional[Dict[str, Any]] = None
-        self._last_invoice_id: Optional[int] = None
+        # Session-scoped pipeline state
+        self._pipeline: Dict[str, _PipelineState] = {}
+        self._pipeline_lock = threading.Lock()
+
+        # Dedup tracking: hash -> timestamp
+        self._recent_hashes: Dict[str, float] = {}
+        self._dedup_lock = threading.Lock()
+
+        # Shared thread pool for timeout-wrapped invocations
+        self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="retail-exec")
+
+    # -- pipeline helpers --
+
+    def _get_pipeline(self, session_id: Optional[str] = None) -> _PipelineState:
+        key = session_id or "__default__"
+        with self._pipeline_lock:
+            if key not in self._pipeline:
+                self._pipeline[key] = _PipelineState()
+            return self._pipeline[key]
+
+    # -- dedup --
+
+    def _is_duplicate(self, tool_name: str, arguments: Dict[str, Any]) -> bool:
+        """Return True if the same tool+args were submitted within the dedup window."""
+        sig = hashlib.sha256(
+            json.dumps({"t": tool_name, "a": arguments}, sort_keys=True, default=str).encode()
+        ).hexdigest()
+        now = time.time()
+        with self._dedup_lock:
+            # Prune expired entries
+            expired = [h for h, ts in self._recent_hashes.items() if now - ts > _DEDUP_WINDOW]
+            for h in expired:
+                del self._recent_hashes[h]
+            if sig in self._recent_hashes:
+                return True
+            self._recent_hashes[sig] = now
+        return False
 
     # -- public API --
 
@@ -463,6 +423,12 @@ class RetailExecutor:
                 f"Tool not allowed in state '{current_state.value}'. "
                 f"Allowed: {[s.value for s in tool.allowed_in_states]}"
             )
+            self._log_rejection(proposal)
+            return {"status": "rejected", "reason": proposal.rejection_reason, "proposal": proposal.to_dict()}
+
+        # Deduplication check
+        if self._is_duplicate(proposal.tool_name, proposal.arguments):
+            proposal.reject("Duplicate request (already submitted recently)")
             self._log_rejection(proposal)
             return {"status": "rejected", "reason": proposal.rejection_reason, "proposal": proposal.to_dict()}
 
@@ -524,7 +490,8 @@ class RetailExecutor:
         ))
 
         try:
-            result = self._invoke(proposal.tool_name, proposal.arguments)
+            future = self._pool.submit(self._invoke, proposal.tool_name, proposal.arguments, proposal.session_id)
+            result = future.result(timeout=self._invoke_timeout)
             duration = (time.time() - start) * 1000
             proposal.complete(success=True)
             tr = MCPToolResult(
@@ -538,21 +505,38 @@ class RetailExecutor:
             ))
             return {"status": "executed", "result": tr.to_dict(), "proposal": proposal.to_dict()}
 
+        except FuturesTimeout:
+            duration = (time.time() - start) * 1000
+            error_msg = f"Tool '{proposal.tool_name}' timed out after {self._invoke_timeout}s"
+            proposal.complete(success=False, error=error_msg)
+            logger.error(error_msg)
+            tr = MCPToolResult(
+                proposal_id=proposal.id, tool_name=proposal.tool_name,
+                success=False, output=None, error="Operation timed out", duration_ms=duration,
+            )
+            self.audit_log.log(AuditLogEntry.create(
+                event_type=AuditEventType.TOOL_FAILED,
+                details={"proposal_id": proposal.id, "error": error_msg},
+                session_id=proposal.session_id, latency_ms=duration,
+            ))
+            return {"status": "failed", "error": "Operation timed out", "result": tr.to_dict(), "proposal": proposal.to_dict()}
+
         except Exception as e:
             duration = (time.time() - start) * 1000
+            logger.error("Retail tool execution failed: %s", e, exc_info=True)
             proposal.complete(success=False, error=str(e))
             tr = MCPToolResult(
                 proposal_id=proposal.id, tool_name=proposal.tool_name,
-                success=False, output=None, error=str(e), duration_ms=duration,
+                success=False, output=None, error="An internal error occurred", duration_ms=duration,
             )
             self.audit_log.log(AuditLogEntry.create(
                 event_type=AuditEventType.TOOL_FAILED,
                 details={"proposal_id": proposal.id, "error": str(e)},
                 session_id=proposal.session_id, latency_ms=duration,
             ))
-            return {"status": "failed", "error": str(e), "result": tr.to_dict(), "proposal": proposal.to_dict()}
+            return {"status": "failed", "error": "An internal error occurred", "result": tr.to_dict(), "proposal": proposal.to_dict()}
 
-    def _invoke(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    def _invoke(self, tool_name: str, arguments: Dict[str, Any], session_id: Optional[str] = None) -> Dict[str, Any]:
         from agents.retail_tools import (
             tool_scan_tray_items,
             tool_lookup_item_price,
@@ -561,45 +545,52 @@ class RetailExecutor:
             tool_send_invoice_email,
         )
 
-        merged = {**self.context, **arguments}
+        # Build a filtered kwargs dict using the allowlist
+        allowed = _TOOL_PARAM_ALLOWLIST.get(tool_name, frozenset())
+        filtered = {k: v for k, v in arguments.items() if k in allowed}
+
+        pipeline = self._get_pipeline(session_id)
 
         if tool_name == "scan_tray_items":
-            result = tool_scan_tray_items(**merged)
+            result = tool_scan_tray_items(**filtered)
             if result.get("success"):
-                self._last_scan_result = result.get("data", {})
+                pipeline.scan_result = result.get("data", {})
+                pipeline.updated_at = time.time()
             return result
 
         elif tool_name == "lookup_item_price":
-            return tool_lookup_item_price(**merged)
+            return tool_lookup_item_price(**filtered)
 
         elif tool_name == "create_bill":
             # Auto-feed last scan result if no explicit items provided
-            if "items" not in merged or not merged.get("items"):
-                if self._last_scan_result:
-                    merged["scan_result"] = self._last_scan_result
-            result = tool_create_bill(**merged)
+            if "items" not in filtered or not filtered.get("items"):
+                if pipeline.scan_result:
+                    filtered["scan_result"] = pipeline.scan_result
+            result = tool_create_bill(**filtered)
             if result.get("success"):
-                self._last_bill = result
+                pipeline.bill = result
+                pipeline.updated_at = time.time()
             return result
 
         elif tool_name == "generate_invoice":
             # Auto-feed last bill if not provided
-            if "bill" not in merged or not merged.get("bill"):
-                if self._last_bill:
-                    merged["bill"] = self._last_bill
-            result = tool_generate_invoice(**merged)
+            if "bill" not in filtered or not filtered.get("bill"):
+                if pipeline.bill:
+                    filtered["bill"] = pipeline.bill
+            result = tool_generate_invoice(**filtered)
             if result.get("success"):
-                self._last_invoice_id = result.get("data", {}).get("invoice_id")
+                pipeline.invoice_id = result.get("data", {}).get("invoice_id")
+                pipeline.updated_at = time.time()
             return result
 
         elif tool_name == "send_invoice_email":
             # Auto-feed last bill or invoice_id
-            if "bill" not in merged and "invoice_id" not in merged:
-                if self._last_invoice_id:
-                    merged["invoice_id"] = self._last_invoice_id
-                elif self._last_bill:
-                    merged["bill"] = self._last_bill
-            return tool_send_invoice_email(**merged)
+            if "bill" not in filtered and "invoice_id" not in filtered:
+                if pipeline.invoice_id:
+                    filtered["invoice_id"] = pipeline.invoice_id
+                elif pipeline.bill:
+                    filtered["bill"] = pipeline.bill
+            return tool_send_invoice_email(**filtered)
 
         raise ValueError(f"No retail handler for: {tool_name}")
 

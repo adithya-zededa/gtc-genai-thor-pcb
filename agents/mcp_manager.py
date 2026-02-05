@@ -170,24 +170,32 @@ class MCPManager:
     def detect_domain(message: str) -> str:
         """Return the best-matching domain for *message*.
 
-        Scoring is simple: count keyword hits.  If there's a clear winner
-        we use that domain; otherwise we fall back to ``general``.
+        Uses the LLM intent classifier first; falls back to keyword
+        scoring when the inference backend is unreachable.
         """
-        msg = message.lower()
+        try:
+            from agents.llm_classifier import get_classifier
+            result = get_classifier().classify(message)
+            if result.domain in VALID_DOMAINS and result.confidence >= 0.3:
+                logger.info(
+                    "LLM classifier domain=%s confidence=%.2f source=%s",
+                    result.domain, result.confidence, result.source,
+                )
+                return result.domain
+        except Exception as exc:
+            logger.warning("LLM classifier unavailable, using keyword fallback: %s", exc)
 
+        # Keyword fallback
+        msg = message.lower()
         pcb_score = sum(1 for kw in _PCB_KEYWORDS if kw in msg)
         retail_score = sum(1 for kw in _RETAIL_KEYWORDS if kw in msg)
 
-        # Need at least one keyword hit to claim a domain
         if pcb_score == 0 and retail_score == 0:
             return DOMAIN_GENERAL
-
         if pcb_score > retail_score:
             return DOMAIN_PCB
         if retail_score > pcb_score:
             return DOMAIN_RETAIL
-
-        # Tie — could happen with overlapping words.  Use general.
         return DOMAIN_GENERAL
 
     # ------------------------------------------------------------------
