@@ -1,6 +1,10 @@
 """PCB inspection domain tools for the MCP agent.
 
-Provides tool handler functions used by the PCB MCP executor:
+Provides thin-adapter tool handler functions used by the PCB MCP executor.
+Each function validates its inputs, delegates to pcb_service / email_tools,
+and returns a sanitised result dict.
+
+Tools:
 - inspect_pcb: Analyze current frame for PCB defects via VLM
 - classify_board: Identify the board type from the current frame
 - send_defect_alert: Send email alert for a detected defect
@@ -10,6 +14,7 @@ Provides tool handler functions used by the PCB MCP executor:
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -18,20 +23,65 @@ from core.logging import get_logger
 logger = get_logger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Validation helpers
+# ---------------------------------------------------------------------------
+
+_EMAIL_RE = re.compile(r"^[\w.+-]+@[\w-]+\.[\w.-]+$")
+MAX_EMAIL_LEN = 254
+VALID_SEVERITIES = frozenset(["low", "medium", "high"])
+
+
+def _validate_email(email: str) -> Optional[str]:
+    """Return *None* if valid, or an error message."""
+    if not email:
+        return "Email address is required"
+    if len(email) > MAX_EMAIL_LEN:
+        return f"Email address too long (max {MAX_EMAIL_LEN} chars)"
+    if not _EMAIL_RE.match(email):
+        return f"Invalid email format: {email}"
+    return None
+
+
+def _validate_emails(emails: List[str]) -> Optional[str]:
+    """Return *None* if every address in the list is valid, or an error."""
+    if not emails:
+        return "At least one recipient email is required"
+    for em in emails:
+        err = _validate_email(em)
+        if err:
+            return err
+    return None
+
+
+def _safe_error(internal_msg: str, *, exc: Optional[Exception] = None) -> Dict[str, Any]:
+    """Return a user-safe error dict and log the internal detail."""
+    if exc:
+        logger.error("%s: %s", internal_msg, exc, exc_info=True)
+    else:
+        logger.error(internal_msg)
+    return {"success": False, "message": "An internal error occurred. Please try again."}
+
+
+def _sanitise_severity(raw: str) -> str:
+    """Normalise severity to one of the allowed values."""
+    s = raw.strip().lower() if raw else "medium"
+    return s if s in VALID_SEVERITIES else "medium"
+
+
+# ---------------------------------------------------------------------------
+# Tools
+# ---------------------------------------------------------------------------
+
 def tool_inspect_pcb(
     query: Optional[str] = None,
-    **kwargs,
 ) -> Dict[str, Any]:
     """Analyze the current camera frame for PCB defects.
 
-    Uses the VLM with ``PCB_INSPECTION`` task type to inspect the frame.
-
-    Args:
-        query: Optional additional question to ask about the frame.
-
-    Returns:
-        Analysis result dict with defect information.
+    Uses the VLM with ``PCB_INSPECTION`` task type.
     """
+    logger.info("tool_inspect_pcb invoked (query=%s)", query and query[:80])
+
     from services.monitoring_service import get_monitoring_service
     from agents.vlm.task_types import TaskType
 
@@ -39,11 +89,13 @@ def tool_inspect_pcb(
     if not service:
         return {"success": False, "message": "Monitoring service not available"}
 
-    custom_prompt = query if query else None
-    event = service.analyze_single_frame(
-        task_type=TaskType.PCB_INSPECTION,
-        custom_prompt=custom_prompt,
-    )
+    try:
+        event = service.analyze_single_frame(
+            task_type=TaskType.PCB_INSPECTION,
+            custom_prompt=query or None,
+        )
+    except Exception as exc:
+        return _safe_error("VLM PCB inspection failed", exc=exc)
 
     if not event:
         return {
@@ -64,14 +116,10 @@ def tool_inspect_pcb(
     }
 
 
-def tool_classify_board(**kwargs) -> Dict[str, Any]:
-    """Identify the board type visible in the current frame.
+def tool_classify_board() -> Dict[str, Any]:
+    """Identify the board type visible in the current frame."""
+    logger.info("tool_classify_board invoked")
 
-    Runs the PCB inspection prompt and extracts the ``board_type`` field.
-
-    Returns:
-        Dict with identified board type.
-    """
     from services.monitoring_service import get_monitoring_service
     from services.pcb_service import classify_board_from_analysis
     from agents.vlm.task_types import TaskType
@@ -81,15 +129,22 @@ def tool_classify_board(**kwargs) -> Dict[str, Any]:
     if not service:
         return {"success": False, "message": "Monitoring service not available"}
 
-    event = service.analyze_single_frame(task_type=TaskType.PCB_INSPECTION)
+    try:
+        event = service.analyze_single_frame(task_type=TaskType.PCB_INSPECTION)
+    except Exception as exc:
+        return _safe_error("VLM board classification failed", exc=exc)
+
     if not event:
         return {"success": False, "message": "Board classification failed — no frame"}
 
-    # Parse the VLM response for structured data
-    try:
-        analysis = json.loads(event.full_response) if isinstance(event.full_response, str) else {}
-    except (json.JSONDecodeError, TypeError):
-        analysis = {}
+    analysis: Dict[str, Any] = {}
+    if event.full_response and isinstance(event.full_response, str):
+        try:
+            analysis = json.loads(event.full_response)
+            if not isinstance(analysis, dict):
+                analysis = {}
+        except (json.JSONDecodeError, TypeError):
+            analysis = {}
 
     board_type = classify_board_from_analysis(analysis)
 
@@ -105,31 +160,29 @@ def tool_classify_board(**kwargs) -> Dict[str, Any]:
 
 
 def tool_send_defect_alert(
-    recipients: List[str],
+    recipients: Optional[List[str]] = None,
     board_type: str = "unknown",
     defect_summary: str = "",
     severity: str = "medium",
     include_image: bool = True,
     image_data: Optional[bytes] = None,
-    **kwargs,
 ) -> Dict[str, Any]:
-    """Send an email alert about a detected PCB defect.
-
-    Args:
-        recipients: Email addresses to alert.
-        board_type: Identified board type.
-        defect_summary: Human-readable defect description.
-        severity: Defect severity level.
-        include_image: Whether to attach the current frame.
-        image_data: Raw image bytes (from execution context).
-
-    Returns:
-        Email send result dict.
-    """
-    from agents.email_tools import send_email
+    """Send an email alert about a detected PCB defect."""
+    logger.info(
+        "tool_send_defect_alert invoked (recipients=%s, severity=%s)",
+        recipients, severity,
+    )
 
     if not recipients:
-        return {"success": False, "error": "No recipients specified"}
+        return {"success": False, "message": "No recipients specified"}
+
+    err = _validate_emails(recipients)
+    if err:
+        return {"success": False, "message": err}
+
+    severity = _sanitise_severity(severity)
+
+    from agents.email_tools import send_email
 
     subject = f"[PCB ALERT] {severity.upper()} defect on {board_type}"
     body = (
@@ -158,9 +211,8 @@ def tool_send_defect_alert(
             "message": f"Defect alert sent to {len(recipients)} recipient(s)",
             "email_result": result,
         }
-    except Exception as e:
-        logger.error("Failed to send defect alert: %s", e)
-        return {"success": False, "error": str(e)}
+    except Exception as exc:
+        return _safe_error("Failed to send defect alert", exc=exc)
 
 
 def tool_log_defect(
@@ -170,45 +222,40 @@ def tool_log_defect(
     confidence: float = 0.0,
     description: str = "",
     image_path: str = "",
-    **kwargs,
 ) -> Dict[str, Any]:
-    """Record a PCB defect to the database.
+    """Record a PCB defect to the database."""
+    logger.info(
+        "tool_log_defect invoked (board_type=%s, defect_type=%s, severity=%s)",
+        board_type, defect_type, severity,
+    )
 
-    Args:
-        board_type: Board type string.
-        defect_type: Defect classification (e.g. solder_bridge).
-        severity: low / medium / high.
-        confidence: Detection confidence 0‒1.
-        description: Defect description text.
-        image_path: Path to saved evidence image.
+    severity = _sanitise_severity(severity)
+    confidence = max(0.0, min(1.0, float(confidence)))
 
-    Returns:
-        Dict with defect_id and success status.
-    """
     from services.pcb_service import record_defect
 
-    return record_defect(
-        board_type=board_type,
-        defect_type=defect_type,
-        severity=severity,
-        confidence=confidence,
-        image_path=image_path,
-        description=description,
-    )
+    try:
+        return record_defect(
+            board_type=board_type,
+            defect_type=defect_type,
+            severity=severity,
+            confidence=confidence,
+            image_path=image_path,
+            description=description,
+        )
+    except Exception as exc:
+        return _safe_error("Failed to log defect", exc=exc)
 
 
 def tool_generate_defect_report(
     board_type: Optional[str] = None,
-    **kwargs,
 ) -> Dict[str, Any]:
-    """Generate a summary report of all logged PCB defects.
+    """Generate a summary report of all logged PCB defects."""
+    logger.info("tool_generate_defect_report invoked (board_type=%s)", board_type)
 
-    Args:
-        board_type: Optional filter by board type.
-
-    Returns:
-        Report dict with summary statistics and recent defects.
-    """
     from services.pcb_service import generate_defect_report
 
-    return generate_defect_report(board_type=board_type)
+    try:
+        return generate_defect_report(board_type=board_type)
+    except Exception as exc:
+        return _safe_error("Failed to generate defect report", exc=exc)
