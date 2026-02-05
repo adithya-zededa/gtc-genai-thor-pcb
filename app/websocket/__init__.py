@@ -21,7 +21,7 @@ def register_handlers(socketio: "SocketIO") -> None:
     """Register all WebSocket event handlers."""
     
     # Register chat handlers
-    from app.websocket.chat import register_chat_handlers
+    from app.websocket.chat import register_chat_handlers, initialize_chat_for_client
     
     register_chat_handlers(socketio)
     
@@ -29,7 +29,18 @@ def register_handlers(socketio: "SocketIO") -> None:
     def handle_connect():
         """Handle client connection."""
         logger.info("Client connected: %s", request.sid)
-        emit("connected", {"status": "ok", "message": "Connected to camera agent"})
+        # Auto-initialize chat session on connect
+        try:
+            initialize_chat_for_client(request.sid)
+        except Exception as e:
+            logger.error("Failed to initialize chat for client: %s", e, exc_info=True)
+            emit("chat_error", {"error": str(e)})
+    
+    @socketio.on("test_event")
+    def handle_test(data=None):
+        """Test event handler."""
+        logger.info(">>> TEST EVENT received from %s with data: %s", request.sid, data)
+        emit("test_response", {"message": "Test received!"})
 
     @socketio.on("disconnect")
     def handle_disconnect():

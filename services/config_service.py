@@ -4,13 +4,10 @@ from __future__ import annotations
 
 import copy
 import threading
-from pathlib import Path
 from typing import Any, Dict, List
 
-import yaml
-
 from core.config import get_config
-from core.utils import coerce_bool, dedupe_strings, ensure_directory
+from core.utils import coerce_bool, dedupe_strings
 from core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -26,9 +23,7 @@ def load_camera_config() -> Dict[str, Any]:
     with CONFIG_LOCK:
         if not config.config_path.exists():
             raise FileNotFoundError(f"Config not found: {config.config_path}")
-
-        with config.config_path.open('r', encoding='utf-8') as f:
-            cfg = yaml.safe_load(f)
+        cfg = config.load_yaml_config()
 
         if not isinstance(cfg, dict):
             raise ValueError(f"Config must be a mapping: {config.config_path}")
@@ -45,15 +40,7 @@ def save_camera_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
     sanitized = sanitize_config_payload(canonical)
     
     with CONFIG_LOCK:
-        ensure_directory(config.config_path.parent)
-        with config.config_path.open("w", encoding="utf-8") as f:
-            yaml.safe_dump(
-                sanitized,
-                f,
-                default_flow_style=False,
-                sort_keys=False,
-                allow_unicode=True,
-            )
+        config.save_yaml_config(sanitized)
     return sanitized
 
 

@@ -50,7 +50,7 @@
         </div>
 
         <div class="glass rounded-2xl overflow-hidden animate-slide-up" style="--animation-order: 3;">
-            <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator); background: linear-gradient(135deg, var(--system-teal-glass) 0%, var(--system-blue-glass) 100%);">
+            <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator); background: var(--material-ultra-thin);">
                 <h3 class="text-base font-semibold flex items-center text-primary">
                     <div class="w-7 h-7 rounded-lg flex items-center justify-center mr-2.5" style="background: var(--system-teal-glass);">
                         <i class="fas fa-eye text-sm" style="color: var(--system-teal);"></i>
@@ -70,7 +70,7 @@
         </div>
 
         <div class="glass rounded-2xl overflow-hidden animate-slide-up" style="--animation-order: 4;">
-            <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator); background: linear-gradient(135deg, var(--system-blue-glass) 0%, var(--system-purple-glass) 100%);">
+            <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator); background: var(--material-ultra-thin);">
                 <h3 class="text-base font-semibold flex items-center text-primary">
                     <div class="w-7 h-7 rounded-lg flex items-center justify-center mr-2.5" style="background: var(--system-blue-glass);">
                         <i class="fas fa-project-diagram text-sm" style="color: var(--system-blue);"></i>
@@ -82,7 +82,7 @@
             {% if decision and decision|length %}
                 <div class="p-5">
                     <!-- Decision Summary -->
-                    <div class="mb-5 p-4 rounded-xl" style="background: var(--system-green-glass); border-left: 3px solid var(--system-green);">
+                    <div class="mb-5 p-4 rounded-xl" style="background: var(--material-thin); border-left: 3px solid var(--system-green);">
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             {% if decision.classification %}
                             <div>
@@ -142,7 +142,7 @@
                         </h4>
                         <div class="space-y-3">
                             {% for tool in decision.tool_trace %}
-                            <div class="rounded-xl transition" style="border-left: 3px solid var(--system-purple); background: var(--system-purple-glass);">
+                            <div class="rounded-xl transition" style="border-left: 3px solid var(--system-purple); background: var(--material-thin);">
                                 <div class="p-4">
                                     <div class="flex items-start justify-between mb-2">
                                         <div class="flex items-center">
@@ -211,7 +211,7 @@
                             <i class="fas fa-brain mr-2" style="color: var(--system-pink);"></i>
                             Decision Reasoning
                         </h4>
-                        <div class="rounded-xl p-4" style="background: var(--system-pink-glass); border: 0.5px solid rgba(255, 45, 85, 0.15);">
+                        <div class="rounded-xl p-4" style="background: var(--material-thin); border: 0.5px solid rgba(255, 45, 85, 0.2);">
                             <p class="text-sm whitespace-pre-line leading-relaxed text-primary">{{ decision.reasoning }}</p>
                         </div>
                     </div>
@@ -294,13 +294,13 @@
                     </details>
 
                     {% if decision.error %}
-                    <div class="mt-4 p-3 rounded-xl text-sm" style="background: var(--system-red-glass); border-left: 3px solid var(--system-red); color: var(--system-red);">
+                    <div class="mt-4 p-3 rounded-xl text-sm" style="background: var(--material-thin); border-left: 3px solid var(--system-red); color: var(--system-red);">
                         <i class="fas fa-exclamation-circle mr-2"></i><strong>Error:</strong> {{ decision.error }}
                     </div>
                     {% endif %}
 
                     {% if decision.tool_error %}
-                    <div class="mt-4 p-3 rounded-xl text-sm" style="background: var(--system-orange-glass); border-left: 3px solid var(--system-orange); color: var(--system-orange);">
+                    <div class="mt-4 p-3 rounded-xl text-sm" style="background: var(--material-thin); border-left: 3px solid var(--system-orange); color: var(--system-orange);">
                         <i class="fas fa-exclamation-triangle mr-2"></i><strong>Warning:</strong> {{ decision.tool_error }}
                     </div>
                     {% endif %}

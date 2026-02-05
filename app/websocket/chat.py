@@ -131,6 +131,83 @@ def get_chat_session(session_id: str) -> ChatSession:
         return _chat_sessions[session_id]
 
 
+def initialize_chat_for_client(session_id: str) -> None:
+    """Initialize chat session for a client on connect.
+    
+    This is called from the main connect handler to auto-initialize
+    the chat session without requiring a separate chat_connect event.
+    """
+    from flask_socketio import emit, join_room
+    from flask import request
+    
+    # Use the current request's session ID to ensure we emit to the right client
+    actual_sid = getattr(request, 'sid', session_id)
+    logger.info("Auto-initializing chat for client: %s (passed: %s)", actual_sid, session_id)
+    
+    audit_log = get_audit_log()
+    state_machine = get_agent_state_machine()
+    
+    chat_session = get_chat_session(actual_sid)
+    join_room(actual_sid)
+    
+    # Log connection
+    audit_log.log(AuditLogEntry.create(
+        event_type=AuditEventType.SESSION_STARTED,
+        details={"socket_session_id": actual_sid, "chat_session_id": chat_session.id},
+    ))
+    
+    # Transition from OFF to IDLE if agent is off
+    current_state = state_machine.state
+    if current_state == AgentState.OFF:
+        try:
+            state_machine.transition_to(
+                AgentState.IDLE,
+                trigger="user_connected",
+                metadata={"session_id": actual_sid},
+            )
+            current_state = state_machine.state
+            logger.info("Agent transitioned to IDLE on connection")
+        except ValueError as e:
+            logger.warning("Could not transition to IDLE: %s", e)
+    
+    executor = get_mcp_executor()
+    mcp_session = executor.current_session
+    
+    # Get available tools for current state
+    registry = get_tool_registry()
+    available_tools = registry.get_display_list(current_state)
+    
+    # Get monitoring status
+    from services.monitoring_service import get_monitoring_service
+    monitoring_service = get_monitoring_service()
+    monitoring_active = monitoring_service.is_monitoring if monitoring_service else False
+    
+    logger.info("Sending chat_connected to client %s with state %s", actual_sid, current_state.value)
+    
+    # Send initial state - explicitly specify room to ensure delivery
+    emit("chat_connected", {
+        "chat_session_id": chat_session.id,
+        "agent_state": current_state.value,
+        "available_tools": available_tools,
+        "pending_proposals": executor.get_pending_proposals(),
+        "mcp_session": mcp_session.to_dict() if mcp_session else None,
+        "metrics": audit_log.get_metrics(),
+        "monitoring_active": monitoring_active,
+    }, room=actual_sid)
+    
+    # Send welcome message
+    welcome_content = _generate_welcome_message(current_state)
+    welcome = ChatMessage.assistant(welcome_content)
+    chat_session.add_message(welcome)
+    
+    emit("chat_message", {
+        "message": welcome.to_dict(),
+        "agent_state": current_state.value,
+    }, room=actual_sid)
+    
+    logger.info("Chat initialization complete for client: %s", actual_sid)
+
+
 # =============================================================================
 # WEBSOCKET HANDLERS
 # =============================================================================
@@ -138,64 +215,81 @@ def get_chat_session(session_id: str) -> ChatSession:
 def register_chat_handlers(socketio: "SocketIO") -> None:
     """Register chat-related WebSocket event handlers."""
     
+    logger.info("Registering chat WebSocket handlers...")
+    
     audit_log = get_audit_log()
     state_machine = get_agent_state_machine()
+    
+    logger.info("Chat handlers initialized with state machine in state: %s", state_machine.state)
 
     @socketio.on("chat_connect")
     def handle_chat_connect(data=None):
         """Handle chat connection."""
-        session_id = request.sid
-        chat_session = get_chat_session(session_id)
-        join_room(session_id)
-        
-        # Log connection
-        audit_log.log(AuditLogEntry.create(
-            event_type=AuditEventType.SESSION_STARTED,
-            details={"socket_session_id": session_id, "chat_session_id": chat_session.id},
-        ))
-        
-        logger.info("Chat connected: %s", session_id)
-        
-        # Transition from OFF to IDLE if agent is off
-        current_state = state_machine.state
-        if current_state == AgentState.OFF:
-            try:
-                state_machine.transition_to(
-                    AgentState.IDLE,
-                    trigger="user_connected",
-                    metadata={"session_id": session_id},
-                )
-                current_state = state_machine.state
-                logger.info("Agent transitioned to IDLE on connection")
-            except ValueError as e:
-                logger.warning("Could not transition to IDLE: %s", e)
-        
-        executor = get_mcp_executor()
-        mcp_session = executor.current_session
-        
-        # Get available tools for current state
-        registry = get_tool_registry()
-        available_tools = registry.get_display_list(current_state)
-        
-        # Send initial state
-        emit("chat_connected", {
-            "chat_session_id": chat_session.id,
-            "agent_state": current_state.value,
-            "available_tools": available_tools,
-            "pending_proposals": executor.get_pending_proposals(),
-            "mcp_session": mcp_session.to_dict() if mcp_session else None,
-            "metrics": audit_log.get_metrics(),
-        })
-        
-        # Send welcome message
-        welcome_content = _generate_welcome_message(current_state)
-        welcome = ChatMessage.assistant(welcome_content)
-        chat_session.add_message(welcome)
-        
-        emit("chat_message", {
-            "message": welcome.to_dict(),
-            "agent_state": current_state.value,
-        })
+        logger.info(">>> chat_connect event received!")
+        try:
+            session_id = request.sid
+            logger.info("Chat connect received from: %s", session_id)
+            
+            chat_session = get_chat_session(session_id)
+            join_room(session_id)
+            
+            # Log connection
+            audit_log.log(AuditLogEntry.create(
+                event_type=AuditEventType.SESSION_STARTED,
+                details={"socket_session_id": session_id, "chat_session_id": chat_session.id},
+            ))
+            
+            logger.info("Chat connected: %s", session_id)
+            
+            # Transition from OFF to IDLE if agent is off
+            current_state = state_machine.state
+            if current_state == AgentState.OFF:
+                try:
+                    state_machine.transition_to(
+                        AgentState.IDLE,
+                        trigger="user_connected",
+                        metadata={"session_id": session_id},
+                    )
+                    current_state = state_machine.state
+                    logger.info("Agent transitioned to IDLE on connection")
+                except ValueError as e:
+                    logger.warning("Could not transition to IDLE: %s", e)
+            
+            executor = get_mcp_executor()
+            mcp_session = executor.current_session
+            
+            # Get available tools for current state
+            registry = get_tool_registry()
+            available_tools = registry.get_display_list(current_state)
+            
+            # Get monitoring status
+            from services.monitoring_service import get_monitoring_service
+            monitoring_service = get_monitoring_service()
+            monitoring_active = monitoring_service.is_monitoring if monitoring_service else False
+            
+            # Send initial state
+            emit("chat_connected", {
+                "chat_session_id": chat_session.id,
+                "agent_state": current_state.value,
+                "available_tools": available_tools,
+                "pending_proposals": executor.get_pending_proposals(),
+                "mcp_session": mcp_session.to_dict() if mcp_session else None,
+                "metrics": audit_log.get_metrics(),
+                "monitoring_active": monitoring_active,
+            })
+            
+            # Send welcome message
+            welcome_content = _generate_welcome_message(current_state)
+            welcome = ChatMessage.assistant(welcome_content)
+            chat_session.add_message(welcome)
+            
+            emit("chat_message", {
+                "message": welcome.to_dict(),
+                "agent_state": current_state.value,
+            })
+        except Exception as e:
+            logger.error("Error in chat_connect handler: %s", e, exc_info=True)
+            emit("chat_error", {"error": str(e)})
 
     @socketio.on("chat_disconnect")
     def handle_chat_disconnect():
@@ -522,6 +616,8 @@ def _process_user_message(
                     response_content += f"\n\n**Session ID:** `{data['session_id']}`"
                 if "summary" in data:
                     response_content += f"\n\n**Summary:**\n{data['summary']}"
+                if "description" in data and data["description"]:
+                    response_content += f"\n\n{data['description']}"
             
             return ChatMessage.tool(
                 content=response_content,
@@ -672,15 +768,19 @@ def _emit_pending_proposal(socketio: "SocketIO", session_id: str, result: Dict[s
 
 def _broadcast_state_update(socketio: "SocketIO", executor: MCPExecutor) -> None:
     """Broadcast agent state update to all clients."""
+    from services.monitoring_service import get_monitoring_service
+    
     state_machine = get_agent_state_machine()
     audit_log = get_audit_log()
     mcp_session = executor.current_session
+    monitoring_service = get_monitoring_service()
     
     socketio.emit("agent_state_changed", {
         "state": state_machine.state.value,
         "mcp_session": mcp_session.to_dict() if mcp_session else None,
         "metrics": audit_log.get_metrics(),
         "available_tools": get_tool_registry().get_display_list(state_machine.state),
+        "monitoring_active": monitoring_service.is_monitoring if monitoring_service else False,
     })
 
 

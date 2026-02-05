@@ -79,6 +79,8 @@ class CameraFeedPublisher:
             "frames_dropped": 0,
             "subscribers_count": 0,
             "last_error": None,
+            "is_running": False,
+            "camera_available": False,
         }
 
         logger.info(
@@ -128,6 +130,7 @@ class CameraFeedPublisher:
                 return False
 
             self.is_running = True
+            self.stats["is_running"] = True
             self._capture_thread = threading.Thread(
                 target=self._capture_loop, daemon=True, name="CameraPublisher"
             )
@@ -144,6 +147,7 @@ class CameraFeedPublisher:
 
             logger.info("Stopping camera feed publisher...")
             self.is_running = False
+            self.stats["is_running"] = False
 
             if self._capture_thread and self._capture_thread.is_alive():
                 self._capture_thread.join(timeout=2.0)
@@ -213,6 +217,8 @@ class CameraFeedPublisher:
     def get_stats(self) -> Dict[str, Any]:
         """Get publisher statistics."""
         with self._lock:
+            self.stats["camera_available"] = bool(self.camera and self.camera.isOpened())
+            self.stats["is_running"] = self.is_running
             return self.stats.copy()
 
     def _capture_loop(self) -> None:
@@ -245,31 +251,37 @@ class CameraFeedPublisher:
                     height=frame.shape[0],
                 )
 
-                with self._lock:
-                    self.last_frame = camera_frame
-                    self.stats["frames_captured"] = self.frame_number
-
-                    for sub_id, queue in list(self._subscribers.items()):
-                        try:
-                            queue.put_nowait(camera_frame)
-                            callback = self._subscriber_callbacks.get(sub_id)
-                            if callback:
-                                try:
-                                    callback(camera_frame)
-                                except Exception as cb_err:
-                                    logger.debug(f"Callback error for {sub_id}: {cb_err}")
-                        except Full:
-                            try:
-                                queue.get_nowait()
-                                queue.put_nowait(camera_frame)
-                            except Exception:
-                                self.stats["frames_dropped"] = self.stats.get("frames_dropped", 0) + 1
+                self._publish_frame(camera_frame)
 
                 time.sleep(self.frame_interval)
 
             except Exception as e:
                 logger.error(f"Capture loop error: {e}")
                 time.sleep(0.1)
+
+    def _publish_frame(self, frame: CameraFrame) -> None:
+        """Push a captured frame to subscribers and update stats."""
+        with self._lock:
+            self.last_frame = frame
+            self.stats["frames_captured"] = self.frame_number
+            self.stats["is_running"] = self.is_running
+            self.stats["camera_available"] = bool(self.camera and self.camera.isOpened())
+
+            for sub_id, queue in list(self._subscribers.items()):
+                try:
+                    queue.put_nowait(frame)
+                    callback = self._subscriber_callbacks.get(sub_id)
+                    if callback:
+                        try:
+                            callback(frame)
+                        except Exception as cb_err:  # pragma: no cover - diagnostics only
+                            logger.debug(f"Callback error for {sub_id}: {cb_err}")
+                except Full:
+                    try:
+                        queue.get_nowait()
+                        queue.put_nowait(frame)
+                    except Exception:
+                        self.stats["frames_dropped"] = self.stats.get("frames_dropped", 0) + 1
 
 
 # Global publisher singleton

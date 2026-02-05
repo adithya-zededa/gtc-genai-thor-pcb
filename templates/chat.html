@@ -159,8 +159,8 @@
     }
 
     .message.user .message-avatar {
-        background: linear-gradient(135deg, var(--system-blue) 0%, var(--system-indigo) 100%);
-        color: white;
+        background: var(--system-blue-glass);
+        color: var(--system-blue);
     }
 
     .message.assistant .message-avatar {
@@ -177,10 +177,15 @@
     }
 
     .message.user .message-content {
-        background: linear-gradient(135deg, var(--system-blue) 0%, var(--system-indigo) 100%);
-        color: white;
+        background: var(--material-regular);
+        backdrop-filter: blur(var(--blur-sm));
+        -webkit-backdrop-filter: blur(var(--blur-sm));
+        color: var(--text-primary);
+        border: 0.5px solid var(--border-glass);
         border-bottom-right-radius: var(--radius-xs);
-        box-shadow: 0 2px 12px rgba(0, 122, 255, 0.25);
+        box-shadow: 
+            var(--shadow-glass-sm),
+            0 0 0 1px var(--system-blue-glass) inset;
     }
 
     .message.assistant .message-content {
@@ -193,7 +198,9 @@
     }
 
     .message.system .message-content {
-        background: var(--system-purple-glass);
+        background: var(--material-thin);
+        backdrop-filter: blur(var(--blur-sm));
+        -webkit-backdrop-filter: blur(var(--blur-sm));
         color: var(--text-secondary);
         font-size: var(--text-sm);
         text-align: center;
@@ -201,11 +208,24 @@
         border-radius: var(--radius-full);
     }
 
+    .message-content h1 {
+        font-size: var(--text-lg);
+        font-weight: 700;
+        margin-bottom: 0.75rem;
+        color: inherit;
+    }
+
     .message-content h2, .message-content h3 {
         font-size: var(--text-base);
         font-weight: 600;
         margin-bottom: 0.5rem;
         color: inherit;
+    }
+
+    .message-content hr {
+        border: none;
+        border-top: 1px solid var(--border-separator);
+        margin: 1rem 0;
     }
 
     .message-content p {
@@ -338,8 +358,11 @@
         height: 44px;
         border-radius: 50%;
         border: none;
-        background: linear-gradient(135deg, var(--system-blue) 0%, var(--system-indigo) 100%);
-        color: white;
+        background: var(--material-thick);
+        backdrop-filter: blur(var(--blur-sm));
+        -webkit-backdrop-filter: blur(var(--blur-sm));
+        color: var(--system-blue);
+        border: 0.5px solid var(--border-glass);
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -348,7 +371,12 @@
             transform var(--duration-fast) var(--ease-spring),
             opacity var(--duration-fast);
         flex-shrink: 0;
-        box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
+        box-shadow: var(--shadow-glass-sm);
+    }
+
+    .chat-send-btn:hover {
+        background: var(--system-blue-glass);
+        border-color: var(--border-glass-inner);
     }
 
     .chat-send-btn:hover {
@@ -528,8 +556,12 @@
 
     .detection-indicator.alert {
         display: block;
-        background: linear-gradient(135deg, #ff6b6b 0%, var(--system-red) 100%);
-        box-shadow: 0 4px 12px rgba(255, 59, 48, 0.3);
+        background: var(--material-thin);
+        backdrop-filter: blur(var(--blur-sm));
+        -webkit-backdrop-filter: blur(var(--blur-sm));
+        color: var(--system-red);
+        border: 0.5px solid rgba(255, 59, 48, 0.3);
+        box-shadow: var(--shadow-glass-sm);
         animation: alertPulse 1s ease-in-out;
     }
 
@@ -544,9 +576,11 @@
         left: 0.75rem;
         padding: 0.5rem 0.75rem;
         border-radius: var(--radius-md);
-        background: var(--material-thick);
-        backdrop-filter: blur(var(--blur-lg));
-        color: white;
+        background: var(--material-thin);
+        backdrop-filter: blur(var(--blur-sm));
+        -webkit-backdrop-filter: blur(var(--blur-sm));
+        color: var(--text-primary);
+        border: 0.5px solid var(--border-glass);
         font-size: var(--text-xs);
         display: none;
     }
@@ -854,8 +888,8 @@
 
 {% block extra_js %}
 <script>
-    // WebSocket connection
-    let socket = null;
+    // Use socket from base.html (don't redeclare)
+    // let socket is declared in base.html
     let agentState = 'disabled';
     let feedActive = false;
     let feedInterval = null;
@@ -863,7 +897,7 @@
     let reconnectAttempts = 0;
     const MAX_RECONNECT_ATTEMPTS = 5;
     
-    // Debug mode - set to true in dev to see console logs
+    // Debug mode - enabled temporarily for troubleshooting
     const DEBUG_MODE = true;
     
     function debugLog(action, ...args) {
@@ -871,6 +905,9 @@
             console.log(`[UI Debug] ${action}:`, ...args);
         }
     }
+    
+    // Log immediately to verify script is loading
+    console.log('[Chat] Script loaded, version v163');
 
     // Tool icons mapping
     const toolIcons = {
@@ -890,7 +927,7 @@
     // Initialize on page load
     document.addEventListener('DOMContentLoaded', function() {
         debugLog('DOMContentLoaded', 'Initializing chat interface');
-        initializeSocket();
+        initializeChatHandlers();
         setupInputHandlers();
         setupButtonDebugHandlers();
     });
@@ -915,73 +952,30 @@
         debugLog('Setup', 'Button debug handlers attached');
     }
 
-    function initializeSocket() {
-        debugLog('Socket', 'Initializing socket connection');
+    function initializeChatHandlers() {
+        debugLog('Chat', 'Setting up chat event handlers');
         
-        try {
-            socket = io({
-                reconnection: true,
-                reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
-                reconnectionDelay: 1000,
-                reconnectionDelayMax: 5000,
-                timeout: 10000
-            });
-        } catch (error) {
-            console.error('Socket initialization error:', error);
-            showOfflineMode();
-            return;
-        }
-
-        socket.on('connect', () => {
-            debugLog('Socket', 'Connected successfully');
-            isConnected = true;
-            reconnectAttempts = 0;
-            socket.emit('chat_connect');
-        });
-
-        socket.on('disconnect', () => {
-            debugLog('Socket', 'Disconnected');
-            isConnected = false;
-            updateAgentStatus('disabled');
-            addSystemMessage('Connection lost. Reconnecting...');
+        // Use the socket from base.html (global 'socket' variable)
+        // Listen for custom events dispatched by base.html socket handlers
+        
+        // Handle chat connected event
+        window.addEventListener('agent-chat-connected', function(e) {
+            const data = e.detail;
+            debugLog('Chat', 'agent-chat-connected event received', data);
+            handleChatConnected(data);
         });
         
-        socket.on('connect_error', (error) => {
-            debugLog('Socket', 'Connection error', error.message);
-            reconnectAttempts++;
-            if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-                showOfflineMode();
-            }
+        // Handle chat message event  
+        window.addEventListener('agent-chat-message', function(e) {
+            const data = e.detail;
+            debugLog('Chat', 'agent-chat-message event received', data);
+            handleChatMessage(data);
         });
-
-        socket.on('chat_connected', (data) => {
-            debugLog('Socket', 'Chat connected', data);
-            agentState = data.agent_state;
-            updateAgentStatus(data.agent_state);
-            updateTools(data.tools || []);
-            
-            // Clear connecting message
-            const messagesArea = document.getElementById('messages-area');
-            messagesArea.innerHTML = '';
-            
-            if (data.monitoring_active) {
-                startCameraFeed();
-            }
-        });
-
-        socket.on('chat_message', (data) => {
-            debugLog('Socket', 'Received chat_message', data);
-            // Only add non-user messages (user messages are added immediately on send)
-            if (data.message && data.message.role !== 'user') {
-                addMessage(data.message);
-            }
-            if (data.agent_state) {
-                updateAgentStatus(data.agent_state);
-            }
-        });
-
-        socket.on('agent_state_changed', (data) => {
-            debugLog('Socket', 'Agent state changed', data);
+        
+        // Handle agent state changed event
+        window.addEventListener('agent-state-changed', function(e) {
+            const data = e.detail;
+            debugLog('Chat', 'agent-state-changed event received', data);
             updateAgentStatus(data.state);
             if (data.monitoring_active) {
                 startCameraFeed();
@@ -989,33 +983,99 @@
                 stopCameraFeed();
             }
         });
-
-        socket.on('chat_detection', (data) => {
-            addMessage(data.message);
-            showDetectionAlert(data.event_data);
-        });
-
-        socket.on('frame_update', (data) => {
-            updateCameraFeed(data);
-        });
-
-        socket.on('tool_result', (data) => {
-            console.log('Tool result:', data);
-        });
-
-        socket.on('tool_confirmation_required', (data) => {
-            // Show a confirmation dialog for the proposal
-            const message = data.confirmation_message || `Execute ${data.tool_name}?`;
-            if (confirm(message)) {
-                socket.emit('approve_proposal', { proposal_id: data.proposal_id });
+        
+        // Also register direct socket handlers (in case socket is already connected)
+        // Wait a bit for base.html socket to be ready
+        setTimeout(function() {
+            if (typeof socket !== 'undefined' && socket) {
+                debugLog('Chat', 'Registering additional socket handlers');
+                
+                socket.on('chat_connected', handleChatConnected);
+                socket.on('chat_message', handleChatMessage);
+                socket.on('chat_error', function(data) {
+                    console.error('Chat error:', data);
+                    addSystemMessage('Error: ' + (data.error || 'Unknown error'));
+                });
+                socket.on('tool_result', handleToolResult);
+                socket.on('tool_confirmation_required', handleToolConfirmation);
+                socket.on('proposal_result', handleProposalResult);
+                socket.on('chat_detection', handleChatDetection);
+                
+                isConnected = socket.connected;
+                debugLog('Chat', 'Socket connected status:', isConnected);
             } else {
-                socket.emit('reject_proposal', { proposal_id: data.proposal_id, reason: 'User declined' });
+                debugLog('Chat', 'Socket not ready yet');
             }
-        });
-
-        socket.on('proposal_result', (data) => {
-            debugLog('Socket', 'Proposal result', data);
-        });
+        }, 100);
+    }
+    
+    function handleChatConnected(data) {
+        try {
+            console.log('[Chat] chat_connected handler called with:', data);
+            isConnected = true;
+            
+            // Update agent state
+            agentState = data.agent_state;
+            console.log('[Chat] Calling updateAgentStatus with:', data.agent_state);
+            updateAgentStatus(data.agent_state);
+            
+            // Update tools
+            const toolsData = data.available_tools || data.tools || [];
+            console.log('[Chat] Updating tools:', toolsData.length, 'tools');
+            updateTools(toolsData);
+            
+            // Clear connecting message and show ready state
+            const messagesArea = document.getElementById('messages-area');
+            console.log('[Chat] Clearing messages area');
+            messagesArea.innerHTML = '';
+            
+            // Add a ready message
+            addSystemMessage('Connected! Agent is ' + data.agent_state + '. You can now interact with the agent.');
+            
+            // Start camera feed if monitoring is active
+            if (data.monitoring_active) {
+                startCameraFeed();
+            }
+            
+            // Also check via API as fallback
+            fetchAndUpdateMonitoringStatus();
+            
+            console.log('[Chat] chat_connected handler complete');
+        } catch (error) {
+            console.error('[Chat] Error in handleChatConnected:', error);
+        }
+    }
+    
+    function handleChatMessage(data) {
+        debugLog('Chat', 'Received chat_message', data);
+        // Only add non-user messages (user messages are added immediately on send)
+        if (data.message && data.message.role !== 'user') {
+            addMessage(data.message);
+        }
+        if (data.agent_state) {
+            updateAgentStatus(data.agent_state);
+        }
+    }
+    
+    function handleToolResult(data) {
+        debugLog('Chat', 'Tool result', data);
+    }
+    
+    function handleToolConfirmation(data) {
+        debugLog('Chat', 'Tool confirmation required', data);
+        showToolConfirmation(data);
+    }
+    
+    function handleProposalResult(data) {
+        debugLog('Chat', 'Proposal result', data);
+        if (data.message) {
+            addMessage(data.message);
+        }
+    }
+    
+    function handleChatDetection(data) {
+        addMessage(data.message);
+        showDetectionAlert(data.event_data);
     }
     
     // Show offline mode - UI remains usable with mock responses
@@ -1225,13 +1285,32 @@
         const statusEl = document.getElementById('agent-status');
         const statusText = document.getElementById('agent-status-text');
         
-        statusEl.className = 'agent-status-indicator ' + state;
+        // Map server states to UI states for CSS classes
+        const stateToClass = {
+            'off': 'disabled',
+            'idle': 'enabled',      // IDLE means agent is ready
+            'monitoring': 'enabled',
+            'analyzing': 'processing',
+            'alerting': 'processing',
+            'error': 'error',
+            'enabled': 'enabled',
+            'disabled': 'disabled',
+            'processing': 'processing'
+        };
+        
+        const cssClass = stateToClass[state] || 'disabled';
+        statusEl.className = 'agent-status-indicator ' + cssClass;
         
         const statusLabels = {
+            'off': 'Agent Off',
+            'idle': 'Agent Ready',
+            'monitoring': 'Monitoring Active',
+            'analyzing': 'Analyzing...',
+            'alerting': 'Alerting...',
+            'error': 'Error',
             'enabled': 'Agent Active',
             'disabled': 'Agent Disabled',
-            'processing': 'Processing...',
-            'error': 'Error'
+            'processing': 'Processing...'
         };
         
         statusText.textContent = statusLabels[state] || state;
@@ -1356,6 +1435,54 @@
         document.getElementById('stat-alerts').textContent = stats.alerts_sent || 0;
     }
 
+    async function fetchAndUpdateMonitoringStatus() {
+        try {
+            console.log('[Chat] Fetching status from API...');
+            const response = await fetch('/api/status');
+            const data = await response.json();
+            console.log('[Chat] Status response:', data);
+            
+            if (data.monitoring_active) {
+                startCameraFeed();
+            }
+            
+            if (data.stats) {
+                updateStats(data.stats);
+            }
+            
+            // Update agent state based on agentic_mode if monitoring is active
+            if (data.monitoring_active && data.agentic_mode) {
+                updateAgentStatus('monitoring');
+            }
+        } catch (error) {
+            console.error('Failed to fetch monitoring status:', error);
+        }
+    }
+    
+    // Fallback: If socket doesn't initialize properly, poll status after 2 seconds
+    setTimeout(async () => {
+        const messagesArea = document.getElementById('messages-area');
+        const statusText = document.getElementById('agent-status-text');
+        
+        // If still showing "Connecting..." or "Agent Disabled", try to initialize via HTTP
+        if (statusText.textContent === 'Agent Disabled' || messagesArea.innerHTML.includes('Connecting')) {
+            console.log('[Chat] Fallback: Socket may not have connected, initializing via HTTP...');
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                // Update status
+                if (data.inference_available) {
+                    updateAgentStatus('idle');
+                    messagesArea.innerHTML = '';
+                    addSystemMessage('Connected! Agent is ready. You can now interact with the agent.');
+                }
+            } catch (error) {
+                console.error('[Chat] Fallback initialization failed:', error);
+            }
+        }
+    }, 2000);
+
     function showDetectionAlert(eventData) {
         const indicator = document.getElementById('detection-indicator');
         const shouldAlert = eventData.should_alert;
@@ -1377,28 +1504,65 @@
     function formatMarkdown(text) {
         if (!text) return '';
         
-        // Simple markdown formatting
+        // Process line by line to handle block elements properly
+        const lines = text.split('\n');
+        let html = '';
+        let inList = false;
+        
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i];
+            
+            // Check for headers first (before escaping)
+            const h1Match = line.match(/^# (.+)$/);
+            const h2Match = line.match(/^## (.+)$/);
+            const h3Match = line.match(/^### (.+)$/);
+            const listMatch = line.match(/^- (.+)$/);
+            const hrMatch = line.match(/^---+$/);
+            
+            if (h3Match) {
+                if (inList) { html += '</ul>'; inList = false; }
+                html += '<h3>' + formatInline(h3Match[1]) + '</h3>';
+            } else if (h2Match) {
+                if (inList) { html += '</ul>'; inList = false; }
+                html += '<h2>' + formatInline(h2Match[1]) + '</h2>';
+            } else if (h1Match) {
+                if (inList) { html += '</ul>'; inList = false; }
+                html += '<h1>' + formatInline(h1Match[1]) + '</h1>';
+            } else if (hrMatch) {
+                if (inList) { html += '</ul>'; inList = false; }
+                html += '<hr>';
+            } else if (listMatch) {
+                if (!inList) { html += '<ul>'; inList = true; }
+                html += '<li>' + formatInline(listMatch[1]) + '</li>';
+            } else if (line.trim() === '') {
+                if (inList) { html += '</ul>'; inList = false; }
+                // Empty line - paragraph break
+            } else {
+                if (inList) { html += '</ul>'; inList = false; }
+                html += '<p>' + formatInline(line) + '</p>';
+            }
+        }
+        
+        if (inList) { html += '</ul>'; }
+        
+        return html;
+    }
+    
+    function formatInline(text) {
+        // Escape HTML first
         let html = escapeHtml(text);
         
-        // Headers
-        html = html.replace(/^## (.*?)$/gm, '<h2>$1</h2>');
-        html = html.replace(/^### (.*?)$/gm, '<h3>$1</h3>');
-        
         // Bold
-        html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        
+        // Italic
+        html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+        html = html.replace(/_(.+?)_/g, '<em>$1</em>');
         
         // Code
-        html = html.replace(/`(.*?)`/g, '<code>$1</code>');
+        html = html.replace(/`(.+?)`/g, '<code>$1</code>');
         
-        // Lists
-        html = html.replace(/^- (.*?)$/gm, '<li>$1</li>');
-        html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
-        
-        // Line breaks
-        html = html.replace(/\n\n/g, '</p><p>');
-        html = html.replace(/\n/g, '<br>');
-        
-        return '<p>' + html + '</p>';
+        return html;
     }
 
     function escapeHtml(text) {

@@ -9,6 +9,20 @@
     <!-- Favicon -->
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}" />
 
+    <!-- Tailwind CDN Configuration - Disable preflight to preserve glass styling -->
+    <script>
+        tailwind.config = {
+            corePlugins: {
+                preflight: false, // Don't inject CSS resets that break glass styling
+            },
+            theme: {
+                extend: {
+                    // Extend rather than override
+                }
+            }
+        }
+    </script>
+
     <!-- Tailwind -->
     <script src="https://cdn.tailwindcss.com"></script>
 
@@ -24,24 +38,7 @@
     <!-- iOS 26 / macOS 26 Liquid Glass Design System -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/liquid-glass.css') }}" />
 
-    <!-- Legacy compatibility layer -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/sequoia-zededa.css') }}" />
-
     {% block extra_head %}{% endblock %}
-    
-    <!-- Tailwind CDN Configuration - Disable preflight to preserve glass styling -->
-    <script>
-        tailwind.config = {
-            corePlugins: {
-                preflight: false, // Don't inject CSS resets that break glass styling
-            },
-            theme: {
-                extend: {
-                    // Extend rather than override
-                }
-            }
-        }
-    </script>
 </head>
 
 <body class="min-h-screen flex flex-col">
@@ -298,6 +295,7 @@
             socket = io();
             
             socket.on('connect', function() {
+                console.log('[Base] Socket connected, sid:', socket.id);
                 setOfflineState(false);
                 if (isReconnecting) {
                     showToast('Reconnected to server', 'success');
@@ -305,7 +303,27 @@
                 isReconnecting = false;
             });
             
+            // Handle chat_connected event from server
+            socket.on('chat_connected', function(data) {
+                console.log('[Base] chat_connected received:', data);
+                // Dispatch custom event so page-specific code can handle it
+                window.dispatchEvent(new CustomEvent('agent-chat-connected', { detail: data }));
+            });
+            
+            // Handle chat_message event from server
+            socket.on('chat_message', function(data) {
+                console.log('[Base] chat_message received:', data);
+                window.dispatchEvent(new CustomEvent('agent-chat-message', { detail: data }));
+            });
+            
+            // Handle agent state changes
+            socket.on('agent_state_changed', function(data) {
+                console.log('[Base] agent_state_changed received:', data);
+                window.dispatchEvent(new CustomEvent('agent-state-changed', { detail: data }));
+            });
+            
             socket.on('disconnect', function() {
+                console.log('[Base] Socket disconnected');
                 isReconnecting = true;
                 setOfflineState(true);
                 showToast('Disconnected from server - UI remains active', 'warning');
