@@ -1,8 +1,8 @@
 """LLM-based intent classifier for MCP domain routing and tool selection.
 
-Replaces brittle keyword / phrase-set matching with a single LLM inference
-call that returns structured JSON.  Includes a deterministic keyword
-fallback for when the inference backend is unreachable.
+Uses a single LLM inference call that returns structured JSON to classify
+user messages into domains and tools.  The LLM is the sole decision maker
+— there are no keyword or regex fallbacks.
 
 Output schema::
 
@@ -22,7 +22,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import requests
 
@@ -98,7 +98,21 @@ Given the user message below, decide:
 | send_invoice_email   | User wants to email / send an invoice or bill to someone. |
 
 ### General domain tools
-Pick `null` for the tool and `general` for the domain when the message is a greeting, help request, status inquiry, or generic camera monitoring command (start/stop monitoring, analyze frame, etc.).
+| tool                      | when to pick |
+|---------------------------|--------------|
+| start_monitoring_session  | User wants to start / begin / activate camera monitoring. |
+| end_session               | User wants to stop / end / deactivate monitoring or end the session. |
+| go_idle                   | User wants to pause monitoring or put the agent in idle / take a break. |
+| get_agent_status          | User asks about the agent's status, whether it's running, current state. |
+| analyze_current_frame     | User wants to analyze / look at / describe / examine what's in the camera view. |
+| query_history             | User asks about recent detections, past events, history. |
+| get_session_summary       | User wants a summary / recap of the monitoring session. |
+| set_detection_task        | User wants to change what the agent detects (package, PPE, person counting, custom). |
+| send_alert_email          | User wants to send an alert email about a detection. |
+| shutdown_agent            | User wants to completely shut down the agent. |
+| acknowledge_error         | User wants to acknowledge / dismiss an error state. |
+
+Pick `null` for the tool when the message is a greeting, help request, thanks, or casual conversation that doesn't need any tool.
 
 ## Parameter extraction rules
 - **emails**: extract all email addresses from the text.
@@ -116,169 +130,6 @@ Respond ONLY with a JSON object — no explanation, no markdown fences:
 
 ## User message
 """
-
-
-# ---------------------------------------------------------------------------
-# Keyword fallback
-# ---------------------------------------------------------------------------
-
-_PCB_KEYWORDS = frozenset([
-    "pcb", "circuit board", "printed circuit", "solder", "soldering",
-    "solder bridge", "trace", "traces", "capacitor", "resistor",
-    "arduino", "raspberry pi", "esp32", "esp8266", "stm32", "teensy",
-    "nodemcu", "jetson", "defect", "defective", "defects",
-    "short circuit", "cold solder", "dry joint", "tombstone",
-    "missing component", "inspect pcb", "inspect board",
-    "quality check", "board inspection",
-])
-
-_RETAIL_KEYWORDS = frozenset([
-    "item", "items", "product", "products", "tray", "shelf", "counter",
-    "bill", "billing", "invoice", "price", "prices", "pricing",
-    "cost", "total", "subtotal", "receipt", "checkout", "ring up",
-    "scan tray", "scan items", "count items", "count them",
-    "create a bill", "generate invoice", "send invoice",
-    "email invoice", "catalog", "catalogue", "retail",
-    "sku", "barcode", "packaging",
-])
-
-# Tool keyword maps for fallback
-_PCB_TOOL_KEYWORDS: Dict[str, List[str]] = {
-    "send_defect_alert": [
-        "send defect alert", "send an alert", "alert about defect",
-        "email defect", "notify about defect", "send alert",
-        "send an email", "alert when", "email when", "notify when",
-    ],
-    "inspect_pcb": [
-        "inspect pcb", "inspect the pcb", "inspect board", "check for defects",
-        "check pcb", "pcb inspection", "look for defects", "scan pcb",
-        "analyze pcb", "any defects", "is this defective", "defect check",
-        "quality check", "quality inspection", "solder check", "see a pcb",
-    ],
-    "classify_board": [
-        "classify board", "what board is this", "identify board",
-        "board type", "what type of board", "is this an arduino",
-        "is this a raspberry pi", "what pcb is this", "recognize board",
-    ],
-    "log_defect": [
-        "log defect", "record defect", "save defect", "store defect",
-    ],
-    "generate_defect_report": [
-        "defect report", "generate report", "show defects",
-        "defect summary", "defect history", "pcb report", "list defects",
-    ],
-}
-
-_RETAIL_TOOL_KEYWORDS: Dict[str, List[str]] = {
-    "send_invoice_email": [
-        "send invoice", "send the invoice", "email invoice",
-        "email the invoice", "mail invoice", "send bill",
-        "send the bill", "email bill",
-    ],
-    "generate_invoice": [
-        "generate invoice", "generate an invoice", "create invoice",
-        "create an invoice", "make invoice", "prepare invoice",
-    ],
-    "create_bill": [
-        "create bill", "create a bill", "make a bill", "generate bill",
-        "calculate bill", "billing", "make bill", "total bill",
-        "tally up", "add up", "ring up", "tally these",
-        "ring these up", "can you bill",
-    ],
-    "scan_tray_items": [
-        "scan tray", "scan the tray", "scan items", "look at the items",
-        "what items", "count items", "count the items", "identify items",
-        "items on the tray", "items placed", "take a look at the items",
-        "check the tray", "see the items", "detect items", "retail scan",
-    ],
-    "lookup_item_price": [
-        "lookup price", "look up price", "price of", "how much is",
-        "how much does", "what does it cost", "price check",
-        "item price", "check price", "find price",
-    ],
-}
-
-
-def _keyword_fallback(message: str) -> ClassificationResult:
-    """Deterministic keyword-based classification (offline fallback)."""
-    msg = message.lower()
-
-    # --- Score domains ---
-    pcb_score = sum(1 for kw in _PCB_KEYWORDS if kw in msg)
-    retail_score = sum(1 for kw in _RETAIL_KEYWORDS if kw in msg)
-
-    if pcb_score == 0 and retail_score == 0:
-        return ClassificationResult(
-            domain="general", tool=None, confidence=0.3,
-            rationale="No domain keywords matched",
-            source="keyword_fallback",
-        )
-
-    domain = "pcb" if pcb_score > retail_score else (
-        "retail" if retail_score > pcb_score else "general"
-    )
-
-    # --- Match tool within domain ---
-    tool_map = _PCB_TOOL_KEYWORDS if domain == "pcb" else _RETAIL_TOOL_KEYWORDS
-    best_tool: Optional[str] = None
-    best_score = 0
-    for tool_name, phrases in tool_map.items():
-        hits = sum(1 for p in phrases if p in msg)
-        if hits > best_score:
-            best_score = hits
-            best_tool = tool_name
-
-    # --- Extract params ---
-    params = _extract_params(message, domain, best_tool)
-
-    return ClassificationResult(
-        domain=domain,
-        tool=best_tool,
-        confidence=min(0.5 + 0.05 * max(pcb_score, retail_score), 0.8),
-        params=params,
-        rationale=f"Keyword fallback: {domain} domain, score pcb={pcb_score} retail={retail_score}",
-        source="keyword_fallback",
-    )
-
-
-def _extract_params(message: str, domain: str, tool: Optional[str]) -> Dict[str, Any]:
-    """Heuristic parameter extraction for the keyword fallback path."""
-    params: Dict[str, Any] = {}
-    # Emails
-    emails = re.findall(r"[\w.+-]+@[\w-]+\.[\w.-]+", message)
-    if emails:
-        if tool in ("send_defect_alert",):
-            params["recipients"] = emails
-        elif tool in ("send_invoice_email", "generate_invoice"):
-            params["recipient_email"] = emails[0]
-
-    # Board type
-    if domain == "pcb":
-        known_boards = [
-            "arduino uno", "arduino mega", "arduino nano", "arduino",
-            "raspberry pi", "esp32", "esp8266", "stm32", "teensy",
-            "nodemcu", "micro:bit", "beaglebone", "jetson",
-        ]
-        msg_lower = message.lower()
-        for board in known_boards:
-            if board in msg_lower:
-                params["board_type"] = board.title()
-                break
-
-    # Item name for lookup
-    if tool == "lookup_item_price":
-        # Try to grab text after "price of" / "how much is"
-        for prefix in ["price of ", "how much is ", "how much does ", "cost of "]:
-            idx = message.lower().find(prefix)
-            if idx >= 0:
-                params["item_name"] = message[idx + len(prefix):].strip().rstrip("?. ")
-                break
-
-    # Query passthrough for scan/inspect
-    if tool in ("scan_tray_items", "inspect_pcb"):
-        params["query"] = message
-
-    return params
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +234,8 @@ class LLMIntentClassifier:
     def classify(self, message: str) -> ClassificationResult:
         """Classify a user message, returning domain + tool + params.
 
-        Tries the LLM first; falls back to keyword matching on error.
+        Uses the LLM exclusively.  Returns a low-confidence general
+        result if the LLM is unreachable.
         """
         if not message or not message.strip():
             return ClassificationResult(
@@ -393,8 +245,12 @@ class LLMIntentClassifier:
 
         # Circuit breaker check
         if self._is_circuit_open():
-            logger.debug("LLM classifier circuit open — using keyword fallback")
-            return _keyword_fallback(message)
+            logger.debug("LLM classifier circuit open — returning general")
+            return ClassificationResult(
+                domain="general", tool=None, confidence=0.2,
+                rationale="LLM circuit breaker open",
+                source="circuit_breaker",
+            )
 
         try:
             result = self._call_llm(message)
@@ -403,10 +259,14 @@ class LLMIntentClassifier:
         except Exception as exc:
             self._record_failure()
             logger.warning(
-                "LLM classification failed (%s), falling back to keywords",
+                "LLM classification failed (%s), returning general domain",
                 exc,
             )
-            return _keyword_fallback(message)
+            return ClassificationResult(
+                domain="general", tool=None, confidence=0.1,
+                rationale=f"LLM unavailable: {exc}",
+                source="llm_error",
+            )
 
     # ------------------------------------------------------------------
     # LLM call
@@ -435,17 +295,13 @@ class LLMIntentClassifier:
         if domain not in ("pcb", "retail", "general"):
             domain = "general"
 
-        # Merge heuristic params the LLM may have missed (e.g. emails)
         llm_params = parsed.get("params") or {}
-        heuristic_params = _extract_params(message, domain, parsed.get("tool"))
-        # LLM params take priority, heuristic fills gaps
-        merged_params = {**heuristic_params, **llm_params}
 
         return ClassificationResult(
             domain=domain,
             tool=parsed.get("tool"),
             confidence=min(float(parsed.get("confidence", 0.8)), 1.0),
-            params=merged_params,
+            params=llm_params,
             rationale=parsed.get("rationale", ""),
             source="llm",
         )

@@ -18,7 +18,6 @@ interfaces the WebSocket chat and REST API already depend on.
 
 from __future__ import annotations
 
-import re
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -48,51 +47,6 @@ DOMAIN_RETAIL = "retail"
 DOMAIN_GENERAL = "general"
 
 VALID_DOMAINS = frozenset([DOMAIN_PCB, DOMAIN_RETAIL, DOMAIN_GENERAL])
-
-
-# =============================================================================
-# KEYWORD SETS FOR AUTO-DETECTION
-# =============================================================================
-
-_PCB_KEYWORDS: frozenset = frozenset([
-    # Board / component
-    "pcb", "circuit board", "printed circuit",
-    "solder", "soldering", "solder bridge",
-    "trace", "traces", "via", "vias",
-    "capacitor", "resistor", "ic chip",
-    # Board names
-    "arduino", "raspberry pi", "esp32", "esp8266",
-    "stm32", "teensy", "nodemcu", "jetson",
-    # Defects
-    "defect", "defective", "defects",
-    "short circuit", "cold solder", "dry joint",
-    "tombstone", "bridging", "whisker",
-    "missing component", "misaligned",
-    # Inspection verbs
-    "inspect pcb", "inspect board",
-    "quality check", "quality inspection",
-    "board inspection",
-])
-
-_RETAIL_KEYWORDS: frozenset = frozenset([
-    # Items / products
-    "item", "items", "product", "products",
-    "goods", "merchandise",
-    "tray", "shelf", "counter",
-    # Billing / pricing
-    "bill", "billing", "invoice",
-    "price", "prices", "pricing",
-    "cost", "total", "subtotal",
-    "receipt", "checkout",
-    # Actions
-    "ring up", "scan tray", "scan items",
-    "count items", "count them",
-    "create a bill", "generate invoice",
-    "send invoice", "email invoice",
-    "catalog", "catalogue",
-    "retail", "packaging",
-    "sku", "barcode",
-])
 
 
 # =============================================================================
@@ -170,8 +124,8 @@ class MCPManager:
     def detect_domain(message: str) -> str:
         """Return the best-matching domain for *message*.
 
-        Uses the LLM intent classifier first; falls back to keyword
-        scoring when the inference backend is unreachable.
+        Uses the LLM intent classifier exclusively.
+        Returns ``general`` if the LLM is unreachable.
         """
         try:
             from agents.llm_classifier import get_classifier
@@ -183,19 +137,8 @@ class MCPManager:
                 )
                 return result.domain
         except Exception as exc:
-            logger.warning("LLM classifier unavailable, using keyword fallback: %s", exc)
+            logger.warning("LLM classifier unavailable: %s", exc)
 
-        # Keyword fallback
-        msg = message.lower()
-        pcb_score = sum(1 for kw in _PCB_KEYWORDS if kw in msg)
-        retail_score = sum(1 for kw in _RETAIL_KEYWORDS if kw in msg)
-
-        if pcb_score == 0 and retail_score == 0:
-            return DOMAIN_GENERAL
-        if pcb_score > retail_score:
-            return DOMAIN_PCB
-        if retail_score > pcb_score:
-            return DOMAIN_RETAIL
         return DOMAIN_GENERAL
 
     # ------------------------------------------------------------------

@@ -356,11 +356,16 @@ class StreamlinedAgent:
         if self.save_images:
             image_path = self._save_detection_image(frame, vlm_result)
         
+        # Derive label from VLM reasoning instead of hardcoding
+        primary_label = "no_detection"
+        if vlm_result.detected:
+            primary_label = getattr(vlm_result, 'primary_label', None) or "detection"
+
         event = DetectionEvent(
             timestamp=datetime.now().isoformat(),
             detected=vlm_result.detected,
             confidence=vlm_result.confidence,
-            primary_label="packaging_box" if vlm_result.detected else "no_detection",
+            primary_label=primary_label,
             vision_description=vlm_result.reasoning,
             full_response=vlm_result.raw_response[:500],
             should_alert=vlm_result.should_alert,
@@ -423,15 +428,8 @@ class StreamlinedAgent:
             if result is None:
                 return None
             
-            # Map task type to label
-            task_label_map = {
-                TT.PACKAGE_DETECTION: "package_detection",
-                TT.PPE_DETECTION: "ppe_detection",
-                TT.PERSON_COUNTING: "person_count",
-                TT.SCENE_DESCRIPTION: "scene_description",
-                TT.CUSTOM: "custom_detection",
-            }
-            primary_label = task_label_map.get(task_type, "detection") if result.detected else "no_detection"
+            # Use task_type value directly as the label
+            primary_label = task_type.value if result.detected else "no_detection"
             
             # Save detection image if enabled
             image_path = ""
@@ -492,7 +490,7 @@ class StreamlinedAgent:
             logger.warning("Circuit breaker is open - skipping agentic analysis")
             return None
         
-        effective_task_type = task_type or TT.PACKAGE_DETECTION
+        effective_task_type = task_type or TT.CUSTOM
         
         # Get recipients from config if not provided
         if recipients is None:

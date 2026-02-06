@@ -34,12 +34,6 @@ def chat_v2():
     return redirect(url_for("views.chat"))
 
 
-@views_bp.route("/monitoring-legacy")
-def monitoring_legacy():
-    """Legacy monitoring page (original interface)."""
-    return render_template("monitoring.html")
-
-
 @views_bp.route("/configuration")
 def configuration():
     """Legacy configuration route - redirects to settings."""

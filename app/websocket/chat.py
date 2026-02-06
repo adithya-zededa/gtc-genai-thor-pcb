@@ -786,8 +786,8 @@ def _generate_conversational_response(
 ) -> ChatMessage:
     """Generate a conversational response for general queries.
 
-    Tries the LLM router first for intelligent responses; falls back
-    to hardcoded pattern matching when unavailable.
+    Uses the LLM router for intelligent responses.  Returns a minimal
+    fallback only when no LLM provider is reachable.
     """
     # Try LLM-powered response via router
     if chat_session is not None:
@@ -795,65 +795,15 @@ def _generate_conversational_response(
         if llm_response is not None:
             return llm_response
 
-    text_lower = user_text.lower()
-    
-    # Help request
-    if any(word in text_lower for word in ["help", "what can you do", "commands", "how to"]):
-        return ChatMessage.assistant(_generate_help_text(state))
-    
-    # Greeting
-    if any(word in text_lower for word in ["hello", "hi", "hey", "good morning", "good afternoon"]):
-        return ChatMessage.assistant(
-            f"Hello! 👋 I'm here to help with camera monitoring.\n\n"
-            f"The agent is currently **{state.value}**. What would you like to do?"
-        )
-    
-    # Thank you
-    if any(word in text_lower for word in ["thank", "thanks", "appreciate"]):
-        return ChatMessage.assistant(
-            "You're welcome! Let me know if there's anything else I can help with. 😊"
-        )
-    
-    # Catch-all
+    # Minimal degraded-mode fallback (no keyword matching)
     return ChatMessage.assistant(
-        "I'm not sure I understood that. Here are some things you can try:\n\n"
-        "- **\"Start monitoring\"** or **\"Stop monitoring\"** to control the agent\n"
-        "- **\"Analyze the frame\"** to see what's in view\n"
-        "- **\"Show history\"** to see past detections\n"
-        "- **\"Help\"** to see all commands\n\n"
-        "Feel free to ask in your own words!"
+        f"I'm currently unable to reach the language model, so I can't fully "
+        f"process your request right now.\n\n"
+        f"The agent is **{state.value}**. You can still use direct commands "
+        f"like **\"start monitoring\"**, **\"analyze the frame\"**, or "
+        f"**\"show history\"**.\n\n"
+        f"Please check the LLM provider settings if this persists."
     )
-
-
-def _generate_help_text(state: AgentState) -> str:
-    """Generate help text based on current state."""
-    help_text = (
-        "## 🤖 Available Commands\n\n"
-        "### 🔌 PCB Inspection\n"
-        "- **\"Inspect the PCB\"** / **\"Check for defects\"** - Analyze board\n"
-        "- **\"Classify board\"** / **\"What board is this?\"** - Identify board type\n"
-        "- **\"Send defect alert\"** - Alert about detected defects\n"
-        "- **\"Log defect\"** - Record a defect to history\n"
-        "- **\"Defect report\"** / **\"Show defects\"** - Generate report\n\n"
-        "### 🛒 Retail Billing\n"
-        "- **\"Scan the tray\"** / **\"Count items\"** - Identify items\n"
-        "- **\"Look up price\"** - Check item price in catalog\n"
-        "- **\"Create a bill\"** - Calculate totals\n"
-        "- **\"Generate invoice\"** - Render HTML invoice\n"
-        "- **\"Send invoice\"** - Email the invoice\n\n"
-        "### 📷 Session Control\n"
-        "- **\"Start monitoring\"** - Begin a new monitoring session\n"
-        "- **\"Stop monitoring\"** or **\"End session\"** - Stop and get summary\n"
-        "- **\"Go idle\"** or **\"Pause\"** - Pause without ending session\n\n"
-        "### ℹ️ Analysis & Information\n"
-        "- **\"What do you see?\"** / **\"Analyze\"** - Analyze current frame\n"
-        "- **\"What's your status?\"** - Get agent status\n"
-        "- **\"Show history\"** / **\"Recent events\"** - View detection history\n\n"
-        "---\n"
-        f"🔵 **Current State:** {state.value}\n\n"
-        "*Commands are auto-routed to the correct agent (PCB / Retail / General).*"
-    )
-    return help_text
 
 
 # =============================================================================

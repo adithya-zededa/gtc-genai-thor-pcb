@@ -1127,76 +1127,23 @@ class MCPInterpreter:
     """Interprets user intent and produces tool call proposals.
     
     This is the INTERPRETATION PHASE. No tools are executed here.
+    Uses the LLM intent classifier to determine which tool to call.
     """
 
-    START_SESSION_PHRASES = frozenset([
-        "start monitoring",
-        "begin monitoring",
-        "turn the agent on",
-        "turn on the agent",
-        "enable the agent",
-        "start the agent",
-        "activate monitoring",
-        "start a monitoring session",
-        "begin a new session",
-    ])
-
-    END_SESSION_PHRASES = frozenset([
-        "stop monitoring",
-        "end monitoring",
-        "turn the agent off",
-        "turn off the agent",
-        "disable the agent",
-        "stop the agent",
-        "deactivate monitoring",
-        "end the session",
-        "end session",
-    ])
-
-    IDLE_PHRASES = frozenset([
-        "pause monitoring",
-        "go idle",
-        "take a break",
-        "pause the agent",
-    ])
-
-    STATUS_PHRASES = frozenset([
-        "status",
-        "what is your status",
-        "what's your status",
-        "are you running",
-        "is the agent on",
-        "is monitoring active",
-        "agent status",
-        "current state",
-    ])
-
-    ANALYZE_PHRASES = frozenset([
-        "analyze",
-        "look at",
-        "what do you see",
-        "describe",
-        "check the camera",
-        "what's in the frame",
-        "what is in view",
-        "examine",
-    ])
-
-    HISTORY_PHRASES = frozenset([
-        "history",
-        "recent detections",
-        "what happened",
-        "past events",
-        "show me events",
-        "recent events",
-    ])
-
-    SUMMARY_PHRASES = frozenset([
-        "summarize",
-        "summary",
-        "what happened in the session",
-        "session summary",
-        "recap",
+    _VALID_TOOLS: frozenset = frozenset([
+        "start_monitoring_session",
+        "end_session",
+        "go_idle",
+        "get_agent_status",
+        "analyze_current_frame",
+        "query_history",
+        "get_session_summary",
+        "set_detection_task",
+        "send_alert_email",
+        "save_evidence",
+        "log_event",
+        "shutdown_agent",
+        "acknowledge_error",
     ])
 
     def __init__(self, registry: Optional[MCPToolRegistry] = None):
@@ -1211,164 +1158,62 @@ class MCPInterpreter:
     ) -> Optional[MCPToolCallProposal]:
         """Interpret user message and produce a tool call proposal.
         
-        Returns None if no tool call is needed.
+        Returns None if no tool call is needed (conversational messages).
         """
         start_time = time.time()
-        message_lower = user_message.lower().strip()
-        
+
         self.audit_log.log(AuditLogEntry.create(
             event_type=AuditEventType.INTENT_DETECTED,
             details={"message": user_message[:500], "agent_state": agent_state.value},
             session_id=session_id,
         ))
 
-        proposal = self._check_session_intents(message_lower, agent_state, session_id)
-        if proposal:
-            return self._finalize_proposal(proposal, start_time, session_id)
+        # --- Use LLM classifier ---
+        try:
+            from agents.llm_classifier import get_classifier
 
-        proposal = self._check_status_intents(message_lower, agent_state, session_id)
-        if proposal:
-            return self._finalize_proposal(proposal, start_time, session_id)
+            result = get_classifier().classify(user_message)
+            logger.info(
+                "General interpreter: LLM classified domain=%s tool=%s confidence=%.2f source=%s",
+                result.domain, result.tool, result.confidence, result.source,
+            )
+        except Exception as exc:
+            logger.warning("LLM classifier failed in general interpreter: %s", exc)
+            return None
 
-        proposal = self._check_analysis_intents(user_message, message_lower, agent_state, session_id)
-        if proposal:
-            return self._finalize_proposal(proposal, start_time, session_id)
+        # No tool identified — conversational message
+        if not result.tool or result.tool not in self._VALID_TOOLS:
+            return None
 
-        proposal = self._check_history_intents(message_lower, agent_state, session_id)
-        if proposal:
-            return self._finalize_proposal(proposal, start_time, session_id)
+        # Validate tool exists and state allows it
+        tool_def = self.registry.get(result.tool)
+        if not tool_def:
+            return None
 
-        return None
+        if agent_state not in tool_def.allowed_in_states:
+            return self._create_state_violation_proposal(
+                result.tool, agent_state, tool_def.allowed_in_states, session_id,
+            )
 
-    def _check_session_intents(
-        self,
-        message_lower: str,
-        agent_state: AgentState,
-        session_id: Optional[str],
-    ) -> Optional[MCPToolCallProposal]:
-        """Check for session control intents."""
-        
-        for phrase in self.START_SESSION_PHRASES:
-            if phrase in message_lower:
-                tool = self.registry.get("start_monitoring_session")
-                if tool and agent_state in tool.allowed_in_states:
-                    return MCPToolCallProposal.create(
-                        tool_name="start_monitoring_session",
-                        arguments={},
-                        rationale=f"User requested to start monitoring: '{message_lower}'",
-                        confidence=0.95,
-                        requires_confirmation=tool.requires_confirmation,
-                        session_id=session_id,
-                    )
-                elif tool:
-                    return self._create_state_violation_proposal(
-                        "start_monitoring_session",
-                        agent_state,
-                        tool.allowed_in_states,
-                        session_id,
-                    )
+        # Build arguments from classifier params
+        arguments: Dict[str, Any] = {}
+        if result.params:
+            arguments.update(result.params)
 
-        for phrase in self.END_SESSION_PHRASES:
-            if phrase in message_lower:
-                tool = self.registry.get("end_session")
-                if tool and agent_state in tool.allowed_in_states:
-                    return MCPToolCallProposal.create(
-                        tool_name="end_session",
-                        arguments={},
-                        rationale=f"User requested to end session: '{message_lower}'",
-                        confidence=0.95,
-                        requires_confirmation=tool.requires_confirmation,
-                        session_id=session_id,
-                    )
+        # For analyze, ensure query is populated
+        if result.tool == "analyze_current_frame" and "query" not in arguments:
+            arguments["query"] = user_message
 
-        for phrase in self.IDLE_PHRASES:
-            if phrase in message_lower:
-                tool = self.registry.get("go_idle")
-                if tool and agent_state in tool.allowed_in_states:
-                    return MCPToolCallProposal.create(
-                        tool_name="go_idle",
-                        arguments={},
-                        rationale=f"User requested to pause: '{message_lower}'",
-                        confidence=0.90,
-                        requires_confirmation=tool.requires_confirmation,
-                        session_id=session_id,
-                    )
+        proposal = MCPToolCallProposal.create(
+            tool_name=result.tool,
+            arguments=arguments,
+            rationale=result.rationale or f"LLM classified as {result.tool}",
+            confidence=result.confidence,
+            requires_confirmation=tool_def.requires_confirmation,
+            session_id=session_id,
+        )
 
-        return None
-
-    def _check_status_intents(
-        self,
-        message_lower: str,
-        agent_state: AgentState,
-        session_id: Optional[str],
-    ) -> Optional[MCPToolCallProposal]:
-        """Check for status query intents."""
-        for phrase in self.STATUS_PHRASES:
-            if phrase in message_lower:
-                return MCPToolCallProposal.create(
-                    tool_name="get_agent_status",
-                    arguments={},
-                    rationale=f"User asked about status: '{message_lower}'",
-                    confidence=0.90,
-                    requires_confirmation=False,
-                    session_id=session_id,
-                )
-        return None
-
-    def _check_analysis_intents(
-        self,
-        user_message: str,
-        message_lower: str,
-        agent_state: AgentState,
-        session_id: Optional[str],
-    ) -> Optional[MCPToolCallProposal]:
-        """Check for frame analysis intents."""
-        for phrase in self.ANALYZE_PHRASES:
-            if phrase in message_lower:
-                tool = self.registry.get("analyze_current_frame")
-                if tool and agent_state in tool.allowed_in_states:
-                    return MCPToolCallProposal.create(
-                        tool_name="analyze_current_frame",
-                        arguments={"query": user_message},
-                        rationale=f"User requested frame analysis: '{message_lower}'",
-                        confidence=0.85,
-                        requires_confirmation=tool.requires_confirmation,
-                        session_id=session_id,
-                    )
-        return None
-
-    def _check_history_intents(
-        self,
-        message_lower: str,
-        agent_state: AgentState,
-        session_id: Optional[str],
-    ) -> Optional[MCPToolCallProposal]:
-        """Check for history/summary intents."""
-        
-        for phrase in self.SUMMARY_PHRASES:
-            if phrase in message_lower:
-                return MCPToolCallProposal.create(
-                    tool_name="get_session_summary",
-                    arguments={},
-                    rationale=f"User requested summary: '{message_lower}'",
-                    confidence=0.85,
-                    requires_confirmation=False,
-                    session_id=session_id,
-                )
-
-        for phrase in self.HISTORY_PHRASES:
-            if phrase in message_lower:
-                tool = self.registry.get("query_history")
-                if tool and agent_state in tool.allowed_in_states:
-                    return MCPToolCallProposal.create(
-                        tool_name="query_history",
-                        arguments={"limit": 10},
-                        rationale=f"User requested history: '{message_lower}'",
-                        confidence=0.85,
-                        requires_confirmation=False,
-                        session_id=session_id,
-                    )
-        return None
+        return self._finalize_proposal(proposal, start_time, session_id)
 
     def _create_state_violation_proposal(
         self,
