@@ -1,16 +1,33 @@
-"""Agent modules for AI-powered analysis."""
+"""Agent modules for AI-powered analysis.
 
-from .camera_agent import StreamlinedAgent, CircuitBreaker
-from .state import AgentMemory, AgentState, DetectionEvent
-from .alerting import AlertManager
-from .tools import (
+Restructured layout:
+    agents/
+    ├── core/           - Camera agent, state, alerting
+    ├── tools/          - Tool definitions and executors
+    ├── mcp/            - MCP base + manager
+    │   └── domains/    - PCB, retail domain MCPs
+    ├── classifiers/    - LLM intent classifier
+    └── vlm/            - Vision Language Model client
+
+All symbols are re-exported here for backward compatibility.
+"""
+
+# Core agent components
+from .core.camera_agent import StreamlinedAgent, CircuitBreaker
+from .core.state import AgentMemory, AgentState, DetectionEvent
+from .core.alerting import AlertManager
+
+# Tool system
+from .tools.base import (
     ToolDefinition,
     ToolCall,
     ToolResult,
     ToolExecutor,
     TOOL_REGISTRY,
 )
-from .mcp import (
+
+# MCP infrastructure
+from .mcp.base import (
     # Core types
     MCPSchemaType,
     MCPParameterSchema,
@@ -42,8 +59,13 @@ from .mcp import (
     get_mcp_executor,
     get_mcp_interpreter,
 )
-from .mcp_manager import MCPManager, get_mcp_manager
-from .pcb_mcp import (
+from .mcp.manager import MCPManager, get_mcp_manager
+
+# Classifier
+from .classifiers.llm_classifier import LLMIntentClassifier, ClassificationResult, get_classifier
+
+# Domain MCPs
+from .mcp.domains.pcb import (
     PCBToolRegistry,
     PCBInterpreter,
     PCBExecutor,
@@ -51,7 +73,7 @@ from .pcb_mcp import (
     get_pcb_interpreter,
     get_pcb_executor,
 )
-from .retail_mcp import (
+from .mcp.domains.retail import (
     RetailToolRegistry,
     RetailInterpreter,
     RetailExecutor,
@@ -102,6 +124,10 @@ __all__ = [
     # MCP Manager
     "MCPManager",
     "get_mcp_manager",
+    # Classifier
+    "LLMIntentClassifier",
+    "ClassificationResult",
+    "get_classifier",
     # PCB MCP
     "PCBToolRegistry",
     "PCBInterpreter",

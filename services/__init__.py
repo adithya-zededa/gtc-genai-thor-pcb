@@ -1,17 +1,33 @@
-"""Service layer modules for business logic."""
+"""Service layer modules for business logic.
 
-from .camera_service import (
+Restructured layout:
+    services/
+    ├── core/           - Camera, monitoring, inference
+    ├── infrastructure/ - Configuration, VLM client factory
+    └── domains/        - PCB and retail domain services
+
+All symbols are re-exported here for backward compatibility.
+"""
+
+# Core services
+from .core.camera import (
     CameraFrame,
     CameraFeedPublisher,
     get_camera_publisher,
     check_camera_availability,
 )
-from .inference_service import (
+from .core.inference import (
     check_inference_backend_availability,
     check_vllm_availability,
     check_ollama_availability,
 )
-from .config_service import (
+from .core.monitoring import (
+    get_monitoring_service,
+    StreamlinedMonitoringService,
+)
+
+# Infrastructure services
+from .infrastructure.config import (
     load_camera_config,
     save_camera_config,
     reset_camera_config,
@@ -20,12 +36,10 @@ from .config_service import (
     sanitize_config_payload,
     update_email_recipients,
 )
-from .monitoring_service import (
-    get_monitoring_service,
-    StreamlinedMonitoringService,
-)
-from .vlm_service import create_vlm_client_from_config
-from .retail_service import (
+from .infrastructure.vlm import create_vlm_client_from_config
+
+# Domain services
+from .domains.retail import (
     lookup_items as retail_lookup_items,
     lookup_item_by_sku as retail_lookup_item_by_sku,
     calculate_bill as retail_calculate_bill,
@@ -33,7 +47,7 @@ from .retail_service import (
     save_invoice as retail_save_invoice,
     save_and_send_invoice as retail_save_and_send_invoice,
 )
-from .pcb_service import (
+from .domains.pcb import (
     record_defect as pcb_record_defect,
     should_alert as pcb_should_alert,
     generate_defect_report as pcb_generate_defect_report,

@@ -1,0 +1,17 @@
+# Development dependencies
+# Install with: pip install -r requirements/dev.txt
+
+-r base.txt
+-r test.txt
+
+# Debugging
+debugpy>=1.8.0
+
+# Code quality
+flake8>=7.0.0
+black>=24.0.0
+isort>=5.13.0
+mypy>=1.8.0
+
+# Pre-commit hooks
+pre-commit>=3.6.0

@@ -9,9 +9,9 @@ endpoints have been removed.
 from flask import jsonify, request
 
 from . import api_bp
-from services.monitoring_service import get_monitoring_service
-from services.camera_service import check_camera_availability
-from services.inference_service import check_inference_backend_availability
+from services.core.monitoring import get_monitoring_service
+from services.core.camera import check_camera_availability
+from services.core.inference import check_inference_backend_availability
 from core.config import get_config
 from core.logging import get_logger
 

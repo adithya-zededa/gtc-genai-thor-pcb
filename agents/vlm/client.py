@@ -28,7 +28,7 @@ from .task_types import TaskType
 from .prompts import TASK_PROMPTS, DEFAULT_DETECTION_PROMPT, CUSTOM_QUERY_TEMPLATE
 
 if TYPE_CHECKING:
-    from agents.tools import ToolExecutor, ToolCall
+    from agents.tools.base import ToolExecutor, ToolCall
 
 logger = get_logger(__name__)
 
@@ -722,7 +722,7 @@ class UnifiedVLMClient:
         recipients: Optional[List[str]] = None,
     ) -> AgenticResult:
         """Analyze a frame with tool-calling capability."""
-        from agents.tools import ToolCall
+        from agents.tools.base import ToolCall
         
         if user_query:
             effective_task_type = TaskType.CUSTOM
@@ -835,7 +835,7 @@ If yes, make more tool calls. If no, summarize what was done.
 
     def _get_tools_prompt(self, tool_executor: "ToolExecutor") -> str:
         """Get the tools prompt from the executor."""
-        from agents.tools import TOOL_REGISTRY
+        from agents.tools.base import TOOL_REGISTRY
         
         tools_desc = []
         for name, tool in TOOL_REGISTRY.items():
@@ -854,7 +854,7 @@ To call a tool, use this format:
 
     def _parse_tool_calls(self, response: str) -> List["ToolCall"]:
         """Parse tool calls from LLM response."""
-        from agents.tools import ToolCall
+        from agents.tools.base import ToolCall
         
         calls = []
         pattern = r'```tool_call\s*(.*?)\s*```'

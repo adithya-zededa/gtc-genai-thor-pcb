@@ -4,7 +4,7 @@ import json
 from flask import jsonify, request
 
 from . import api_bp
-from services.config_service import (
+from services.infrastructure.config import (
     load_camera_config,
     save_camera_config,
     reset_camera_config,
@@ -13,7 +13,7 @@ from services.config_service import (
     sanitize_config_payload,
     update_email_recipients,
 )
-from services.monitoring_service import get_monitoring_service
+from services.core.monitoring import get_monitoring_service
 from app.database import ConfigHistoryRepository
 from core.utils import coerce_bool
 from core.logging import get_logger
@@ -86,7 +86,7 @@ def config():
 @api_bp.route("/config/defaults", methods=["GET"])
 def config_defaults():
     """Return the default configuration without persisting it."""
-    from agents.camera_agent import StreamlinedAgent
+    from agents.core.camera_agent import StreamlinedAgent
     
     defaults = StreamlinedAgent.default_config()
     sanitized = sanitize_config_payload(defaults)

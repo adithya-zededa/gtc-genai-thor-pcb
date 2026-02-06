@@ -9,12 +9,12 @@ import cv2
 import numpy as np
 
 from . import api_bp
-from services.monitoring_service import get_monitoring_service
-from services.config_service import load_camera_config
-from services.vlm_service import create_vlm_client_from_config
-from services.camera_service import get_camera_publisher
+from services.core.monitoring import get_monitoring_service
+from services.infrastructure.config import load_camera_config
+from services.infrastructure.vlm import create_vlm_client_from_config
+from services.core.camera import get_camera_publisher
 from agents.vlm.task_types import TaskType
-from agents.tools import ToolExecutor
+from agents.tools.base import ToolExecutor
 from app.database import DetectionLogRepository
 from app import socketio
 from core.logging import get_logger
@@ -432,7 +432,7 @@ def analyze_uploaded_image():
             if use_agentic is None:
                 use_agentic = False
             
-            from agents.camera_agent import StreamlinedAgent, CircuitBreaker
+            from agents.core.camera_agent import StreamlinedAgent, CircuitBreaker
             circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=120.0)
             agent = StreamlinedAgent(
                 config=config,

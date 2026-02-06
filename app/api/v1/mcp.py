@@ -15,7 +15,7 @@ auto-approval.
 from flask import jsonify, request
 
 from . import api_bp
-from agents.mcp import (
+from agents.mcp.base import (
     AgentState,
     AuditEventType,
     get_agent_state_machine,
@@ -24,7 +24,7 @@ from agents.mcp import (
     get_mcp_interpreter,
     get_tool_registry,
 )
-from agents.mcp_manager import get_mcp_manager, VALID_DOMAINS
+from agents.mcp.manager import get_mcp_manager, VALID_DOMAINS
 from core.logging import get_logger
 
 logger = get_logger(__name__)

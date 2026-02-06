@@ -5,7 +5,7 @@ import time
 from flask import jsonify, Response
 
 from . import api_bp
-from services.camera_service import get_camera_publisher
+from services.core.camera import get_camera_publisher
 from core.logging import get_logger
 
 logger = get_logger(__name__)

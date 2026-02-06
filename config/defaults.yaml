@@ -1,0 +1,50 @@
+# Configuration defaults
+# These can be overridden by environment variables or config.yaml
+
+database:
+  path: camera_agent.db
+
+camera:
+  device_index: 0
+  width: 640
+  height: 480
+  fps: 30
+  capture_interval: 30
+  save_detection_images: true
+  detection_image_dir: detected_images
+
+inference:
+  backend: vllm
+  vllm:
+    url: http://localhost:8000
+    model: Qwen/Qwen3-VL-8B-Instruct
+    timeout: 300
+    temperature: 0.1
+  ollama:
+    url: http://localhost:11434
+    vision_model: qwen3-vl:8b
+    timeout: 300
+    temperature: 0.1
+
+flask:
+  host: 0.0.0.0
+  port: 8080
+  debug: false
+  socketio_cors: "*"
+
+router:
+  enabled: false
+  routing_strategy: failover
+  auto_discover: true
+  use_for_classification: true
+  use_for_chat: true
+
+memory:
+  max_events: 50
+  summary_window: 10
+
+notifications:
+  email_enabled: true
+  desktop_enabled: true
+
+http_timeout: 5.0

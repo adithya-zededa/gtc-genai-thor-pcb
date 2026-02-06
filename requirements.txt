@@ -1,34 +1,11 @@
 # ZEDEDA Camera Monitoring Agent - Dependencies
+#
+# This file installs all dependencies (production + testing).
+# For targeted installs, use the files under requirements/:
+#   pip install -r requirements/base.txt   # Core runtime only
+#   pip install -r requirements/prod.txt   # Production (base + gunicorn)
+#   pip install -r requirements/dev.txt    # Development (base + test + linting)
+#   pip install -r requirements/test.txt   # Testing (base + pytest)
 
-# Web framework
-Flask>=3.0.0
-Flask-Cors>=4.0.0
-flask-socketio>=5.3.0
-gunicorn>=21.2.0
-
-# Configuration
-python-dotenv>=1.0.1
-PyYAML>=6.0.1
-pydantic>=2.0.0
-
-# HTTP client
-requests>=2.31.0
-
-# LLM Router - Cloud provider SDKs (optional, install as needed)
-# pip install anthropic  # For Anthropic Claude
-# pip install openai     # For OpenAI GPT models
-# pip install google-genai # For Google Gemini
-anthropic>=0.40.0
-openai>=1.50.0
-google-genai>=1.0.0
-
-# System monitoring
-psutil>=5.9.0
-
-# Computer vision
-opencv-python>=4.8.0
-scikit-image>=0.22.0
-numpy>=1.26.0
-
-# Testing
-pytest>=7.4.0
+-r requirements/prod.txt
+-r requirements/test.txt

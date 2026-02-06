@@ -8,8 +8,8 @@ from pathlib import Path
 from flask import jsonify, request
 
 from . import api_bp
-from services.camera_service import check_camera_availability
-from services.inference_service import (
+from services.core.camera import check_camera_availability
+from services.core.inference import (
     check_inference_backend_availability,
     check_vllm_availability,
     check_ollama_availability,

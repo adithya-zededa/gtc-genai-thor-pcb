@@ -45,11 +45,11 @@ def create_app(config_override: dict = None) -> Flask:
     
     # Register blueprints
     from app.views import views_bp
-    from app.api.v1 import api_bp
+    from app.api import register_api_versions
     from app.websocket import register_handlers
     
     app.register_blueprint(views_bp)
-    app.register_blueprint(api_bp, url_prefix="/api")
+    register_api_versions(app)
     
     # Register WebSocket handlers
     register_handlers(socketio)

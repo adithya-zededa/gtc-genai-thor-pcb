@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from flask import request
 from flask_socketio import emit, join_room, leave_room
 
-from agents.mcp import (
+from agents.mcp.base import (
     AgentState,
     AuditEventType,
     AuditLogEntry,
@@ -32,7 +32,7 @@ from agents.mcp import (
     get_mcp_interpreter,
     get_tool_registry,
 )
-from agents.mcp_manager import get_mcp_manager, DOMAIN_PCB, DOMAIN_RETAIL, DOMAIN_GENERAL
+from agents.mcp.manager import get_mcp_manager, DOMAIN_PCB, DOMAIN_RETAIL, DOMAIN_GENERAL
 from core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -179,7 +179,7 @@ def initialize_chat_for_client(session_id: str) -> None:
     available_tools = registry.get_display_list(current_state)
     
     # Get monitoring status
-    from services.monitoring_service import get_monitoring_service
+    from services.core.monitoring import get_monitoring_service
     monitoring_service = get_monitoring_service()
     monitoring_active = monitoring_service.is_monitoring if monitoring_service else False
     
@@ -264,7 +264,7 @@ def register_chat_handlers(socketio: "SocketIO") -> None:
             available_tools = registry.get_display_list(current_state)
             
             # Get monitoring status
-            from services.monitoring_service import get_monitoring_service
+            from services.core.monitoring import get_monitoring_service
             monitoring_service = get_monitoring_service()
             monitoring_active = monitoring_service.is_monitoring if monitoring_service else False
             
@@ -826,7 +826,7 @@ def _emit_pending_proposal(socketio: "SocketIO", session_id: str, result: Dict[s
 
 def _broadcast_state_update(socketio: "SocketIO", executor: MCPExecutor) -> None:
     """Broadcast agent state update to all clients."""
-    from services.monitoring_service import get_monitoring_service
+    from services.core.monitoring import get_monitoring_service
     
     state_machine = get_agent_state_machine()
     audit_log = get_audit_log()
