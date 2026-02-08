@@ -196,7 +196,7 @@ class DetectionLogRepository:
         with get_db_connection() as conn:
             rows = conn.execute(
                 """
-                SELECT timestamp, confidence, response, image_path, frame_number,
+                SELECT id, timestamp, confidence, response, image_path, frame_number,
                        reason, vision_description, decision_details, tool_trace
                 FROM detection_logs
                 ORDER BY timestamp DESC
@@ -319,8 +319,8 @@ class RetailCatalogRepository:
         return [RetailCatalogItem.from_row(row) for row in rows]
 
     @staticmethod
-    def create(item_name: str, sku: str, price: float, category: str = "other") -> int:
-        """Create a new catalog item and return the ID."""
+    def create(item_name: str, sku: str, price: float, category: str = "other") -> RetailCatalogItem:
+        """Create a new catalog item and return it."""
         with get_db_connection() as conn:
             cursor = conn.execute(
                 """
@@ -330,15 +330,18 @@ class RetailCatalogRepository:
                 (item_name, sku, price, category),
             )
             conn.commit()
-            return cursor.lastrowid
+            row = conn.execute(
+                "SELECT * FROM retail_catalog WHERE id = ?", (cursor.lastrowid,)
+            ).fetchone()
+        return RetailCatalogItem.from_row(row)
 
     @staticmethod
-    def update(item_id: int, **fields) -> bool:
-        """Update a catalog item's fields."""
+    def update(item_id: int, **fields) -> Optional[RetailCatalogItem]:
+        """Update a catalog item's fields and return the updated item."""
         allowed = {"item_name", "sku", "price", "category"}
         updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
         if not updates:
-            return False
+            return None
 
         set_clause = ", ".join(f"{k} = ?" for k in updates)
         values = list(updates.values()) + [item_id]
@@ -349,24 +352,27 @@ class RetailCatalogRepository:
                 values,
             )
             conn.commit()
-        return True
+            row = conn.execute(
+                "SELECT * FROM retail_catalog WHERE id = ?", (item_id,)
+            ).fetchone()
+        return RetailCatalogItem.from_row(row)
 
     @staticmethod
     def delete(item_id: int) -> bool:
-        """Delete a catalog item."""
+        """Delete a catalog item. Returns False if not found."""
         with get_db_connection() as conn:
-            conn.execute("DELETE FROM retail_catalog WHERE id = ?", (item_id,))
+            cursor = conn.execute("DELETE FROM retail_catalog WHERE id = ?", (item_id,))
             conn.commit()
-        return True
+        return cursor.rowcount > 0
 
     @staticmethod
-    def bulk_create(items: List[Dict[str, Any]]) -> int:
-        """Bulk insert catalog items. Returns count of inserted items."""
-        count = 0
+    def bulk_create(items: List[Dict[str, Any]]) -> List[RetailCatalogItem]:
+        """Bulk insert catalog items. Returns list of created items."""
+        created: List[RetailCatalogItem] = []
         with get_db_connection() as conn:
             for item in items:
                 try:
-                    conn.execute(
+                    cursor = conn.execute(
                         """
                         INSERT OR IGNORE INTO retail_catalog (item_name, sku, price, category)
                         VALUES (?, ?, ?, ?)
@@ -378,11 +384,17 @@ class RetailCatalogRepository:
                             item.get("category", "other"),
                         ),
                     )
-                    count += 1
+                    if cursor.lastrowid:
+                        row = conn.execute(
+                            "SELECT * FROM retail_catalog WHERE id = ?",
+                            (cursor.lastrowid,),
+                        ).fetchone()
+                        if row:
+                            created.append(RetailCatalogItem.from_row(row))
                 except Exception as e:
                     logger.warning("Skipping catalog item: %s", e)
             conn.commit()
-        return count
+        return created
 
 
 class InvoiceRepository:

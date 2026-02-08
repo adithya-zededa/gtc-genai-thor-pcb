@@ -5,7 +5,7 @@ These routes handle page rendering for the web interface.
 
 from flask import Blueprint, render_template, redirect, url_for, abort
 
-from app.database import get_db_connection, DetectionLogRepository
+from app.database import DetectionLogRepository, UserRepository
 
 views_bp = Blueprint("views", __name__)
 
@@ -43,32 +43,22 @@ def configuration():
 @views_bp.route("/users")
 def users():
     """User management page."""
-    with get_db_connection() as conn:
-        users_list = conn.execute(
-            "SELECT * FROM users ORDER BY created_at DESC"
-        ).fetchall()
+    users_list = UserRepository.get_all(active_only=False)
     return render_template("users.html", users=users_list)
 
 
 @views_bp.route("/logs")
 def logs():
     """Detection logs page."""
-    with get_db_connection() as conn:
-        detections = conn.execute(
-            """
-            SELECT * FROM detection_logs
-            ORDER BY timestamp DESC
-            LIMIT 100
-            """
-        ).fetchall()
+    detections, _total = DetectionLogRepository.get_paginated(
+        page=1, per_page=100
+    )
     return render_template("logs.html", detections=detections)
 
 
 @views_bp.route("/logs/<int:log_id>")
 def log_detail(log_id: int):
     """Single detection event detail view."""
-    import json
-    
     log = DetectionLogRepository.get_by_id(log_id)
     if not log:
         abort(404)

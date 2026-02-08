@@ -36,7 +36,7 @@ def health_check():
             conn.execute("SELECT 1")
         health_status["components"]["database"] = True
     except Exception:
-        health_status["status"] = "degraded"
+        pass
     
     # Check camera
     health_status["components"]["camera"] = check_camera_availability()

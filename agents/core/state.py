@@ -45,8 +45,12 @@ class DetectionEvent:
 
 
 @dataclass(slots=True)
-class AgentState:
-    """Snapshot of high-level runtime state for exposure to UIs."""
+class AgentSnapshot:
+    """Snapshot of high-level runtime state for exposure to UIs.
+
+    Renamed from ``AgentState`` to avoid collision with the
+    operational ``AgentState`` enum in ``agents.mcp.state_machine``.
+    """
 
     last_event: Optional[Dict[str, Any]] = None
     counts: Dict[str, int] = field(default_factory=dict)
@@ -89,13 +93,13 @@ class AgentMemory:
             return events[-limit:]
         return events
 
-    def snapshot(self, limit: Optional[int] = None) -> AgentState:
+    def snapshot(self, limit: Optional[int] = None) -> AgentSnapshot:
         """Get a state snapshot."""
         actual_limit = limit if isinstance(limit, int) and limit > 0 else self._summary_window
         events = self.list_events(actual_limit)
         counts = self._calc_counts(events)
         last_event = events[-1] if events else None
-        return AgentState(last_event=last_event, counts=counts)
+        return AgentSnapshot(last_event=last_event, counts=counts)
 
     def summarise(self, limit: Optional[int] = None) -> str:
         """Get a text summary of recent activity."""

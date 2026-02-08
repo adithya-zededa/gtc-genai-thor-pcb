@@ -10,39 +10,42 @@ from core.logging import get_logger
 logger = get_logger(__name__)
 
 
-def check_ollama_availability() -> bool:
-    """Check if Ollama is available."""
-    config = get_config()
+def _check_url(url: str, timeout: float) -> bool:
+    """Return True if *url* responds with a successful status."""
     try:
-        response = requests.get(
-            f"{config.inference.ollama_url}/api/version",
-            timeout=config.http_timeout
-        )
+        response = requests.get(url, timeout=timeout)
         response.raise_for_status()
         return True
     except requests.RequestException:
         return False
+
+
+def check_ollama_availability() -> bool:
+    """Check if Ollama is available."""
+    config = get_config()
+    return _check_url(
+        f"{config.inference.ollama_url}/api/version",
+        timeout=config.http_timeout,
+    )
 
 
 def check_vllm_availability() -> bool:
     """Check if vLLM server is available."""
     config = get_config()
-    try:
-        response = requests.get(
-            f"{config.inference.vllm_url}/v1/models",
-            timeout=config.http_timeout
-        )
-        response.raise_for_status()
-        return True
-    except requests.RequestException:
-        return False
+    return _check_url(
+        f"{config.inference.vllm_url}/v1/models",
+        timeout=config.http_timeout,
+    )
+
+
+_BACKEND_CHECKERS = {
+    "vllm": check_vllm_availability,
+}
 
 
 def check_inference_backend_availability() -> bool:
     """Check if the configured inference backend is available."""
     config = get_config()
     backend = config.inference.backend.lower()
-    
-    if backend == "vllm":
-        return check_vllm_availability()
-    return check_ollama_availability()
+    checker = _BACKEND_CHECKERS.get(backend, check_ollama_availability)
+    return checker()

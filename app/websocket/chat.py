@@ -132,60 +132,52 @@ def get_chat_session(session_id: str) -> ChatSession:
         return _chat_sessions[session_id]
 
 
-def initialize_chat_for_client(session_id: str) -> None:
-    """Initialize chat session for a client on connect.
-    
-    This is called from the main connect handler to auto-initialize
-    the chat session without requiring a separate chat_connect event.
+def _initialize_session(session_id: str, *, room: str | None = None) -> None:
+    """Core chat-session bootstrap shared by all connection paths.
+
+    Args:
+        session_id: The SocketIO ``request.sid``.
+        room: Explicit room for ``emit``.  When *None* the default
+              SocketIO behaviour (emit to current request) is used.
     """
-    from flask_socketio import emit, join_room
-    from flask import request
-    
-    # Use the current request's session ID to ensure we emit to the right client
-    actual_sid = getattr(request, 'sid', session_id)
-    logger.info("Auto-initializing chat for client: %s (passed: %s)", actual_sid, session_id)
-    
     audit_log = get_audit_log()
     state_machine = get_agent_state_machine()
-    
-    chat_session = get_chat_session(actual_sid)
-    join_room(actual_sid)
-    
+
+    chat_session = get_chat_session(session_id)
+    join_room(session_id)
+
     # Log connection
     audit_log.log(AuditLogEntry.create(
         event_type=AuditEventType.SESSION_STARTED,
-        details={"socket_session_id": actual_sid, "chat_session_id": chat_session.id},
+        details={"socket_session_id": session_id, "chat_session_id": chat_session.id},
     ))
-    
-    # Transition from OFF to IDLE if agent is off
+
+    # Transition from OFF → IDLE on first connection
     current_state = state_machine.state
     if current_state == AgentState.OFF:
         try:
             state_machine.transition_to(
                 AgentState.IDLE,
                 trigger="user_connected",
-                metadata={"session_id": actual_sid},
+                metadata={"session_id": session_id},
             )
             current_state = state_machine.state
             logger.info("Agent transitioned to IDLE on connection")
         except ValueError as e:
             logger.warning("Could not transition to IDLE: %s", e)
-    
+
     executor = get_mcp_executor()
     mcp_session = executor.current_session
-    
-    # Get available tools for current state
+
     registry = get_tool_registry()
     available_tools = registry.get_display_list(current_state)
-    
-    # Get monitoring status
+
     from services.core.monitoring import get_monitoring_service
     monitoring_service = get_monitoring_service()
     monitoring_active = monitoring_service.is_monitoring if monitoring_service else False
-    
-    logger.info("Sending chat_connected to client %s with state %s", actual_sid, current_state.value)
-    
-    # Send initial state - explicitly specify room to ensure delivery
+
+    emit_kwargs = {"room": room} if room else {}
+
     emit("chat_connected", {
         "chat_session_id": chat_session.id,
         "agent_state": current_state.value,
@@ -194,19 +186,29 @@ def initialize_chat_for_client(session_id: str) -> None:
         "mcp_session": mcp_session.to_dict() if mcp_session else None,
         "metrics": audit_log.get_metrics(),
         "monitoring_active": monitoring_active,
-    }, room=actual_sid)
-    
+    }, **emit_kwargs)
+
     # Send welcome message
-    welcome_content = _generate_welcome_message(current_state)
-    welcome = ChatMessage.assistant(welcome_content)
+    welcome = ChatMessage.assistant(_generate_welcome_message(current_state))
     chat_session.add_message(welcome)
-    
+
     emit("chat_message", {
         "message": welcome.to_dict(),
         "agent_state": current_state.value,
-    }, room=actual_sid)
-    
-    logger.info("Chat initialization complete for client: %s", actual_sid)
+    }, **emit_kwargs)
+
+    logger.info("Chat initialization complete for client: %s", session_id)
+
+
+def initialize_chat_for_client(session_id: str) -> None:
+    """Initialize chat session for a client on connect.
+
+    Called from the main ``connect`` handler to auto-initialize
+    the chat session without requiring a separate ``chat_connect`` event.
+    """
+    actual_sid = getattr(request, "sid", session_id)
+    logger.info("Auto-initializing chat for client: %s", actual_sid)
+    _initialize_session(actual_sid, room=actual_sid)
 
 
 # =============================================================================
@@ -225,69 +227,11 @@ def register_chat_handlers(socketio: "SocketIO") -> None:
 
     @socketio.on("chat_connect")
     def handle_chat_connect(data=None):
-        """Handle chat connection."""
+        """Handle explicit chat connection (fallback for clients that
+        emit ``chat_connect`` instead of relying on auto-init)."""
         logger.info(">>> chat_connect event received!")
         try:
-            session_id = request.sid
-            logger.info("Chat connect received from: %s", session_id)
-            
-            chat_session = get_chat_session(session_id)
-            join_room(session_id)
-            
-            # Log connection
-            audit_log.log(AuditLogEntry.create(
-                event_type=AuditEventType.SESSION_STARTED,
-                details={"socket_session_id": session_id, "chat_session_id": chat_session.id},
-            ))
-            
-            logger.info("Chat connected: %s", session_id)
-            
-            # Transition from OFF to IDLE if agent is off
-            current_state = state_machine.state
-            if current_state == AgentState.OFF:
-                try:
-                    state_machine.transition_to(
-                        AgentState.IDLE,
-                        trigger="user_connected",
-                        metadata={"session_id": session_id},
-                    )
-                    current_state = state_machine.state
-                    logger.info("Agent transitioned to IDLE on connection")
-                except ValueError as e:
-                    logger.warning("Could not transition to IDLE: %s", e)
-            
-            executor = get_mcp_executor()
-            mcp_session = executor.current_session
-            
-            # Get available tools for current state
-            registry = get_tool_registry()
-            available_tools = registry.get_display_list(current_state)
-            
-            # Get monitoring status
-            from services.core.monitoring import get_monitoring_service
-            monitoring_service = get_monitoring_service()
-            monitoring_active = monitoring_service.is_monitoring if monitoring_service else False
-            
-            # Send initial state
-            emit("chat_connected", {
-                "chat_session_id": chat_session.id,
-                "agent_state": current_state.value,
-                "available_tools": available_tools,
-                "pending_proposals": executor.get_pending_proposals(),
-                "mcp_session": mcp_session.to_dict() if mcp_session else None,
-                "metrics": audit_log.get_metrics(),
-                "monitoring_active": monitoring_active,
-            })
-            
-            # Send welcome message
-            welcome_content = _generate_welcome_message(current_state)
-            welcome = ChatMessage.assistant(welcome_content)
-            chat_session.add_message(welcome)
-            
-            emit("chat_message", {
-                "message": welcome.to_dict(),
-                "agent_state": current_state.value,
-            })
+            _initialize_session(request.sid)
         except Exception as e:
             logger.error("Error in chat_connect handler: %s", e, exc_info=True)
             emit("chat_error", {"error": str(e)})
@@ -741,6 +685,7 @@ def _generate_llm_response(
         logger.warning("LLM router chat failed: %s", exc)
 
     return None
+
 
 def _generate_welcome_message(state: AgentState) -> str:
     """Generate a welcome message based on current state."""

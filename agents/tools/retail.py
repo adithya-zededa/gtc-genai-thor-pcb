@@ -16,51 +16,16 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from typing import Any, Dict, List, Optional
 
 from core.logging import get_logger
+from agents.tools.validation import (
+    validate_email as _validate_email,
+    safe_error as _safe_error,
+    clamp_quantity as _clamp_quantity,
+)
 
 logger = get_logger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Validation helpers
-# ---------------------------------------------------------------------------
-
-_EMAIL_RE = re.compile(r"^[\w.+-]+@[\w-]+\.[\w.-]+$")
-MAX_EMAIL_LEN = 254
-MAX_QUANTITY = 9999
-MIN_QUANTITY = 1
-
-
-def _validate_email(email: str) -> Optional[str]:
-    """Return *None* if valid, or an error message."""
-    if not email:
-        return "Email address is required"
-    if len(email) > MAX_EMAIL_LEN:
-        return f"Email address too long (max {MAX_EMAIL_LEN} chars)"
-    if not _EMAIL_RE.match(email):
-        return f"Invalid email format: {email}"
-    return None
-
-
-def _safe_error(internal_msg: str, *, exc: Optional[Exception] = None) -> Dict[str, Any]:
-    """Return a user-safe error dict and log the internal detail."""
-    if exc:
-        logger.error("%s: %s", internal_msg, exc, exc_info=True)
-    else:
-        logger.error(internal_msg)
-    return {"success": False, "message": "An internal error occurred. Please try again."}
-
-
-def _clamp_quantity(raw: Any) -> int:
-    """Coerce *raw* to an int in [MIN_QUANTITY, MAX_QUANTITY]."""
-    try:
-        q = int(raw)
-    except (ValueError, TypeError):
-        q = 1
-    return max(MIN_QUANTITY, min(MAX_QUANTITY, q))
 
 
 # ---------------------------------------------------------------------------

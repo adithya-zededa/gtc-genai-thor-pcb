@@ -1,145 +1,72 @@
 """Agent modules for AI-powered analysis.
 
-Restructured layout:
+Restructured layout::
+
     agents/
     ├── core/           - Camera agent, state, alerting
     ├── tools/          - Tool definitions and executors
-    ├── mcp/            - MCP base + manager
+    │   └── validation  - Shared input-validation helpers
+    ├── mcp/            - MCP base + domain executors
+    │   ├── schema      - Schema / parameter types
+    │   ├── lifecycle   - Proposal & result lifecycle
+    │   ├── state_machine - Agent operational state
+    │   ├── session     - Session management
+    │   ├── audit       - Audit logging
+    │   ├── registry    - Tool definition & registry
+    │   ├── executor_base - Shared executor logic
+    │   ├── interpreter - General-domain interpreter
+    │   ├── executor    - General-domain executor
+    │   ├── globals     - Singleton accessors
+    │   ├── manager     - Domain router
     │   └── domains/    - PCB, retail domain MCPs
     ├── classifiers/    - LLM intent classifier
     └── vlm/            - Vision Language Model client
 
-All symbols are re-exported here for backward compatibility.
+Subpackage ``__init__`` files re-export their own public API.
+Import directly from subpackages for clarity::
+
+    from agents.core import StreamlinedAgent
+    from agents.mcp  import get_mcp_manager
+    from agents.classifiers import get_classifier
+
+The symbols below are re-exported *only* for backward compatibility with
+code that does ``from agents import X``.  New code should prefer the
+qualified subpackage imports shown above.
 """
 
-# Core agent components
-from .core.camera_agent import StreamlinedAgent, CircuitBreaker
-from .core.state import AgentMemory, AgentState, DetectionEvent
-from .core.alerting import AlertManager
-
-# Tool system
-from .tools.base import (
-    ToolDefinition,
-    ToolCall,
-    ToolResult,
-    ToolExecutor,
-    TOOL_REGISTRY,
+# ── Core ──────────────────────────────────────────────────────────────────
+from .core import (
+    StreamlinedAgent,
+    CircuitBreaker,
+    AgentMemory,
+    AgentSnapshot,
+    DetectionEvent,
+    AlertManager,
 )
 
-# MCP infrastructure
-from .mcp.base import (
-    # Core types
-    MCPSchemaType,
-    MCPParameterSchema,
-    MCPOutputSchema,
-    # Lifecycle
-    ToolLifecycleState,
-    MCPToolCallProposal,
-    MCPToolResult,
-    # State machine
-    AgentState as MCPAgentState,
-    AgentStateMachine,
-    # Session
-    SessionType,
-    MCPSession,
-    # Tools
-    MCPToolDefinition,
-    MCPToolRegistry,
-    # Audit
-    AuditEventType,
-    AuditLogEntry,
-    MCPAuditLog,
-    # Interpreter & Executor
-    MCPInterpreter,
-    MCPExecutor,
-    # Global accessors
-    get_agent_state_machine,
-    get_audit_log,
-    get_tool_registry,
-    get_mcp_executor,
-    get_mcp_interpreter,
-)
-from .mcp.manager import MCPManager, get_mcp_manager
+# Backward-compat alias kept by core/__init__.py
+from .core import AgentState  # noqa: F811  (alias for AgentSnapshot)
 
-# Classifier
-from .classifiers.llm_classifier import LLMIntentClassifier, ClassificationResult, get_classifier
+# ── MCP (via façade) ─────────────────────────────────────────────────────
+from .mcp import MCPManager, get_mcp_manager
 
-# Domain MCPs
-from .mcp.domains.pcb import (
-    PCBToolRegistry,
-    PCBInterpreter,
-    PCBExecutor,
-    get_pcb_registry,
-    get_pcb_interpreter,
-    get_pcb_executor,
-)
-from .mcp.domains.retail import (
-    RetailToolRegistry,
-    RetailInterpreter,
-    RetailExecutor,
-    get_retail_registry,
-    get_retail_interpreter,
-    get_retail_executor,
-)
+# ── Classifier ────────────────────────────────────────────────────────────
+from .classifiers import LLMIntentClassifier, ClassificationResult, get_classifier
 
 __all__ = [
-    # Camera agent
+    # Core
     "StreamlinedAgent",
     "CircuitBreaker",
-    # State management (legacy)
     "AgentMemory",
+    "AgentSnapshot",
     "AgentState",
     "DetectionEvent",
-    # Alerting
     "AlertManager",
-    # Tools (legacy)
-    "ToolDefinition",
-    "ToolCall",
-    "ToolResult",
-    "ToolExecutor",
-    "TOOL_REGISTRY",
-    # MCP Core
-    "MCPSchemaType",
-    "MCPParameterSchema",
-    "MCPOutputSchema",
-    "ToolLifecycleState",
-    "MCPToolCallProposal",
-    "MCPToolResult",
-    "MCPAgentState",
-    "AgentStateMachine",
-    "SessionType",
-    "MCPSession",
-    "MCPToolDefinition",
-    "MCPToolRegistry",
-    "AuditEventType",
-    "AuditLogEntry",
-    "MCPAuditLog",
-    "MCPInterpreter",
-    "MCPExecutor",
-    "get_agent_state_machine",
-    "get_audit_log",
-    "get_tool_registry",
-    "get_mcp_executor",
-    "get_mcp_interpreter",
-    # MCP Manager
+    # MCP Manager (entry-point for tool calling)
     "MCPManager",
     "get_mcp_manager",
     # Classifier
     "LLMIntentClassifier",
     "ClassificationResult",
     "get_classifier",
-    # PCB MCP
-    "PCBToolRegistry",
-    "PCBInterpreter",
-    "PCBExecutor",
-    "get_pcb_registry",
-    "get_pcb_interpreter",
-    "get_pcb_executor",
-    # Retail MCP
-    "RetailToolRegistry",
-    "RetailInterpreter",
-    "RetailExecutor",
-    "get_retail_registry",
-    "get_retail_interpreter",
-    "get_retail_executor",
 ]

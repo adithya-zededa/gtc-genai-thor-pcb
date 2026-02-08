@@ -5,7 +5,7 @@ import io
 import json
 import sqlite3
 from datetime import datetime
-from flask import jsonify, request, Response, send_file, url_for
+from flask import jsonify, request, Response, send_file
 from pathlib import Path
 
 from . import api_bp

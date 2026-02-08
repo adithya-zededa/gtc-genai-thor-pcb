@@ -14,6 +14,7 @@ This module provides REST API endpoints for:
 import json
 import os
 import time
+from pathlib import Path
 
 from flask import jsonify, request
 
@@ -23,10 +24,7 @@ from core.logging import get_logger
 logger = get_logger(__name__)
 
 # Path for persisting LLM provider configurations
-_LLM_CONFIG_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
-    "llm_providers.json",
-)
+_LLM_CONFIG_FILE = str(Path(__file__).resolve().parents[3] / "llm_providers.json")
 
 
 def _get_router():
@@ -46,6 +44,51 @@ def _ensure_router_enabled():
     if not cfg.router.enabled:
         cfg.router.enabled = True
         logger.info("LLM Router auto-enabled via settings UI")
+
+
+def _serialize_provider(config) -> dict:
+    """Serialise a single ``LLMProviderConfig`` to a plain dict."""
+    return {
+        "name": config.name,
+        "provider_type": config.provider_type.value,
+        "url": config.url,
+        "model": config.model,
+        "api_key": config.api_key,
+        "priority": config.priority,
+        "max_tokens": config.max_tokens,
+        "temperature": config.temperature,
+        "enabled": config.enabled,
+        "supports_tools": config.supports_tools,
+        "supports_vision": config.supports_vision,
+    }
+
+
+def _collect_provider_configs(router) -> list[dict]:
+    """Collect serialised configs for every registered provider."""
+    configs = []
+    for prov in router.list_providers():
+        config = router.get_provider(prov.get("name", ""))
+        if config is not None:
+            configs.append(_serialize_provider(config))
+    return configs
+
+
+def _save_provider_bundle(router) -> tuple[int, str | None]:
+    """Persist provider configs to disk. Returns ``(count, error_msg | None)``."""
+    configs = _collect_provider_configs(router)
+    bundle = {
+        "version": 1,
+        "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "routing_strategy": router._routing_strategy.value,
+        "providers": configs,
+    }
+    try:
+        with open(_LLM_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(bundle, f, indent=2)
+        logger.info("Saved %d LLM provider configs to %s", len(configs), _LLM_CONFIG_FILE)
+        return len(configs), None
+    except Exception as exc:
+        return 0, str(exc)
 
 
 # =============================================================================
@@ -393,8 +436,7 @@ def set_llm_strategy():
             "message": f"Routing strategy set to '{strategy.value}'",
         })
     except ValueError:
-        from router.config import RoutingStrategy as RS
-        valid = [s.value for s in RS]
+        valid = [s.value for s in RoutingStrategy]
         return jsonify({
             "success": False,
             "error": f"Invalid strategy. Valid: {valid}",
@@ -415,43 +457,10 @@ def save_llm_config():
     if router is None:
         return jsonify({"success": False, "error": "No router available"}), 400
 
-    providers = router.list_providers()
-    configs = []
-    for prov in providers:
-        name = prov.get("name", "")
-        config = router.get_provider(name)
-        if config is None:
-            continue
-        configs.append({
-            "name": config.name,
-            "provider_type": config.provider_type.value,
-            "url": config.url,
-            "model": config.model,
-            "api_key": config.api_key,
-            "priority": config.priority,
-            "max_tokens": config.max_tokens,
-            "temperature": config.temperature,
-            "enabled": config.enabled,
-            "supports_tools": config.supports_tools,
-            "supports_vision": config.supports_vision,
-        })
-
-    strategy = router._routing_strategy.value
-
-    bundle = {
-        "version": 1,
-        "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "routing_strategy": strategy,
-        "providers": configs,
-    }
-
-    try:
-        with open(_LLM_CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(bundle, f, indent=2)
-        logger.info("Saved %d LLM provider configs to %s", len(configs), _LLM_CONFIG_FILE)
-        return jsonify({"success": True, "saved": len(configs)})
-    except Exception as exc:
-        return jsonify({"success": False, "error": str(exc)}), 500
+    saved, error = _save_provider_bundle(router)
+    if error:
+        return jsonify({"success": False, "error": error}), 500
+    return jsonify({"success": True, "saved": saved})
 
 
 @api_bp.route("/llm/config/load", methods=["POST"])
@@ -505,27 +514,8 @@ def load_llm_config():
 def export_llm_config():
     """Export LLM provider configs as a JSON bundle (masks API keys)."""
     router = _get_router()
-    providers = []
 
-    if router is not None:
-        for prov in router.list_providers():
-            config = router.get_provider(prov.get("name", ""))
-            if config is None:
-                continue
-            entry = {
-                "name": config.name,
-                "provider_type": config.provider_type.value,
-                "url": config.url,
-                "model": config.model,
-                "api_key": config.api_key,  # included for real export
-                "priority": config.priority,
-                "max_tokens": config.max_tokens,
-                "temperature": config.temperature,
-                "enabled": config.enabled,
-                "supports_tools": config.supports_tools,
-                "supports_vision": config.supports_vision,
-            }
-            providers.append(entry)
+    providers = _collect_provider_configs(router) if router else []
 
     bundle = {
         "version": 1,
@@ -603,36 +593,9 @@ def activate_llm_config():
         return jsonify({"success": False, "error": "No router available"}), 400
 
     # Save first
-    providers = router.list_providers()
-    configs = []
-    for prov in providers:
-        config = router.get_provider(prov.get("name", ""))
-        if config:
-            configs.append({
-                "name": config.name,
-                "provider_type": config.provider_type.value,
-                "url": config.url,
-                "model": config.model,
-                "api_key": config.api_key,
-                "priority": config.priority,
-                "max_tokens": config.max_tokens,
-                "temperature": config.temperature,
-                "enabled": config.enabled,
-                "supports_tools": config.supports_tools,
-                "supports_vision": config.supports_vision,
-            })
-
-    bundle = {
-        "version": 1,
-        "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "routing_strategy": router._routing_strategy.value,
-        "providers": configs,
-    }
-    try:
-        with open(_LLM_CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(bundle, f, indent=2)
-    except Exception as exc:
-        logger.warning("Failed to persist LLM config: %s", exc)
+    saved, save_error = _save_provider_bundle(router)
+    if save_error:
+        logger.warning("Failed to persist LLM config: %s", save_error)
 
     # Health check
     health = router.check_all_providers()
@@ -640,7 +603,7 @@ def activate_llm_config():
 
     return jsonify({
         "success": True,
-        "saved": len(configs),
+        "saved": saved,
         "health": health,
         "healthy_count": healthy,
         "total_count": len(health),

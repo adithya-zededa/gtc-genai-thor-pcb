@@ -21,6 +21,17 @@ from core.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _apply_config_to_agent(config_data: dict) -> None:
+    """Push updated configuration to the running monitoring agent (if any)."""
+    service = get_monitoring_service()
+    if service and service.agent:
+        try:
+            service.agent.apply_config(config_data)
+            service.refresh_configuration(config_data)
+        except Exception as exc:
+            logger.error("Failed to apply configuration to agent: %s", exc)
+
+
 @api_bp.route("/config", methods=["GET", "POST"])
 def config():
     """Configuration management API - get or update config."""
@@ -45,13 +56,7 @@ def config():
                 logger.error("Failed to record configuration history: %s", db_exc)
 
             # Refresh running agent configuration if active
-            service = get_monitoring_service()
-            if service and service.agent:
-                try:
-                    service.agent.apply_config(persisted)
-                    service.refresh_configuration(persisted)
-                except Exception as exc:
-                    logger.error(f"Failed to apply updated configuration to agent: {exc}")
+            _apply_config_to_agent(persisted)
 
             notifications_cfg = (persisted or {}).get("notifications", {})
             email_cfg = (
@@ -97,14 +102,7 @@ def config_defaults():
 def config_reset():
     """Reset the configuration to defaults and persist the change."""
     defaults = reset_camera_config()
-
-    service = get_monitoring_service()
-    if service and service.agent:
-        try:
-            service.agent.apply_config(defaults)
-            service.refresh_configuration(defaults)
-        except Exception as exc:
-            logger.error(f"Failed to apply default configuration to agent: {exc}")
+    _apply_config_to_agent(defaults)
 
     return jsonify({
         "success": True,
@@ -156,14 +154,7 @@ def notification_recipients():
     
     apply_recipients(config, sanitized)
     persisted = save_camera_config(config)
-
-    service = get_monitoring_service()
-    if service and service.agent:
-        try:
-            service.agent.apply_config(persisted)
-            service.refresh_configuration(persisted)
-        except Exception as exc:
-            logger.error(f"Failed to apply recipient update to agent: {exc}")
+    _apply_config_to_agent(persisted)
 
     return jsonify({
         "success": True,

@@ -128,7 +128,7 @@ class MCPManager:
         Returns ``general`` if the LLM is unreachable.
         """
         try:
-            from agents.llm_classifier import get_classifier
+            from agents.classifiers.llm_classifier import get_classifier
             result = get_classifier().classify(message)
             if result.domain in VALID_DOMAINS and result.confidence >= 0.3:
                 logger.info(

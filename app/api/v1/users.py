@@ -4,7 +4,7 @@ import sqlite3
 from flask import jsonify, request
 
 from . import api_bp
-from app.database import get_db_connection, UserRepository
+from app.database import UserRepository
 from services.infrastructure.config import update_email_recipients
 from core.logging import get_logger
 

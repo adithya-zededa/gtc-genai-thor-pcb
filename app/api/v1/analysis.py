@@ -2,7 +2,6 @@
 
 import base64
 import time
-import re
 from flask import jsonify, request
 
 import cv2
@@ -16,25 +15,51 @@ from services.core.camera import get_camera_publisher
 from agents.vlm.task_types import TaskType
 from agents.tools.base import ToolExecutor
 from app.database import DetectionLogRepository
-from app import socketio
 from core.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Canonical mapping from string to TaskType — used by multiple endpoints.
+TASK_TYPE_MAP = {
+    "package_detection": TaskType.PACKAGE_DETECTION,
+    "ppe_detection": TaskType.PPE_DETECTION,
+    "person_counting": TaskType.PERSON_COUNTING,
+    "scene_description": TaskType.SCENE_DESCRIPTION,
+    "custom": TaskType.CUSTOM,
+}
 
-def _extract_email_intent(prompt: str):
-    """Extract email addresses from user prompt if email action is requested."""
-    prompt_lower = prompt.lower()
-    email_keywords = ["send email", "send an email", "email to", "notify", "alert"]
-    has_email_intent = any(kw in prompt_lower for kw in email_keywords)
-    
-    if not has_email_intent:
-        return None
-    
-    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-    matches = re.findall(email_pattern, prompt)
-    
-    return matches if matches else None
+
+def _parse_task_type(task_type_str: str) -> TaskType | None:
+    """Resolve a task-type string to the enum, or *None* if invalid."""
+    return TASK_TYPE_MAP.get(task_type_str)
+
+
+def _capture_current_frame():
+    """Capture and decode the latest camera frame.
+
+    Returns:
+        Tuple of ``(frame, error_response)``.  On success *error_response*
+        is ``None``; on failure *frame* is ``None`` and *error_response*
+        is a ready-to-return ``(jsonify(...), status_code)`` tuple.
+    """
+    try:
+        publisher = get_camera_publisher()
+        latest_frame = publisher.get_latest_frame()
+
+        if not latest_frame or not latest_frame.image_b64:
+            return None, (jsonify({"success": False, "error": "No frames available from camera"}), 500)
+
+        frame_bytes = base64.b64decode(latest_frame.image_b64)
+        frame_array = np.frombuffer(frame_bytes, dtype=np.uint8)
+        frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
+
+        if frame is None:
+            return None, (jsonify({"success": False, "error": "Failed to decode camera frame"}), 500)
+
+        return frame, None
+    except Exception as err:
+        logger.error("Camera access failed: %s", err)
+        return None, (jsonify({"success": False, "error": f"Camera access failed: {err}"}), 500)
 
 
 def _log_detection_to_db(event, frame_metadata):
@@ -63,15 +88,7 @@ def analyze_prompt():
         task_type_str = data.get("task_type", "package_detection")
         custom_prompt = data.get("custom_prompt", "")
         
-        task_type_map = {
-            "package_detection": TaskType.PACKAGE_DETECTION,
-            "ppe_detection": TaskType.PPE_DETECTION,
-            "person_counting": TaskType.PERSON_COUNTING,
-            "scene_description": TaskType.SCENE_DESCRIPTION,
-            "custom": TaskType.CUSTOM,
-        }
-        
-        task_type = task_type_map.get(task_type_str)
+        task_type = _parse_task_type(task_type_str)
         if task_type is None:
             return jsonify({
                 "success": False,
@@ -85,31 +102,9 @@ def analyze_prompt():
             }), 400
         
         # Capture current frame
-        try:
-            publisher = get_camera_publisher()
-            latest_frame = publisher.get_latest_frame()
-            
-            if not latest_frame or not latest_frame.image_b64:
-                return jsonify({
-                    "success": False,
-                    "error": "No frames available from camera"
-                }), 500
-            
-            frame_bytes = base64.b64decode(latest_frame.image_b64)
-            frame_array = np.frombuffer(frame_bytes, dtype=np.uint8)
-            frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
-            
-            if frame is None:
-                return jsonify({
-                    "success": False,
-                    "error": "Failed to decode camera frame"
-                }), 500
-        except Exception as camera_err:
-            logger.error("Camera access failed: %s", camera_err)
-            return jsonify({
-                "success": False,
-                "error": f"Camera access failed: {str(camera_err)}"
-            }), 500
+        frame, err_response = _capture_current_frame()
+        if err_response is not None:
+            return err_response
         
         # Initialize VLM client
         try:
@@ -170,14 +165,7 @@ def analyze_single():
     task_type = None
     task_type_str = data.get("task_type")
     if task_type_str:
-        task_type_map = {
-            "package_detection": TaskType.PACKAGE_DETECTION,
-            "ppe_detection": TaskType.PPE_DETECTION,
-            "person_counting": TaskType.PERSON_COUNTING,
-            "scene_description": TaskType.SCENE_DESCRIPTION,
-            "custom": TaskType.CUSTOM,
-        }
-        task_type = task_type_map.get(task_type_str)
+        task_type = _parse_task_type(task_type_str)
         if task_type is None:
             return jsonify({
                 "success": False,
@@ -240,15 +228,7 @@ def analyze_agentic():
         custom_prompt = data.get("prompt") or data.get("custom_prompt") or ""
         recipients = data.get("recipients", [])
         
-        task_type_map = {
-            "package_detection": TaskType.PACKAGE_DETECTION,
-            "ppe_detection": TaskType.PPE_DETECTION,
-            "person_counting": TaskType.PERSON_COUNTING,
-            "scene_description": TaskType.SCENE_DESCRIPTION,
-            "custom": TaskType.CUSTOM,
-        }
-        
-        task_type = task_type_map.get(task_type_str)
+        task_type = _parse_task_type(task_type_str)
         if task_type is None:
             return jsonify({
                 "success": False,
@@ -256,31 +236,9 @@ def analyze_agentic():
             }), 400
         
         # Capture current frame
-        try:
-            publisher = get_camera_publisher()
-            latest_frame = publisher.get_latest_frame()
-            
-            if not latest_frame or not latest_frame.image_b64:
-                return jsonify({
-                    "success": False,
-                    "error": "No frames available from camera"
-                }), 500
-            
-            frame_bytes = base64.b64decode(latest_frame.image_b64)
-            frame_array = np.frombuffer(frame_bytes, dtype=np.uint8)
-            frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
-            
-            if frame is None:
-                return jsonify({
-                    "success": False,
-                    "error": "Failed to decode camera frame"
-                }), 500
-        except Exception as camera_err:
-            logger.error("Camera access failed: %s", camera_err)
-            return jsonify({
-                "success": False,
-                "error": f"Camera access failed: {str(camera_err)}"
-            }), 500
+        frame, err_response = _capture_current_frame()
+        if err_response is not None:
+            return err_response
         
         # Initialize VLM client
         try:
@@ -374,14 +332,7 @@ def analyze_uploaded_image():
     
     task_type = None
     if task_type_str:
-        task_type_map = {
-            "package_detection": TaskType.PACKAGE_DETECTION,
-            "ppe_detection": TaskType.PPE_DETECTION,
-            "person_counting": TaskType.PERSON_COUNTING,
-            "scene_description": TaskType.SCENE_DESCRIPTION,
-            "custom": TaskType.CUSTOM,
-        }
-        task_type = task_type_map.get(task_type_str)
+        task_type = _parse_task_type(task_type_str)
         if task_type is None:
             return jsonify({
                 "success": False,
@@ -402,14 +353,7 @@ def analyze_uploaded_image():
             if task_type is None:
                 active_config = service.get_active_prompt_config()
                 task_type_str = active_config.get("task_type", "package_detection")
-                task_type_map = {
-                    "package_detection": TaskType.PACKAGE_DETECTION,
-                    "ppe_detection": TaskType.PPE_DETECTION,
-                    "person_counting": TaskType.PERSON_COUNTING,
-                    "scene_description": TaskType.SCENE_DESCRIPTION,
-                    "custom": TaskType.CUSTOM,
-                }
-                task_type = task_type_map.get(task_type_str, TaskType.PACKAGE_DETECTION)
+                task_type = _parse_task_type(task_type_str) or TaskType.PACKAGE_DETECTION
                 if custom_prompt is None:
                     custom_prompt = active_config.get("custom_prompt", "")
                 if use_agentic is None:

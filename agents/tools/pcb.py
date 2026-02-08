@@ -14,59 +14,18 @@ Tools:
 
 from __future__ import annotations
 
-import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from core.logging import get_logger
+from agents.tools.validation import (
+    validate_email as _validate_email,
+    validate_emails as _validate_emails,
+    safe_error as _safe_error,
+    sanitise_severity as _sanitise_severity,
+)
 
 logger = get_logger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Validation helpers
-# ---------------------------------------------------------------------------
-
-_EMAIL_RE = re.compile(r"^[\w.+-]+@[\w-]+\.[\w.-]+$")
-MAX_EMAIL_LEN = 254
-VALID_SEVERITIES = frozenset(["low", "medium", "high"])
-
-
-def _validate_email(email: str) -> Optional[str]:
-    """Return *None* if valid, or an error message."""
-    if not email:
-        return "Email address is required"
-    if len(email) > MAX_EMAIL_LEN:
-        return f"Email address too long (max {MAX_EMAIL_LEN} chars)"
-    if not _EMAIL_RE.match(email):
-        return f"Invalid email format: {email}"
-    return None
-
-
-def _validate_emails(emails: List[str]) -> Optional[str]:
-    """Return *None* if every address in the list is valid, or an error."""
-    if not emails:
-        return "At least one recipient email is required"
-    for em in emails:
-        err = _validate_email(em)
-        if err:
-            return err
-    return None
-
-
-def _safe_error(internal_msg: str, *, exc: Optional[Exception] = None) -> Dict[str, Any]:
-    """Return a user-safe error dict and log the internal detail."""
-    if exc:
-        logger.error("%s: %s", internal_msg, exc, exc_info=True)
-    else:
-        logger.error(internal_msg)
-    return {"success": False, "message": "An internal error occurred. Please try again."}
-
-
-def _sanitise_severity(raw: str) -> str:
-    """Normalise severity to one of the allowed values."""
-    s = raw.strip().lower() if raw else "medium"
-    return s if s in VALID_SEVERITIES else "medium"
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +141,7 @@ def tool_send_defect_alert(
 
     severity = _sanitise_severity(severity)
 
-    from agents.email_tools import send_email
+    from agents.tools.email import send_email
 
     subject = f"[PCB ALERT] {severity.upper()} defect on {board_type}"
     body = (

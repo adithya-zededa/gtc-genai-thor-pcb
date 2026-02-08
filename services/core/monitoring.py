@@ -6,26 +6,20 @@ camera feed and runs the unified VLM-based detection pipeline.
 
 from __future__ import annotations
 
-import json
 import threading
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
 from uuid import uuid4
 
-import cv2
-import numpy as np
-
 from agents.core.camera_agent import StreamlinedAgent, CircuitBreaker
-from agents.vlm.client import UnifiedVLMClient, VLMBackend
 from agents.vlm.task_types import TaskType
 from agents.core.state import DetectionEvent
 from services.core.camera import get_camera_publisher
 from services.infrastructure.vlm import create_vlm_client_from_config
 from services.infrastructure.config import load_camera_config
-from core.config import get_config
 from core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -76,7 +70,6 @@ class StreamlinedMonitoringService:
         
         # Inference lock
         self._inference_lock = threading.Lock()
-        self._single_frame_in_progress = False
         
         # Timing configuration
         self.last_processed_time = 0.0
@@ -145,7 +138,7 @@ class StreamlinedMonitoringService:
             
         except Exception as e:
             self.last_error = str(e)
-            logger.error(f"Failed to initialize monitoring service: {e}")
+            logger.error("Failed to initialize monitoring service: %s", e)
             return False
 
     def start_monitoring(self) -> bool:
@@ -264,29 +257,15 @@ class StreamlinedMonitoringService:
             use_agentic = self._agentic_mode
         
         try:
-            if use_agentic:
-                config = load_camera_config()
-                email_cfg = config.get("notifications", {}).get("email", {})
-                recipients = email_cfg.get("recipients", [])
-                
-                event = self.agent.analyze_agentic(
-                    frame=latest.raw_frame,
-                    task_type=effective_task,
-                    custom_prompt=effective_prompt,
-                    recipients=recipients,
-                )
-            else:
-                event = self.agent.analyze_with_prompt(
-                    frame=latest.raw_frame,
-                    task_type=effective_task,
-                    custom_prompt=effective_prompt,
-                )
-            
-            return event
-            
+            return self._run_analysis(
+                frame=latest.raw_frame,
+                task_type=effective_task,
+                custom_prompt=effective_prompt,
+                agentic=use_agentic,
+            )
         except Exception as e:
             self.last_error = str(e)
-            logger.error(f"Single frame analysis failed: {e}")
+            logger.error("Single frame analysis failed: %s", e)
             return None
 
     def refresh_configuration(self, config: Optional[Dict[str, Any]] = None) -> None:
@@ -302,6 +281,33 @@ class StreamlinedMonitoringService:
         self._apply_configuration_settings(config)
         if self.agent:
             self.agent.apply_config(config)
+
+    def _run_analysis(
+        self,
+        frame: Any,
+        task_type: TaskType,
+        custom_prompt: str,
+        agentic: bool,
+    ) -> Optional[DetectionEvent]:
+        """Run a single analysis pass (agentic or standard)."""
+        if agentic:
+            config = load_camera_config()
+            recipients = (
+                config.get("notifications", {})
+                .get("email", {})
+                .get("recipients", [])
+            )
+            return self.agent.analyze_agentic(
+                frame=frame,
+                task_type=task_type,
+                custom_prompt=custom_prompt,
+                recipients=recipients,
+            )
+        return self.agent.analyze_with_prompt(
+            frame=frame,
+            task_type=task_type,
+            custom_prompt=custom_prompt,
+        )
 
     def _serialize_stats(self) -> Dict[str, Any]:
         """Get a copy of current stats."""
@@ -341,23 +347,16 @@ class StreamlinedMonitoringService:
                         agentic = self._agentic_mode
                     
                     # Run analysis
-                    if agentic:
-                        config = load_camera_config()
-                        email_cfg = config.get("notifications", {}).get("email", {})
-                        recipients = email_cfg.get("recipients", [])
-                        
-                        event = self.agent.analyze_agentic(
+                    try:
+                        event = self._run_analysis(
                             frame=frame_obj.raw_frame,
                             task_type=task_type,
                             custom_prompt=custom_prompt,
-                            recipients=recipients,
+                            agentic=agentic,
                         )
-                    else:
-                        event = self.agent.analyze_with_prompt(
-                            frame=frame_obj.raw_frame,
-                            task_type=task_type,
-                            custom_prompt=custom_prompt,
-                        )
+                    except Exception as e:
+                        logger.error("Analysis error: %s", e)
+                        continue
                     
                     if event:
                         with self._stats_lock:
@@ -371,7 +370,7 @@ class StreamlinedMonitoringService:
                         })
                     
                 except Exception as e:
-                    logger.error(f"Monitoring loop error: {e}")
+                    logger.error("Monitoring loop error: %s", e)
                     time.sleep(1.0)
                     
         finally:

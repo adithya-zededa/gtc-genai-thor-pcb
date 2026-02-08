@@ -6,7 +6,6 @@ Implements a publisher-subscriber pattern for camera frame distribution.
 from __future__ import annotations
 
 import base64
-import logging
 import threading
 import time
 from dataclasses import dataclass
@@ -201,12 +200,12 @@ class CameraFeedPublisher:
         with self._lock:
             queue = self._subscribers.get(subscriber_id)
 
-        if not queue:
+        if queue is None:
             return None
 
         try:
             return queue.get(timeout=timeout)
-        except Exception:
+        except Exception:  # queue.Empty or thread interrupt
             return None
 
     def get_latest_frame(self) -> Optional[CameraFrame]:
@@ -223,6 +222,8 @@ class CameraFeedPublisher:
 
     def _capture_loop(self) -> None:
         """Main capture loop running in a separate thread."""
+        encode_params = [cv2.IMWRITE_JPEG_QUALITY, 85]
+
         while self.is_running:
             try:
                 if not self.camera or not self.camera.isOpened():
@@ -235,15 +236,14 @@ class CameraFeedPublisher:
                     continue
 
                 self.frame_number += 1
-                timestamp = datetime.now().isoformat()
 
-                _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                _, buffer = cv2.imencode(".jpg", frame, encode_params)
                 image_data = buffer.tobytes()
                 image_b64 = base64.b64encode(image_data).decode("utf-8")
 
                 camera_frame = CameraFrame(
                     frame_number=self.frame_number,
-                    timestamp=timestamp,
+                    timestamp=datetime.now().isoformat(),
                     image_data=image_data,
                     image_b64=image_b64,
                     raw_frame=frame,
@@ -252,11 +252,10 @@ class CameraFeedPublisher:
                 )
 
                 self._publish_frame(camera_frame)
-
                 time.sleep(self.frame_interval)
 
             except Exception as e:
-                logger.error(f"Capture loop error: {e}")
+                logger.error("Capture loop error: %s", e)
                 time.sleep(0.1)
 
     def _publish_frame(self, frame: CameraFrame) -> None:
@@ -264,32 +263,34 @@ class CameraFeedPublisher:
         with self._lock:
             self.last_frame = frame
             self.stats["frames_captured"] = self.frame_number
-            self.stats["is_running"] = self.is_running
-            self.stats["camera_available"] = bool(self.camera and self.camera.isOpened())
 
             for sub_id, queue in list(self._subscribers.items()):
                 try:
                     queue.put_nowait(frame)
-                    callback = self._subscriber_callbacks.get(sub_id)
-                    if callback:
-                        try:
-                            callback(frame)
-                        except Exception as cb_err:  # pragma: no cover - diagnostics only
-                            logger.debug(f"Callback error for {sub_id}: {cb_err}")
                 except Full:
+                    # Drop oldest frame, enqueue latest
                     try:
                         queue.get_nowait()
                         queue.put_nowait(frame)
                     except Exception:
-                        self.stats["frames_dropped"] = self.stats.get("frames_dropped", 0) + 1
+                        self.stats["frames_dropped"] += 1
+
+                callback = self._subscriber_callbacks.get(sub_id)
+                if callback:
+                    try:
+                        callback(frame)
+                    except Exception as cb_err:  # pragma: no cover
+                        logger.debug("Callback error for %s: %s", sub_id, cb_err)
 
 
-# Global publisher singleton
+# ── Global publisher singleton ──────────────────────────────────────────────────
 _publisher_instance: Optional[CameraFeedPublisher] = None
 _publisher_lock = threading.Lock()
+
+# Camera availability cache
 _last_camera_check = 0.0
 _last_camera_status = False
-_camera_check_interval = 2.0
+_CAMERA_CHECK_INTERVAL = 2.0
 _camera_check_lock = threading.Lock()
 
 
@@ -321,7 +322,7 @@ def check_camera_availability() -> bool:
 
     current_time = time.time()
     with _camera_check_lock:
-        if current_time - _last_camera_check < _camera_check_interval:
+        if current_time - _last_camera_check < _CAMERA_CHECK_INTERVAL:
             return _last_camera_status
 
         try:

@@ -3,6 +3,7 @@
 from .llm_classifier import LLMIntentClassifier, ClassificationResult, get_classifier
 
 __all__ = [
-    "LLMClassifier",
+    "LLMIntentClassifier",
     "ClassificationResult",
+    "get_classifier",
 ]
