@@ -7,6 +7,7 @@ endpoints have been removed.
 """
 
 from flask import jsonify, request
+from typing import Any, Dict
 
 from . import api_bp
 from services.core.monitoring import get_monitoring_service
@@ -16,6 +17,26 @@ from core.config import get_config
 from core.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _extract_proactive_config(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Map API payload keys onto proactive agent config keys."""
+    config_map = {
+        "frame_interval": "frame_interval_seconds",
+        "frame_interval_seconds": "frame_interval_seconds",
+        "stability_frames": "stability_frame_count",
+        "stability_frame_count": "stability_frame_count",
+        "observation_temperature": "observation_temperature",
+        "decision_temperature": "decision_temperature",
+        "quick_check_temperature": "quick_check_temperature",
+        "inspection_ttl_seconds": "inspection_ttl_seconds",
+        "max_idle_seconds": "max_idle_seconds",
+    }
+    config: Dict[str, Any] = {}
+    for key, target in config_map.items():
+        if key in payload:
+            config[target] = payload[key]
+    return config
 
 
 @api_bp.route("/status")
@@ -110,3 +131,45 @@ def agent_memory():
     snapshot = agent.get_memory_snapshot(limit=limit)
     summary = agent.summarise_recent_events(limit=limit)
     return jsonify({"success": True, "summary": summary, "memory": snapshot})
+
+
+@api_bp.route("/monitoring/proactive/status", methods=["GET"])
+def proactive_status():
+    """Return the latest snapshot from the proactive monitoring agent."""
+    service = get_monitoring_service()
+    if not service:
+        return jsonify({"success": False, "error": "Monitoring service unavailable"}), 500
+    return jsonify({"success": True, "status": service.get_proactive_snapshot()})
+
+
+@api_bp.route("/monitoring/proactive/start", methods=["POST"])
+def proactive_start():
+    """Start or update the proactive monitoring loop with a new instruction."""
+    payload = request.get_json(silent=True) or {}
+    instruction = payload.get("instruction", "").strip()
+    config = _extract_proactive_config(payload)
+
+    if not instruction:
+        return jsonify({"success": False, "error": "Instruction is required"}), 400
+
+    service = get_monitoring_service()
+    if not service:
+        return jsonify({"success": False, "error": "Monitoring service unavailable"}), 500
+
+    if not service.start_proactive_monitoring(instruction, config=config):
+        return jsonify({"success": False, "error": service.last_error or "Unable to start proactive mode"}), 400
+
+    return jsonify({
+        "success": True,
+        "status": service.get_proactive_snapshot(),
+    })
+
+
+@api_bp.route("/monitoring/proactive/stop", methods=["POST"])
+def proactive_stop():
+    """Stop the proactive monitoring loop and return its final snapshot."""
+    service = get_monitoring_service()
+    if not service:
+        return jsonify({"success": False, "error": "Monitoring service unavailable"}), 500
+    service.stop_proactive_monitoring()
+    return jsonify({"success": True, "status": service.get_proactive_snapshot()})

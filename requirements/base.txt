@@ -26,3 +26,6 @@ psutil>=5.9.0
 opencv-python>=4.8.0
 scikit-image>=0.22.0
 numpy>=1.26.0
+
+# Text-to-speech (invoice audio summaries)
+gTTS>=2.5.0

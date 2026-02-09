@@ -1,6 +1,11 @@
 advanced:
-  agent_ssim_recheck_seconds: 30
-  agent_ssim_skip_threshold: 0.95
+  # ═══════════════════════════════════════════════════════════════════════
+  # LEGACY REACTIVE MODE SETTINGS
+  # These are used ONLY for the old reactive monitoring mode.
+  # The new proactive agentic mode does NOT use SSIM thresholds or rules.
+  # ═══════════════════════════════════════════════════════════════════════
+  agent_ssim_recheck_seconds: 30  # Legacy: reactive mode only
+  agent_ssim_skip_threshold: 0.95  # Legacy: NOT used in proactive mode
   max_concurrent_analyses: 1
   max_pending_analyses: 3
 memory:
@@ -11,6 +16,30 @@ camera:
   detection_image_dir: detected_images
   device_index: 0
   save_detection_images: true
+
+proactive:
+  # ═══════════════════════════════════════════════════════════════════════
+  # PROACTIVE AGENTIC MONITORING
+  # ═══════════════════════════════════════════════════════════════════════
+  # LLM-driven intelligent monitoring that understands context and makes
+  # decisions based on reasoning, not rules. Enable this for truly adaptive
+  # camera monitoring that responds to natural language instructions.
+  # 
+  # Example instructions:
+  #   - "Monitor the conveyor for PCB defects"
+  #   - "Watch for packages without shipping labels"
+  #   - "Check PPE compliance for workers in the area"
+  # 
+  # All config values are GUIDELINES for the LLM, not hard thresholds.
+  # ═══════════════════════════════════════════════════════════════════════
+  enabled: false  # Set to true to enable proactive mode
+  frame_interval_seconds: 1.5  # Frame check frequency (guideline)
+  stability_frame_count: 6  # Stability hint for LLM (not a rule)
+  observation_temperature: 0.1  # Lower = consistent observations
+  decision_temperature: 0.2  # Balanced for intelligent decisions
+  quick_check_temperature: 0.15  # Fast confirmations
+  inspection_ttl_seconds: 180  # Scene memory duration
+  max_idle_seconds: 300  # Idle awareness context
 
 # vLLM configuration - high-performance inference backend
 vllm:

@@ -4,17 +4,16 @@ An AI-powered camera monitoring system that detects packaging/shipping boxes in 
 
 ## Overview
 
-The ZEDEDA Camera Monitoring Agent captures video from a camera device, uses SSIM-based preprocessing to detect scene changes, analyzes frames with vision language models (vLLM), and differentiates between labeled and unlabeled packaging boxes. Alerts are generated only for boxes without clearly visible shipping labels.
+The ZEDEDA Camera Monitoring Agent captures video from a camera device and now features a proactive, LLM-directed monitoring loop. The agent continuously observes the feed, maintains temporal context, reasons about targets (PCB, PPE, retail, etc.), and decides when to run lightweight checks versus full inspections. Alerts are generated only when the LLM concludes that the user’s natural-language instruction requires action (e.g., an unlabeled package or PCB defect).
 
 ## Key Features
 
-- **Smart Frame Preprocessing**: SSIM-based scene change detection reduces VLM calls by ~95%
-- **Agent Similarity Guard**: Reuses the last decision when frames are nearly identical
-- **Vision Language Model**: Uses Qwen3-VL via vLLM for accurate image analysis
-- **Tool Calling**: Agentic VLM with structured tool calls for email alerts
-- **Agent Memory & Summaries**: Maintains rolling memory of recent events
-- **Real-time Dashboard**: Flask web UI with WebSocket live updates
-- **Email Notifications**: Automatic alerting with customizable templates
+- **Proactive Monitoring Loop**: Two-stage LLM pipeline (observation + decision) keeps temporal context and autonomously pulls the trigger on analyses.
+- **Instruction-Aware Reasoning**: User prompts like “watch for PCB defects” or “monitor unlabeled packages” guide the agent’s behavior without code changes.
+- **Adaptive Actions**: LLM chooses between wait, quick_check, and full_inspection, eliminating rigid SSIM/threshold heuristics.
+- **Agent Memory & Summaries**: Rolling memory plus scene signatures prevent redundant inspections of the same object.
+- **Agentic Tooling & Alerts**: Full inspections reuse the Unified VLM + alert stack (email, WebSocket, DB logging).
+- **Real-time Dashboard**: Flask web UI with live feed, logs, and proactive status snapshots.
 
 ## Architecture
 
@@ -22,6 +21,34 @@ The ZEDEDA Camera Monitoring Agent captures video from a camera device, uses SSI
 Camera Feed → SSIM Analysis → vLLM (Qwen3-VL) → Tool Execution → Alert Routing
    ↓              ↓                  ↓                 ↓              ↓
 /dev/video0    Frame Diff     Vision Analysis     send_email      Email / UI
+```
+
+## Proactive Monitoring Loop
+
+The proactive agent runs a continuous loop driven entirely by the LLM:
+
+1. **Observe** – Lightweight prompt asks the VLM to describe the scene, detect motion, and emit a stable `scene_signature`.
+2. **Decide** – A second prompt consumes temporal context (user intent, last action, stability counters, inspection history) and selects `wait`, `quick_check`, or `full_inspection`.
+3. **Act** – `quick_check` performs a cheap confirmation; `full_inspection` reuses the Vision-Language analysis/alert stack; `wait` keeps monitoring.
+
+Start the agent with a natural-language instruction via REST:
+
+```bash
+curl -X POST http://localhost:8080/api/monitoring/proactive/start \
+   -H "Content-Type: application/json" \
+   -d '{
+            "instruction": "Monitor the conveyor for PCB defects",
+            "frame_interval": 1.2,
+            "stability_frames": 5,
+            "decision_temperature": 0.2
+         }'
+```
+
+Check status or stop the loop:
+
+```bash
+curl http://localhost:8080/api/monitoring/proactive/status
+curl -X POST http://localhost:8080/api/monitoring/proactive/stop
 ```
 
 ### Project Structure
@@ -154,8 +181,9 @@ notifications:
 | `GET` | `/api/config` | Get configuration |
 | `POST` | `/api/config` | Update configuration |
 | `GET` | `/api/monitoring/status` | Monitoring status |
-| `POST` | `/api/monitoring/start` | Start monitoring |
-| `POST` | `/api/monitoring/stop` | Stop monitoring |
+| `GET` | `/api/monitoring/proactive/status` | Proactive agent snapshot |
+| `POST` | `/api/monitoring/proactive/start` | Start/update proactive monitoring |
+| `POST` | `/api/monitoring/proactive/stop` | Stop proactive monitoring |
 | `POST` | `/api/analysis/analyze` | Analyze single frame |
 | `GET` | `/api/logs` | Detection logs |
 

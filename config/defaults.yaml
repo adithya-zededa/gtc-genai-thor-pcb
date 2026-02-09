@@ -13,6 +13,38 @@ camera:
   save_detection_images: true
   detection_image_dir: detected_images
 
+proactive:
+  # ═══════════════════════════════════════════════════════════════════════
+  # PROACTIVE MONITORING CONFIGURATION
+  # ═══════════════════════════════════════════════════════════════════════
+  # Enables intelligent, LLM-driven camera monitoring that:
+  #   - Understands natural language instructions
+  #   - Maintains temporal awareness across frames
+  #   - Decides autonomously when/how to analyze frames
+  #   - Adapts behavior based on scene changes
+  # 
+  # All values are GUIDELINES for the LLM, not rigid thresholds.
+  # The LLM makes final decisions based on reasoning and context.
+  # ═══════════════════════════════════════════════════════════════════════
+  
+  enabled: false  # Enable/disable proactive mode
+  
+  # Frame Processing
+  frame_interval_seconds: 1.5  # How often to check frames (guideline, not rule)
+  stability_frame_count: 6  # Context hint for scene stability (not a threshold)
+  
+  # LLM Temperature Settings (lower = more deterministic, higher = more creative)
+  observation_temperature: 0.1  # Observation stage (keep low for consistent perceiving)
+  decision_temperature: 0.2  # Decision stage (balanced for intelligent reasoning)
+  quick_check_temperature: 0.15  # Quick check stage (fast confirmations)
+  
+  # Context Management
+  inspection_ttl_seconds: 180  # How long to remember inspected scenes
+  max_idle_seconds: 300  # Context hint for idle time awareness
+  
+  # Default Instruction (used if none provided via API)
+  default_instruction: "Monitor the scene and detect any anomalies or objects of interest."
+
 inference:
   backend: vllm
   vllm:

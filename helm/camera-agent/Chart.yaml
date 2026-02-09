@@ -2,9 +2,10 @@ annotations:
   category: AI/ML
   license: Apache-2.0
 apiVersion: v2
-appVersion: 2.10.0
+appVersion: 2.11.0
 description: ZEDEDA Camera Monitoring Agent - AI-powered camera monitoring with agentic
-  VLM capabilities using vLLM backend on Jetson Thor
+  VLM capabilities using vLLM backend on Jetson Thor. Now with proactive, LLM-driven
+  monitoring that eliminates hardcoded rules.
 home: https://github.com/zededa/camera-agent
 keywords:
 - camera
@@ -17,6 +18,8 @@ keywords:
 - nvidia
 - edge-ai
 - thor
+- agentic
+- proactive
 maintainers:
 - email: adithya@zededa.com
   name: Adithya
@@ -24,4 +27,4 @@ name: camera-agent-thor-vllm
 sources:
 - https://github.com/zededa/camera-agent
 type: application
-version: 2.14.0
+version: 2.15.0

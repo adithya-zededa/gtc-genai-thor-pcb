@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, Optional
 from uuid import uuid4
 
 from agents.core.camera_agent import StreamlinedAgent, CircuitBreaker
+from agents.core.proactive_agent import ProactiveMonitoringAgent
 from agents.vlm.task_types import TaskType
 from agents.core.state import DetectionEvent
 from services.core.camera import get_camera_publisher
@@ -82,6 +83,12 @@ class StreamlinedMonitoringService:
         self._analysis_futures = deque()
         self._futures_lock = threading.Lock()
         
+        # Proactive agent state
+        self.proactive_agent: Optional[ProactiveMonitoringAgent] = None
+        self._proactive_instruction: str = ""
+        self._proactive_config: Dict[str, Any] = {}
+        self._proactive_lock = threading.RLock()
+
         # Motion detection
         self.ssim_threshold = 0.80
         self.motion_burst_interval = 0.2
@@ -121,6 +128,7 @@ class StreamlinedMonitoringService:
             config = load_camera_config()
             vlm_client = create_vlm_client_from_config(config)
             circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=120.0)
+            self._proactive_config = config.get("proactive", {}) or {}
             
             self.agent = StreamlinedAgent(
                 config=config,
@@ -146,6 +154,11 @@ class StreamlinedMonitoringService:
         if self.is_monitoring:
             self.last_error = "Monitoring already active"
             return False
+
+        # Avoid running both reactive and proactive loops simultaneously
+        if self.proactive_agent and self.proactive_agent.is_running:
+            self.last_error = "Proactive monitoring is currently active"
+            return False
         
         if not self.agent:
             if not self.initialize():
@@ -170,6 +183,67 @@ class StreamlinedMonitoringService:
             self._thread.join(timeout=5.0)
         
         logger.info("Monitoring stopped")
+
+    # ------------------------------------------------------------------
+    # Proactive control
+    # ------------------------------------------------------------------
+
+    def start_proactive_monitoring(
+        self,
+        instruction: str,
+        config: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Start or update the proactive monitoring agent."""
+        if not instruction or not instruction.strip():
+            self.last_error = "Instruction is required"
+            return False
+
+        if not self.agent:
+            if not self.initialize():
+                return False
+
+        if self.is_monitoring:
+            logger.info("Pausing reactive monitoring while proactive mode is active")
+            self.stop_monitoring()
+
+        with self._proactive_lock:
+            merged_config = {**self._proactive_config, **(config or {})}
+            self._proactive_config = merged_config
+
+            if self.proactive_agent and self.proactive_agent.is_running:
+                self.proactive_agent.update_instruction(instruction)
+                self._proactive_instruction = instruction.strip()
+                return True
+
+            self.proactive_agent = ProactiveMonitoringAgent(
+                instruction=instruction,
+                vlm_client=self.agent.vlm_client,
+                detection_agent=self.agent,
+                publisher_getter=self._publisher_getter,
+                event_callback=self._record_detection,
+                config=merged_config,
+            )
+            self._proactive_instruction = instruction.strip()
+            self.proactive_agent.start()
+            return True
+
+    def stop_proactive_monitoring(self) -> None:
+        """Stop the proactive monitoring agent if running."""
+        with self._proactive_lock:
+            agent = self.proactive_agent
+            self.proactive_agent = None
+            if agent and agent.is_running:
+                agent.stop()
+            self._proactive_instruction = ""
+
+    def get_proactive_snapshot(self) -> Dict[str, Any]:
+        with self._proactive_lock:
+            if self.proactive_agent:
+                snapshot = self.proactive_agent.snapshot()
+            else:
+                snapshot = {"running": False, "context": None}
+            snapshot["instruction"] = self._proactive_instruction
+            return snapshot
 
     def set_active_prompt(
         self,
@@ -312,7 +386,9 @@ class StreamlinedMonitoringService:
     def _serialize_stats(self) -> Dict[str, Any]:
         """Get a copy of current stats."""
         with self._stats_lock:
-            return self.stats.copy()
+            payload = self.stats.copy()
+        payload["proactive"] = self.get_proactive_snapshot()
+        return payload
 
     def _monitoring_loop(self) -> None:
         """Main monitoring loop."""

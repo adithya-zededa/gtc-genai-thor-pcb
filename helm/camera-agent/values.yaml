@@ -5,7 +5,7 @@ replicaCount: 1
 image:
   repository: adithyazededa/camera-agent-thor-vllm
   pullPolicy: Always
-  tag: "v175"
+  tag: "v176"
 
 imagePullSecrets: []
 nameOverride: ""
@@ -96,7 +96,7 @@ vllmServer:
   # URL to connect to vLLM server (auto-set when enabled, or override for external vLLM)
   url: ""
   # Model to serve - full Hugging Face model name
-  model: "Qwen/Qwen3-VL-8B-Instruct"
+  model: "Qwen/Qwen3-VL-4B-Instruct"
   # Inference timeout in seconds
   timeout: 300
   # Temperature for generation
@@ -117,7 +117,7 @@ vllmServer:
     # Tensor parallel size
     tensorParallelSize: 1
     # GPU memory utilization (0.0 - 1.0)
-    gpuMemoryUtilization: 0.85
+    gpuMemoryUtilization: 0.65
     # Maximum model length (needs to be large enough for image tokens + tools prompt)
     maxModelLen: 16000
     # Data type (auto, float16, bfloat16, float32)

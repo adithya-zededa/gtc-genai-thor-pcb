@@ -474,13 +474,36 @@ class UnifiedVLMClient:
         
         return prompt
 
-    def _send_vlm_request(self, prompt: str, base64_image: str) -> str:
+    def _send_vlm_request(
+        self,
+        prompt: str,
+        base64_image: str,
+        *,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> str:
         """Send request to VLM and return raw response."""
         if self.backend == VLMBackend.VLLM:
-            return self._send_vllm_request(prompt, base64_image)
-        return self._send_ollama_request(prompt, base64_image)
+            return self._send_vllm_request(
+                prompt,
+                base64_image,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        return self._send_ollama_request(
+            prompt,
+            base64_image,
+            temperature=temperature,
+        )
 
-    def _send_vllm_request(self, prompt: str, base64_image: str) -> str:
+    def _send_vllm_request(
+        self,
+        prompt: str,
+        base64_image: str,
+        *,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> str:
         """Send request to vLLM using OpenAI-compatible chat completions API."""
         messages = [
             {
@@ -498,8 +521,8 @@ class UnifiedVLMClient:
         payload = {
             "model": self.model,
             "messages": messages,
-            "temperature": self.temperature,
-            "max_tokens": 1024,
+            "temperature": temperature if temperature is not None else self.temperature,
+            "max_tokens": max_tokens if max_tokens is not None else 1024,
         }
         
         logger.debug("Sending request to vLLM (task prompt length: %d)", len(prompt))
@@ -525,13 +548,22 @@ class UnifiedVLMClient:
             return message.get("content", "")
         return ""
 
-    def _send_ollama_request(self, prompt: str, base64_image: str) -> str:
+    def _send_ollama_request(
+        self,
+        prompt: str,
+        base64_image: str,
+        *,
+        temperature: Optional[float] = None,
+    ) -> str:
         """Send request to Ollama using the generate API."""
         payload = {
             "model": self.model,
             "prompt": prompt,
             "images": [base64_image],
             "stream": False,
+            "options": {
+                "temperature": temperature if temperature is not None else self.temperature,
+            },
         }
         
         logger.debug("Sending request to Ollama (task prompt length: %d)", len(prompt))
@@ -555,6 +587,30 @@ class UnifiedVLMClient:
         response.raise_for_status()
         result = response.json()
         return result.get("response", "")
+
+    def run_structured_prompt(
+        self,
+        frame: np.ndarray,
+        prompt: str,
+        *,
+        temperature: Optional[float] = None,
+        max_tokens: int = 512,
+    ) -> Dict[str, Any]:
+        """Execute an ad-hoc structured prompt against the VLM.
+
+        Returns both the raw response and parsed JSON (if any) so callers can
+        inspect reasoning traces while still having structured data for control
+        flow.
+        """
+        base64_image = self._encode_frame(frame)
+        raw_response = self._send_vlm_request(
+            prompt,
+            base64_image,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        parsed = self._parse_json_response(raw_response)
+        return {"raw": raw_response, "parsed": parsed}
 
     def analyze(
         self,
