@@ -1,9 +1,8 @@
 """LLM-based intent classifier for MCP domain routing and tool selection.
 
 Uses a single LLM inference call that returns structured JSON to classify
-user messages into domains and tools.  The LLM is the sole decision maker
-— there are no keyword or regex fallbacks.
-
+    user messages into domains and tools.  The vLLM backend is the sole
+    inference provider — there are no keyword or regex fallbacks.
 Output schema::
 
     {
@@ -77,6 +76,14 @@ Given the user message below, decide:
 | retail   | Anything about retail items, trays, products, billing, invoices, pricing, checkout, inventory counting. |
 | general  | Camera monitoring, session control, greetings, help, status, or anything that doesn't fit pcb/retail. |
 
+## Important: Retail Workflow Priority
+
+When users request retail billing tasks:
+- If the user mentions "invoice" (generate invoice, create invoice, make invoice), **ALWAYS** use `generate_invoice` tool.
+- The `generate_invoice` tool automatically handles all steps: scanning, pricing, bill creation, PDF generation, and speaker announcement.
+- Only use `create_bill` when the user explicitly wants JUST the bill calculation without the final invoice document.
+- Example: "create a bill and generate an invoice" → use `generate_invoice` (not create_bill)
+
 ## Tools
 
 ### PCB domain tools
@@ -93,8 +100,8 @@ Given the user message below, decide:
 |----------------------|--------------|
 | scan_tray_items      | User wants to look at / scan / count items on a tray or counter. |
 | lookup_item_price    | User wants to check / look up the price of a specific item. |
-| create_bill          | User wants to create / generate / tally a bill from items. |
-| generate_invoice     | User wants to render / create an invoice document. |
+| create_bill          | User wants to create / calculate / tally a bill (prices and totals). Use ONLY when user wants bill calculation without the final invoice document. |
+| generate_invoice     | User mentions 'invoice' OR wants PDF OR wants speaker announcement OR wants a complete billing document. ALWAYS use this for invoice requests. |
 | send_invoice_email   | User wants to email / send an invoice or bill to someone. |
 
 ### General domain tools
@@ -139,12 +146,11 @@ Respond ONLY with a JSON object — no explanation, no markdown fences:
 class LLMIntentClassifier:
     """Classifies user messages via a single LLM inference call.
 
-    Falls back to keyword matching when the inference backend is
-    unreachable or returns an unparsable response.
+    Falls back to a low-confidence general result when the vLLM backend
+    is unreachable or returns an unparsable response.
 
-    When the LLM router is enabled (LLM_ROUTER_ENABLED=true), classification
-    requests are sent through the router, which supports cloud LLMs
-    (Anthropic, OpenAI, Google) alongside local backends (vLLM, Ollama).
+    Classification requests are sent through the LLM router, which wraps
+    the vLLM adapter with resilience (retry, circuit-breaking).
     """
 
     def __init__(
@@ -153,12 +159,10 @@ class LLMIntentClassifier:
         base_url: Optional[str] = None,
         model: Optional[str] = None,
         timeout: int = 15,
-        backend: str = "vllm",
     ):
         self._base_url = base_url
         self._model = model
         self._timeout = timeout
-        self._backend = backend
         self._session = requests.Session()
         self._session.headers["User-Agent"] = "camera-agent-classifier/1.0"
         self._lock = threading.Lock()
@@ -183,9 +187,7 @@ class LLMIntentClassifier:
             return self._base_url
         from core.config import get_config
         cfg = get_config()
-        if self._backend == "vllm":
-            return os.getenv("VLLM_URL", cfg.inference.vllm_url).rstrip("/")
-        return os.getenv("OLLAMA_URL", cfg.inference.ollama_url).rstrip("/")
+        return os.getenv("VLLM_URL", cfg.inference.vllm_url).rstrip("/")
 
     @property
     def model(self) -> str:
@@ -195,8 +197,8 @@ class LLMIntentClassifier:
         classifier_model = os.getenv("CLASSIFIER_MODEL")
         if classifier_model:
             return classifier_model
-        from core.config import get_config
-        return os.getenv("VISION_MODEL", get_config().inference.model)
+        from core.model_detect import detect_model
+        return detect_model(backend="vllm", base_url=self._base_url, wait=False)
 
     # ------------------------------------------------------------------
     # Router integration
@@ -208,21 +210,9 @@ class LLMIntentClassifier:
             return self._router
         self._router_checked = True
         try:
-            from core.config import get_config
-            cfg = get_config()
-            if cfg.router.enabled and cfg.router.use_for_classification:
-                from router import get_router
-                router = get_router()
-                providers = router.list_providers()
-                if providers:
-                    self._router = router
-                    logger.info(
-                        "LLM classifier using router with %d provider(s): %s",
-                        len(providers),
-                        ", ".join(p["name"] for p in providers),
-                    )
-                else:
-                    logger.warning("LLM router enabled but no providers registered")
+            from router import get_router
+            self._router = get_router()
+            logger.info("LLM classifier using vLLM router")
         except Exception as exc:
             logger.warning("Failed to initialise LLM router for classifier: %s", exc)
         return self._router
@@ -311,7 +301,8 @@ class LLMIntentClassifier:
         from router.config import ChatResponse
         response: ChatResponse = router.chat(
             messages=[{"role": "user", "content": prompt}],
-            # Override settings for classification: fast, deterministic
+            # Disable Qwen3 thinking mode for classification
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         )
         logger.debug(
             "Router classification via %s/%s",
@@ -320,10 +311,8 @@ class LLMIntentClassifier:
         return response.content
 
     def _direct_completion(self, prompt: str) -> str:
-        """Send classification request directly to vLLM or Ollama."""
-        if self._backend == "vllm":
-            return self._vllm_completion(prompt)
-        return self._ollama_completion(prompt)
+        """Send classification request directly to vLLM."""
+        return self._vllm_completion(prompt)
 
     def _vllm_completion(self, prompt: str) -> str:
         payload = {
@@ -332,7 +321,9 @@ class LLMIntentClassifier:
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.0,
-            "max_tokens": 300,
+            "max_tokens": 512,
+            # Disable Qwen3 thinking mode for structured classification output
+            "chat_template_kwargs": {"enable_thinking": False},
         }
         resp = self._session.post(
             f"{self.base_url}/v1/chat/completions",
@@ -343,22 +334,13 @@ class LLMIntentClassifier:
         data = resp.json()
         choices = data.get("choices", [])
         if choices:
-            return choices[0].get("message", {}).get("content", "")
+            msg = choices[0].get("message", {})
+            # Prefer content; fall back to reasoning_content for Qwen3 thinking models
+            content = msg.get("content", "")
+            if not content and msg.get("reasoning_content"):
+                content = msg["reasoning_content"]
+            return content or ""
         return ""
-
-    def _ollama_completion(self, prompt: str) -> str:
-        payload = {
-            "model": self.model,
-            "prompt": prompt,
-            "stream": False,
-        }
-        resp = self._session.post(
-            f"{self.base_url}/api/generate",
-            json=payload,
-            timeout=self._timeout,
-        )
-        resp.raise_for_status()
-        return resp.json().get("response", "")
 
     # ------------------------------------------------------------------
     # Response parsing
@@ -435,7 +417,6 @@ def get_classifier() -> LLMIntentClassifier:
     if _classifier is None:
         with _clf_lock:
             if _classifier is None:
-                backend = os.getenv("INFERENCE_BACKEND", "vllm").lower()
-                _classifier = LLMIntentClassifier(backend=backend)
-                logger.info("LLMIntentClassifier singleton created (backend=%s)", backend)
+                _classifier = LLMIntentClassifier()
+                logger.info("LLMIntentClassifier singleton created (vLLM)")
     return _classifier

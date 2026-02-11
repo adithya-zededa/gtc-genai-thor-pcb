@@ -10,6 +10,9 @@ from .schema import MCPSchemaType, MCPParameterSchema, MCPOutputSchema, standard
 from .state_machine import AgentState
 from .registry import MCPToolDefinition, MCPToolRegistry
 
+# All states — the LLM makes the decisions, not state filters.
+_ALL_STATES = tuple(AgentState)
+
 
 # ── Session tools ──────────────────────────────────────────────────────────
 
@@ -28,7 +31,7 @@ TOOL_START_MONITORING_SESSION = MCPToolDefinition(
     ],
     output_schema=standard_output_schema(),
     requires_confirmation=False,
-    allowed_in_states=(AgentState.OFF, AgentState.IDLE),
+    allowed_in_states=_ALL_STATES,
 )
 
 TOOL_END_SESSION = MCPToolDefinition(
@@ -38,7 +41,7 @@ TOOL_END_SESSION = MCPToolDefinition(
     input_schema=[],
     output_schema=standard_output_schema(),
     requires_confirmation=False,
-    allowed_in_states=(AgentState.IDLE, AgentState.MONITORING),
+    allowed_in_states=_ALL_STATES,
 )
 
 TOOL_GET_SESSION_SUMMARY = MCPToolDefinition(
@@ -55,7 +58,7 @@ TOOL_GET_SESSION_SUMMARY = MCPToolDefinition(
     ],
     output_schema=standard_output_schema(),
     requires_confirmation=False,
-    allowed_in_states=(AgentState.IDLE, AgentState.MONITORING, AgentState.ANALYZING),
+    allowed_in_states=_ALL_STATES,
 )
 
 # ── Status tools ───────────────────────────────────────────────────────────
@@ -76,7 +79,7 @@ TOOL_GET_AGENT_STATUS = MCPToolDefinition(
         required_properties=("state",),
     ),
     requires_confirmation=False,
-    allowed_in_states=(AgentState.OFF, AgentState.IDLE, AgentState.MONITORING, AgentState.ANALYZING, AgentState.ALERTING, AgentState.ERROR),
+    allowed_in_states=_ALL_STATES,
 )
 
 # ── Analysis tools ─────────────────────────────────────────────────────────
@@ -106,7 +109,7 @@ TOOL_ANALYZE_FRAME = MCPToolDefinition(
         required_properties=("detected", "description"),
     ),
     requires_confirmation=False,
-    allowed_in_states=(AgentState.IDLE, AgentState.MONITORING),
+    allowed_in_states=_ALL_STATES,
 )
 
 # ── Alert tools ────────────────────────────────────────────────────────────
@@ -158,7 +161,7 @@ TOOL_SEND_ALERT_EMAIL = MCPToolDefinition(
     output_schema=standard_output_schema(),
     requires_confirmation=True,
     confirmation_message="This will send an email to {recipients}. Do you want to proceed?",
-    allowed_in_states=(AgentState.IDLE, AgentState.MONITORING, AgentState.ALERTING),
+    allowed_in_states=_ALL_STATES,
 )
 
 # ── Evidence tools ─────────────────────────────────────────────────────────
@@ -195,7 +198,7 @@ TOOL_SAVE_EVIDENCE = MCPToolDefinition(
         required_properties=("success",),
     ),
     requires_confirmation=False,
-    allowed_in_states=(AgentState.IDLE, AgentState.MONITORING, AgentState.ALERTING),
+    allowed_in_states=_ALL_STATES,
 )
 
 # ── Logging tools ──────────────────────────────────────────────────────────
@@ -231,7 +234,7 @@ TOOL_LOG_EVENT = MCPToolDefinition(
     ],
     output_schema=standard_output_schema(),
     requires_confirmation=False,
-    allowed_in_states=(AgentState.IDLE, AgentState.MONITORING, AgentState.ANALYZING, AgentState.ALERTING),
+    allowed_in_states=_ALL_STATES,
 )
 
 # ── History tools ──────────────────────────────────────────────────────────
@@ -268,7 +271,7 @@ TOOL_QUERY_HISTORY = MCPToolDefinition(
         required_properties=("events", "total"),
     ),
     requires_confirmation=False,
-    allowed_in_states=(AgentState.IDLE, AgentState.MONITORING, AgentState.ANALYZING),
+    allowed_in_states=_ALL_STATES,
 )
 
 # ── Configuration tools ───────────────────────────────────────────────────
@@ -295,7 +298,7 @@ TOOL_SET_DETECTION_TASK = MCPToolDefinition(
     ],
     output_schema=standard_output_schema(),
     requires_confirmation=False,
-    allowed_in_states=(AgentState.IDLE, AgentState.MONITORING),
+    allowed_in_states=_ALL_STATES,
 )
 
 # ── Control tools ──────────────────────────────────────────────────────────
@@ -307,7 +310,7 @@ TOOL_GO_IDLE = MCPToolDefinition(
     input_schema=[],
     output_schema=standard_output_schema(),
     requires_confirmation=False,
-    allowed_in_states=(AgentState.MONITORING, AgentState.ALERTING, AgentState.ERROR),
+    allowed_in_states=_ALL_STATES,
 )
 
 TOOL_SHUTDOWN_AGENT = MCPToolDefinition(
@@ -318,7 +321,7 @@ TOOL_SHUTDOWN_AGENT = MCPToolDefinition(
     output_schema=standard_output_schema(),
     requires_confirmation=True,
     confirmation_message="This will completely shut down the agent. Are you sure?",
-    allowed_in_states=(AgentState.IDLE, AgentState.MONITORING, AgentState.ERROR),
+    allowed_in_states=_ALL_STATES,
 )
 
 TOOL_ACKNOWLEDGE_ERROR = MCPToolDefinition(
@@ -328,7 +331,7 @@ TOOL_ACKNOWLEDGE_ERROR = MCPToolDefinition(
     input_schema=[],
     output_schema=standard_output_schema(),
     requires_confirmation=False,
-    allowed_in_states=(AgentState.ERROR,),
+    allowed_in_states=_ALL_STATES,
 )
 
 

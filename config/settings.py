@@ -46,32 +46,16 @@ class VLLMSettings(BaseModel):
         description="vLLM server URL",
     )
     model: str = Field(
-        default="Qwen/Qwen3-VL-8B-Instruct",
-        description="Vision model name",
-    )
-    timeout: int = Field(default=300, ge=1, description="Request timeout in seconds")
-    temperature: float = Field(default=0.1, ge=0.0, le=2.0, description="Sampling temperature")
-
-
-class OllamaSettings(BaseModel):
-    """Ollama inference backend configuration."""
-    url: str = Field(
-        default="http://localhost:11434",
-        description="Ollama server URL",
-    )
-    vision_model: str = Field(
-        default="qwen3-vl:8b",
-        description="Vision model name for Ollama",
+        default="",
+        description="Vision model name (auto-detected from server when empty)",
     )
     timeout: int = Field(default=300, ge=1, description="Request timeout in seconds")
     temperature: float = Field(default=0.1, ge=0.0, le=2.0, description="Sampling temperature")
 
 
 class InferenceSettings(BaseModel):
-    """Combined inference backend configuration."""
-    backend: str = Field(default="vllm", description="Active backend: 'vllm' or 'ollama'")
+    """vLLM inference backend configuration."""
     vllm: VLLMSettings = Field(default_factory=VLLMSettings)
-    ollama: OllamaSettings = Field(default_factory=OllamaSettings)
 
 
 class FlaskSettings(BaseModel):
@@ -84,10 +68,8 @@ class FlaskSettings(BaseModel):
 
 
 class RouterSettings(BaseModel):
-    """LLM Router configuration for multi-provider support."""
-    enabled: bool = Field(default=False, description="Enable LLM Router")
-    routing_strategy: str = Field(default="failover", description="Routing strategy")
-    auto_discover: bool = Field(default=True, description="Auto-discover providers")
+    """LLM Router configuration (vLLM-only)."""
+    enabled: bool = Field(default=True, description="Router enabled (always True)")
     use_for_classification: bool = Field(default=True, description="Use for intent classification")
     use_for_chat: bool = Field(default=True, description="Use for chat responses")
 
@@ -149,16 +131,11 @@ class Settings(BaseModel):
                 ),
             ),
             inference=InferenceSettings(
-                backend=os.getenv("INFERENCE_BACKEND", "vllm"),
                 vllm=VLLMSettings(
                     url=os.getenv("VLLM_URL", "http://localhost:8000"),
-                    model=os.getenv("VISION_MODEL", "Qwen/Qwen3-VL-8B-Instruct"),
+                    model=os.getenv("VISION_MODEL", ""),  # auto-detected at runtime
                     timeout=int(os.getenv("VLLM_TIMEOUT", "300")),
                     temperature=float(os.getenv("VLLM_TEMPERATURE", "0.1")),
-                ),
-                ollama=OllamaSettings(
-                    url=os.getenv("OLLAMA_URL", "http://localhost:11434"),
-                    vision_model=os.getenv("VISION_MODEL", "qwen3-vl:8b"),
                 ),
             ),
             flask=FlaskSettings(
@@ -169,9 +146,7 @@ class Settings(BaseModel):
                 socketio_cors=os.getenv("SOCKETIO_CORS", "*"),
             ),
             router=RouterSettings(
-                enabled=os.getenv("LLM_ROUTER_ENABLED", "").lower()
-                in {"1", "true", "yes"},
-                routing_strategy=os.getenv("LLM_ROUTING_STRATEGY", "failover"),
+                enabled=True,
             ),
             http_timeout=float(os.getenv("HTTP_REQUEST_TIMEOUT", "5.0")),
         )

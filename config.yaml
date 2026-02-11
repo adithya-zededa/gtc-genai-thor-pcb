@@ -44,16 +44,9 @@ proactive:
 # vLLM configuration - high-performance inference backend
 vllm:
   url: http://localhost:8000
-  model: Qwen/Qwen3-VL-8B-Instruct
+  model: auto  # auto-detected from server; set VISION_MODEL env to override
   timeout: 300
   temperature: 0.1
-
-# Ollama configuration (legacy - used if vllm config is not present)
-# ollama:
-#   url: http://localhost:11434
-#   vision_model: qwen3-vl:8b
-#   timeout: 300
-#   temperature: 0.1
 
 detection:
   prompt: "Analyze this image for shipping/packaging boxes.\n\nTASK: Look for brown\

@@ -53,6 +53,12 @@ spec:
               value: "/app/data/detected_images"
             - name: PROCESSED_FRAMES_DIR
               value: "/app/data/processed_frames"
+            {{- if .Values.speaker.enabled }}
+            - name: SPEAKER_DEVICE
+              value: {{ .Values.speaker.device | default "" | quote }}
+            - name: SPEAKER_VOLUME
+              value: {{ .Values.speaker.volume | default 85 | quote }}
+            {{- end }}
             - name: VLLM_URL
               {{- if and .Values.vllmServer.enabled (not .Values.vllmServer.url) }}
               value: "http://{{ include "camera-agent.fullname" . }}-vllm:{{ .Values.vllmServer.service.port }}"
@@ -92,6 +98,10 @@ spec:
             - name: camera-device
               mountPath: {{ .Values.camera.devicePath }}
             {{- end }}
+            {{- if .Values.speaker.enabled }}
+            - name: speaker-device
+              mountPath: {{ .Values.speaker.devicePath }}
+            {{- end }}
             {{- if .Values.persistence.data.enabled }}
             - name: app-data
               mountPath: /app/data
@@ -111,6 +121,12 @@ spec:
           hostPath:
             path: {{ .Values.camera.devicePath }}
             type: CharDevice
+        {{- end }}
+        {{- if .Values.speaker.enabled }}
+        - name: speaker-device
+          hostPath:
+            path: {{ .Values.speaker.devicePath }}
+            type: Directory
         {{- end }}
         {{- if .Values.persistence.data.enabled }}
         - name: app-data

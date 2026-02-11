@@ -22,7 +22,9 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      runtimeClassName: nvidia
+      {{- if .Values.vllmServer.runtimeClassName }}
+      runtimeClassName: {{ .Values.vllmServer.runtimeClassName }}
+      {{- end }}
       securityContext:
         privileged: true
       containers:

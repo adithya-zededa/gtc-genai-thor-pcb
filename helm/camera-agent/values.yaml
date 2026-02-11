@@ -5,7 +5,7 @@ replicaCount: 1
 image:
   repository: adithyazededa/camera-agent-thor-vllm
   pullPolicy: Always
-  tag: "v176"
+  tag: "v192"
 
 imagePullSecrets: []
 nameOverride: ""
@@ -23,8 +23,8 @@ rbac:
 podAnnotations: {}
 
 podSecurityContext:
-  # Add video group (44) for camera access
-  supplementalGroups: [44]
+  # Add video group (44) for camera access and audio group (29) for speaker access
+  supplementalGroups: [44, 29]
 
 securityContext:
   privileged: true  # Required for camera and GPU access
@@ -58,9 +58,26 @@ camera:
   # Enable camera device mount (set to false if no camera available)
   enabled: true
   # Device path on the host
-  devicePath: /dev/video0
+  devicePath: /dev/video1
   # Camera index used by OpenCV
-  index: 0
+  index: 1
+
+# Speaker device configuration
+speaker:
+  # Enable speaker device mount (set to false if no speaker available)
+  enabled: true
+  # Device path on the host (typically /dev/snd for ALSA sound devices)
+  devicePath: /dev/snd
+  # Audio device to use (ALSA device specification, optional - leave empty for system default)
+  # Examples:
+  #   "hw:2,0" - USB speaker (use 'aplay -l' to find your device number)
+  #   "plughw:2,0" - USB speaker with automatic format conversion
+  #   "hw:0,0" - Built-in audio
+  # To find your USB speaker: run 'aplay -l' or 'cat /proc/asound/cards'
+  device: "hw:2,0"
+  # Speaker volume level (0-100, where 100 is maximum volume)
+  # Set to an appropriate level to ensure audio is audible during invoice playback
+  volume: 85
 
 # Environment variables
 env:

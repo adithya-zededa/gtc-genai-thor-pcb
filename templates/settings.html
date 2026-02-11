@@ -9,7 +9,7 @@
     <section class="glass rounded-2xl overflow-hidden animate-slide-up">
         <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator);">
             <h3 class="text-headline">Environment & Integrations</h3>
-            <p class="text-footnote mt-0.5">Configure email notifications and Ollama backend</p>
+            <p class="text-footnote mt-0.5">Configure email notifications and integrations</p>
         </div>
         <div class="p-5">
             <div class="grid gap-6 md:grid-cols-2">
@@ -26,10 +26,6 @@
                                 <i class="fas fa-eye"></i>
                             </button>
                         </div>
-                    </div>
-                    <div>
-                        <label for="ollama-url" class="input-label">Ollama URL</label>
-                        <input id="ollama-url" type="url" class="input-glass" placeholder="http://localhost:11434">
                     </div>
                     <div class="flex items-center justify-between glass-ultra-thin rounded-xl p-4">
                         <span class="text-subhead font-medium">Enable debug logging</span>
@@ -121,7 +117,7 @@
     <section class="glass rounded-2xl overflow-hidden animate-slide-up" style="animation-delay: 100ms;">
         <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator);">
             <h3 class="text-headline">Detection Model & Prompt</h3>
-            <p class="text-footnote mt-0.5">Configure Ollama model and vision prompt</p>
+            <p class="text-footnote mt-0.5">Configure vision model and detection prompt</p>
         </div>
         <div class="p-5">
             <div class="grid gap-4 md:grid-cols-2 mb-4">
@@ -184,127 +180,64 @@
         </div>
     </section>
 
-    <!-- LLM Providers (Liquid Glass) -->
+    <!-- vLLM Connection (Liquid Glass) -->
     <section class="glass rounded-2xl overflow-hidden animate-slide-up" style="animation-delay: 200ms;">
-        <div class="px-5 py-4 flex items-center justify-between" style="border-bottom: 0.5px solid var(--border-separator);">
-            <div>
-                <h3 class="text-headline">LLM Providers</h3>
-                <p class="text-footnote mt-0.5">Configure cloud &amp; local LLM backends for the agent</p>
-            </div>
-            <div class="flex items-center gap-2">
-                <button id="llm-import-btn" class="btn btn-secondary text-xs" title="Import config">
-                    <i class="fas fa-file-import"></i><span class="hidden sm:inline ml-1">Import</span>
-                </button>
-                <button id="llm-export-btn" class="btn btn-secondary text-xs" title="Export config">
-                    <i class="fas fa-file-export"></i><span class="hidden sm:inline ml-1">Export</span>
-                </button>
-            </div>
+        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator);">
+            <h3 class="text-headline">vLLM Connection</h3>
+            <p class="text-footnote mt-0.5">Status and configuration for the vLLM inference backend</p>
         </div>
         <div class="p-5 space-y-5">
-            <!-- Routing strategy -->
-            <div class="flex items-center gap-4 glass-ultra-thin rounded-xl p-4">
-                <div class="flex-1">
-                    <label class="input-label mb-1">Routing Strategy</label>
-                    <select id="llm-strategy" class="input-glass w-full">
-                        <option value="failover">Failover (try next on error)</option>
-                        <option value="priority">Priority (highest first)</option>
-                        <option value="round_robin">Round Robin</option>
-                        <option value="latency">Lowest Latency</option>
-                    </select>
+            <!-- vLLM status card -->
+            <div class="glass-ultra-thin rounded-xl p-4 flex items-center gap-4 liquid-hover">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style="background: var(--system-teal-glass, var(--graphite-50));">
+                    <i class="fas fa-server" style="color: var(--system-teal, var(--graphite-text));"></i>
                 </div>
-                <div class="flex flex-col items-center gap-1 pt-5">
-                    <span class="text-footnote text-secondary" id="llm-provider-count">0 providers</span>
-                    <span class="text-footnote" id="llm-health-badge" style="color: var(--system-green);">—</span>
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                        <span class="text-subhead font-semibold">vLLM</span>
+                        <span class="status-dot" id="vllm-status-dot" title="Checking..."></span>
+                        <span class="text-caption text-tertiary" id="vllm-latency"></span>
+                    </div>
+                    <div class="text-footnote text-secondary flex items-center gap-2 mt-0.5">
+                        <span id="vllm-url-display">—</span>
+                        <span class="text-quaternary">·</span>
+                        <span id="vllm-model-display">—</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    <button class="btn btn-secondary text-xs" onclick="vllmCheckHealth()">
+                        <i class="fas fa-sync-alt mr-1"></i>Refresh
+                    </button>
                 </div>
             </div>
 
-            <!-- Registered provider cards -->
-            <div id="llm-provider-list" class="space-y-3">
-                <div class="text-footnote text-secondary text-center py-4">No providers configured yet.</div>
-            </div>
-
-            <!-- Add new provider form -->
-            <details id="llm-add-form-details" class="glass-thin rounded-xl overflow-hidden">
-                <summary class="px-4 py-3 cursor-pointer flex items-center gap-2 text-subhead font-semibold" style="color: var(--system-blue);">
-                    <i class="fas fa-plus-circle"></i>
-                    <span>Add LLM Provider</span>
-                </summary>
-                <div class="px-4 pb-4 pt-2 space-y-4" style="border-top: 0.5px solid var(--border-separator);">
-                    <div class="grid gap-4 md:grid-cols-2">
-                        <div>
-                            <label class="input-label">Provider Name</label>
-                            <input id="llm-new-name" type="text" class="input-glass" placeholder="e.g. my-anthropic">
-                        </div>
-                        <div>
-                            <label class="input-label">Provider Type</label>
-                            <select id="llm-new-type" class="input-glass" onchange="llmProviderTypeChanged()">
-                                <option value="anthropic">Anthropic (Claude)</option>
-                                <option value="openai">OpenAI (GPT)</option>
-                                <option value="google">Google (Gemini)</option>
-                                <option value="groq">Groq</option>
-                                <option value="vllm">vLLM (self-hosted)</option>
-                                <option value="ollama">Ollama (local)</option>
-                                <option value="tgi">TGI (HuggingFace)</option>
-                                <option value="lmstudio">LM Studio</option>
-                                <option value="openai-compatible">OpenAI-compatible</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="grid gap-4 md:grid-cols-2">
-                        <div id="llm-url-group">
-                            <label class="input-label">Server URL</label>
-                            <input id="llm-new-url" type="url" class="input-glass" placeholder="{{ vllm_url | default('http://localhost:8000') }}">
-                        </div>
-                        <div id="llm-key-group">
-                            <label class="input-label">API Key</label>
-                            <div class="flex rounded-xl overflow-hidden" style="border: 0.5px solid var(--border-separator);">
-                                <input id="llm-new-key" type="password" class="input-glass flex-1 rounded-none border-0" placeholder="sk-...">
-                                <button type="button" class="btn-icon" style="border-radius:0;" onclick="togglePassword('llm-new-key')">
-                                    <i class="fas fa-eye"></i>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="grid gap-4 md:grid-cols-2">
-                        <div>
-                            <div class="flex items-center justify-between mb-1">
-                                <label class="input-label mb-0">Model</label>
-                                <button type="button" id="llm-fetch-models-btn" class="text-xs font-medium px-2 py-0.5 rounded-full" style="background: var(--system-blue-glass); color: var(--system-blue);" onclick="llmFetchModels()">
-                                    <i class="fas fa-sync-alt mr-1"></i>Fetch
-                                </button>
-                            </div>
-                            <select id="llm-new-model" class="input-glass">
-                                <option value="">— type or select model —</option>
-                            </select>
-                            <input id="llm-new-model-text" type="text" class="input-glass mt-2 hidden" placeholder="e.g. claude-sonnet-4-20250514">
-                        </div>
-                        <div>
-                            <label class="input-label">Priority</label>
-                            <input id="llm-new-priority" type="number" min="0" max="100" value="10" class="input-glass" placeholder="Lower = higher priority">
-                        </div>
-                    </div>
-                    <div class="flex gap-2 justify-end">
-                        <button type="button" id="llm-add-btn" class="btn btn-primary" onclick="llmAddProvider()">
-                            <i class="fas fa-plus mr-1.5"></i>Add Provider
+            <!-- vLLM config form -->
+            <div class="grid gap-4 md:grid-cols-2">
+                <div>
+                    <label for="vllm-url" class="input-label">vLLM Server URL</label>
+                    <input id="vllm-url" type="url" class="input-glass" placeholder="http://vllm-service:8000">
+                </div>
+                <div>
+                    <label for="vllm-model" class="input-label">Model</label>
+                    <div class="flex gap-2">
+                        <select id="vllm-model" class="input-glass flex-1">
+                            <option value="">Loading models...</option>
+                        </select>
+                        <button type="button" class="btn btn-secondary text-xs flex-shrink-0" onclick="vllmFetchModels()">
+                            <i class="fas fa-sync-alt mr-1"></i>Fetch
                         </button>
                     </div>
                 </div>
-            </details>
+            </div>
 
-            <!-- Save + Activate buttons -->
+            <!-- Save vLLM config -->
             <div class="flex gap-3">
-                <button id="llm-save-btn" class="btn flex-1 text-white" style="background: linear-gradient(135deg, var(--system-blue) 0%, var(--system-indigo) 100%);" onclick="llmSaveConfig()">
-                    <i class="fas fa-save mr-1.5"></i>Save Config
-                </button>
-                <button id="llm-activate-btn" class="btn flex-1 text-white" style="background: linear-gradient(135deg, var(--system-green) 0%, var(--system-teal) 100%);" onclick="llmActivateConfig()">
-                    <i class="fas fa-bolt mr-1.5"></i>Save &amp; Activate
+                <button id="vllm-save-btn" class="btn flex-1 text-white" style="background: linear-gradient(135deg, var(--system-blue) 0%, var(--system-indigo) 100%);" onclick="vllmSaveConfig()">
+                    <i class="fas fa-save mr-1.5"></i>Save vLLM Config
                 </button>
             </div>
         </div>
     </section>
-
-    <!-- Hidden file input for import -->
-    <input type="file" id="llm-import-file" accept=".json" class="hidden">
 
     <!-- API Key & Configuration Management -->
     <section class="glass rounded-2xl overflow-hidden animate-slide-up" style="animation-delay: 250ms;">
@@ -349,68 +282,72 @@ let recipientEmails = [];
 let autoSyncEnabled = false;
 
 // =============================================================================
-// LLM Provider Management
+// vLLM Connection Management
 // =============================================================================
-let llmProviders = [];
 
-const LLM_PROVIDER_META = {
-    'anthropic':         { label: 'Anthropic',       icon: 'fa-brain',      needsUrl: false, needsKey: true,  color: '--system-orange' },
-    'openai':            { label: 'OpenAI',          icon: 'fa-robot',      needsUrl: false, needsKey: true,  color: '--system-green' },
-    'google':            { label: 'Google',          icon: 'fa-globe',      needsUrl: false, needsKey: true,  color: '--system-blue' },
-    'groq':              { label: 'Groq',            icon: 'fa-bolt',       needsUrl: false, needsKey: true,  color: '--system-purple' },
-    'vllm':              { label: 'vLLM',            icon: 'fa-server',     needsUrl: true,  needsKey: false, color: '--system-teal' },
-    'ollama':            { label: 'Ollama',          icon: 'fa-cube',       needsUrl: true,  needsKey: false, color: '--system-indigo' },
-    'tgi':               { label: 'TGI',             icon: 'fa-microchip',  needsUrl: true,  needsKey: false, color: '--system-pink' },
-    'lmstudio':          { label: 'LM Studio',       icon: 'fa-desktop',    needsUrl: true,  needsKey: false, color: '--system-purple' },
-    'openai-compatible': { label: 'OpenAI-compat',   icon: 'fa-plug',       needsUrl: true,  needsKey: true,  color: '--graphite-text' },
-};
+async function vllmCheckHealth() {
+    const dot = document.getElementById('vllm-status-dot');
+    const latencyEl = document.getElementById('vllm-latency');
+    const urlDisplay = document.getElementById('vllm-url-display');
+    const modelDisplay = document.getElementById('vllm-model-display');
 
-function llmProviderTypeChanged() {
-    const type = document.getElementById('llm-new-type').value;
-    const meta = LLM_PROVIDER_META[type] || {};
-    const urlGroup = document.getElementById('llm-url-group');
-    const keyGroup = document.getElementById('llm-key-group');
-    if (urlGroup) urlGroup.style.display = meta.needsUrl === false ? 'none' : '';
-    if (keyGroup) keyGroup.style.display = meta.needsKey === false ? 'none' : '';
+    if (dot) { dot.className = 'status-dot checking'; dot.title = 'Checking...'; }
 
-    // Auto-fill URL for known local providers
-    const urlInput = document.getElementById('llm-new-url');
-    if (type === 'vllm' && urlInput && !urlInput.value) urlInput.value = '{{ vllm_url | default("http://localhost:8000") }}';
-    if (type === 'ollama' && urlInput && !urlInput.value) urlInput.value = 'http://localhost:11434';
-    if (type === 'lmstudio' && urlInput && !urlInput.value) urlInput.value = 'http://localhost:1234';
-    if (type === 'tgi' && urlInput && !urlInput.value) urlInput.value = 'http://localhost:3000';
-
-    // Auto-fill name
-    const nameInput = document.getElementById('llm-new-name');
-    if (nameInput && !nameInput.value) nameInput.value = type;
-
-    // Reset model dropdown
-    const modelSelect = document.getElementById('llm-new-model');
-    modelSelect.innerHTML = '<option value="">— type or select model —</option>';
-    document.getElementById('llm-new-model-text').classList.add('hidden');
-    document.getElementById('llm-new-model-text').value = '';
+    const result = await apiCall('/api/llm/health');
+    if (result && result.success && result.health) {
+        const h = result.health;
+        const available = h.available;
+        if (dot) {
+            dot.className = available ? 'status-dot online' : 'status-dot offline';
+            dot.title = available ? 'Online' : 'Offline';
+        }
+        if (latencyEl) latencyEl.textContent = h.latency_ms ? `${Math.round(h.latency_ms)}ms` : '';
+        if (urlDisplay) urlDisplay.textContent = h.url || '—';
+        if (modelDisplay) modelDisplay.textContent = h.model || '—';
+    } else {
+        if (dot) { dot.className = 'status-dot offline'; dot.title = 'Offline'; }
+        if (latencyEl) latencyEl.textContent = '';
+        if (urlDisplay) urlDisplay.textContent = '—';
+        if (modelDisplay) modelDisplay.textContent = '—';
+    }
 }
 
-async function llmFetchModels() {
-    const type = document.getElementById('llm-new-type').value;
-    const url = document.getElementById('llm-new-url').value.trim();
-    const key = document.getElementById('llm-new-key').value.trim();
-    const fetchBtn = document.getElementById('llm-fetch-models-btn');
+async function vllmLoadStatus() {
+    const result = await apiCall('/api/llm/providers');
+    if (result && result.success && result.providers && result.providers.length > 0) {
+        const p = result.providers[0];
+        const urlInput = document.getElementById('vllm-url');
+        if (urlInput && p.url) urlInput.value = p.url;
+        const modelSelect = document.getElementById('vllm-model');
+        if (modelSelect && p.model) {
+            // Add current model as option if not present
+            let found = false;
+            for (const opt of modelSelect.options) {
+                if (opt.value === p.model) { found = true; break; }
+            }
+            if (!found) {
+                const opt = document.createElement('option');
+                opt.value = p.model;
+                opt.textContent = p.model;
+                modelSelect.appendChild(opt);
+            }
+            modelSelect.value = p.model;
+        }
+    }
+    vllmCheckHealth();
+}
 
-    fetchBtn.disabled = true;
-    fetchBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Fetching...';
+async function vllmFetchModels() {
+    const urlInput = document.getElementById('vllm-url');
+    const modelSelect = document.getElementById('vllm-model');
+    const url = urlInput ? urlInput.value.trim() : '';
 
     const result = await apiCall('/api/llm/models/fetch', {
         method: 'POST',
-        body: JSON.stringify({ provider_type: type, url: url || null, api_key: key || null }),
+        body: JSON.stringify({ url: url || null }),
     });
 
-    fetchBtn.disabled = false;
-    fetchBtn.innerHTML = '<i class="fas fa-sync-alt mr-1"></i>Fetch';
-
-    const modelSelect = document.getElementById('llm-new-model');
-    const modelText = document.getElementById('llm-new-model-text');
-    modelSelect.innerHTML = '';
+    if (modelSelect) modelSelect.innerHTML = '';
 
     if (result && result.success && Array.isArray(result.models) && result.models.length > 0) {
         result.models.forEach(m => {
@@ -418,253 +355,46 @@ async function llmFetchModels() {
             const opt = document.createElement('option');
             opt.value = name;
             opt.textContent = name;
-            modelSelect.appendChild(opt);
+            if (modelSelect) modelSelect.appendChild(opt);
         });
-        modelText.classList.add('hidden');
         showToast(`Found ${result.models.length} model(s)`, 'success');
     } else {
         const opt = document.createElement('option');
         opt.value = '';
-        opt.textContent = '— no models found, type manually —';
-        modelSelect.appendChild(opt);
-        modelText.classList.remove('hidden');
+        opt.textContent = '— no models found —';
+        if (modelSelect) modelSelect.appendChild(opt);
         const errorMsg = (result && result.error) ? result.error : 'No models returned';
         showToast(errorMsg, 'warning');
     }
 }
 
-async function llmAddProvider() {
-    const name = (document.getElementById('llm-new-name').value || '').trim();
-    const type = document.getElementById('llm-new-type').value;
-    const url = (document.getElementById('llm-new-url').value || '').trim();
-    const key = (document.getElementById('llm-new-key').value || '').trim();
-    const modelDropdown = document.getElementById('llm-new-model').value;
-    const modelText = (document.getElementById('llm-new-model-text').value || '').trim();
-    const model = modelDropdown || modelText;
-    const priority = parseInt(document.getElementById('llm-new-priority').value || '10', 10);
+async function vllmSaveConfig() {
+    const url = (document.getElementById('vllm-url') || { value: '' }).value.trim();
+    const model = (document.getElementById('vllm-model') || { value: '' }).value.trim();
 
-    if (!name) { showToast('Provider name is required', 'warning'); return; }
-    if (!type) { showToast('Select a provider type', 'warning'); return; }
-
-    const payload = {
-        name, provider_type: type, priority, enabled: true,
-        supports_tools: true, supports_vision: false,
-    };
+    const payload = {};
     if (url) payload.url = url;
-    if (key) payload.api_key = key;
     if (model) payload.model = model;
 
-    const result = await apiCall('/api/llm/providers', {
-        method: 'POST',
+    const result = await apiCall('/api/llm/config', {
+        method: 'PUT',
         body: JSON.stringify(payload),
     });
 
     if (result && result.success) {
-        showToast(`Provider "${name}" added`, 'success');
-        // Clear form
-        document.getElementById('llm-new-name').value = '';
-        document.getElementById('llm-new-url').value = '';
-        document.getElementById('llm-new-key').value = '';
-        document.getElementById('llm-new-model').innerHTML = '<option value="">— type or select model —</option>';
-        document.getElementById('llm-new-model-text').value = '';
-        document.getElementById('llm-new-model-text').classList.add('hidden');
-        document.getElementById('llm-new-priority').value = '10';
-        document.getElementById('llm-add-form-details').removeAttribute('open');
-        await llmLoadProviders();
+        showToast('vLLM configuration updated', 'success');
+        vllmCheckHealth();
     } else {
-        showToast(result ? result.error : 'Failed to add provider', 'error');
+        showToast(result ? result.error : 'Failed to update vLLM config', 'error');
     }
 }
 
-async function llmRemoveProvider(name) {
-    if (!confirm(`Remove provider "${name}"?`)) return;
-    const result = await apiCall(`/api/llm/providers/${encodeURIComponent(name)}`, { method: 'DELETE' });
-    if (result && result.success) {
-        showToast(`Provider "${name}" removed`, 'success');
-        await llmLoadProviders();
-    } else {
-        showToast(result ? result.error : 'Failed to remove provider', 'error');
-    }
-}
-
-async function llmLoadProviders() {
-    const result = await apiCall('/api/llm/providers');
-    const listEl = document.getElementById('llm-provider-list');
-    const countEl = document.getElementById('llm-provider-count');
-    const healthBadge = document.getElementById('llm-health-badge');
-    const strategySelect = document.getElementById('llm-strategy');
-
-    if (!result || !result.success) {
-        llmProviders = [];
-        if (listEl) listEl.innerHTML = '<div class="text-footnote text-secondary text-center py-4">No providers configured yet.</div>';
-        if (countEl) countEl.textContent = '0 providers';
-        if (healthBadge) { healthBadge.textContent = '—'; healthBadge.style.color = 'var(--text-tertiary)'; }
-        return;
-    }
-
-    llmProviders = result.providers || [];
-    if (result.routing_strategy && strategySelect) strategySelect.value = result.routing_strategy;
-    if (countEl) countEl.textContent = `${llmProviders.length} provider${llmProviders.length !== 1 ? 's' : ''}`;
-
-    if (!llmProviders.length) {
-        if (listEl) listEl.innerHTML = '<div class="text-footnote text-secondary text-center py-4">No providers configured yet.</div>';
-        if (healthBadge) { healthBadge.textContent = '—'; healthBadge.style.color = 'var(--text-tertiary)'; }
-        return;
-    }
-
-    // Build cards
-    let html = '';
-    let healthyCount = 0;
-    llmProviders.forEach(p => {
-        const type = p.provider_type || 'unknown';
-        const meta = LLM_PROVIDER_META[type] || { label: type, icon: 'fa-plug', color: '--graphite-text' };
-        const status = p.status || {};
-        const available = status.available;
-        const statusDot = available ? 'online' : (available === false ? 'offline' : 'checking');
-        const statusLabel = available ? 'Online' : (available === false ? 'Offline' : 'Unknown');
-        if (available) healthyCount++;
-        const latency = status.latency_ms ? `${Math.round(status.latency_ms)}ms` : '';
-        const model = p.model || '<em class="text-tertiary">auto</em>';
-        const hasKey = p.has_api_key;
-
-        html += `
-        <div class="glass-ultra-thin rounded-xl p-4 flex items-center gap-4 liquid-hover">
-            <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style="background: var(${meta.color}-glass, var(--graphite-50));">
-                <i class="fas ${meta.icon}" style="color: var(${meta.color}, var(--graphite-text));"></i>
-            </div>
-            <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2">
-                    <span class="text-subhead font-semibold truncate">${p.name}</span>
-                    <span class="status-dot ${statusDot}" title="${statusLabel}"></span>
-                    ${latency ? `<span class="text-caption text-tertiary">${latency}</span>` : ''}
-                </div>
-                <div class="text-footnote text-secondary flex items-center gap-2 mt-0.5">
-                    <span>${meta.label}</span>
-                    <span class="text-quaternary">·</span>
-                    <span>${model}</span>
-                    ${hasKey ? '<span class="text-quaternary">·</span><i class="fas fa-key text-xs" style="color:var(--system-orange);" title="API key set"></i>' : ''}
-                </div>
-            </div>
-            <div class="flex items-center gap-2 flex-shrink-0">
-                <span class="px-2 py-0.5 rounded-full text-caption font-medium" style="background: var(--graphite-50);">P${p.priority ?? 10}</span>
-                <button class="btn-icon" title="Remove" onclick="llmRemoveProvider('${p.name}')">
-                    <i class="fas fa-trash-alt text-xs" style="color: var(--system-red);"></i>
-                </button>
-            </div>
-        </div>`;
-    });
-
-    if (listEl) listEl.innerHTML = html;
-    if (healthBadge) {
-        healthBadge.textContent = `${healthyCount}/${llmProviders.length} healthy`;
-        healthBadge.style.color = healthyCount === llmProviders.length ? 'var(--system-green)' : 'var(--system-orange)';
-    }
-}
-
-async function llmAutoAddPendingProvider() {
-    // If the form has a name and type filled in, auto-add the provider before saving
-    const name = (document.getElementById('llm-new-name').value || '').trim();
-    const type = document.getElementById('llm-new-type').value;
-    if (!name || !type) return false;
-
-    await llmAddProvider();
-    return true;
-}
-
-async function llmSaveConfig() {
-    // Auto-add any pending provider from the form
-    await llmAutoAddPendingProvider();
-
-    // Apply strategy change
-    const strategy = document.getElementById('llm-strategy').value;
-    await apiCall('/api/llm/strategy', { method: 'PUT', body: JSON.stringify({ strategy }) });
-
-    const result = await apiCall('/api/llm/config/save', { method: 'POST' });
-    if (result && result.success) {
-        showToast(`LLM config saved (${result.saved} providers)`, 'success');
-    } else {
-        showToast(result ? result.error : 'Failed to save LLM config', 'error');
-    }
-}
-
-async function llmActivateConfig() {
-    // Auto-add any pending provider from the form
-    await llmAutoAddPendingProvider();
-
-    // Apply strategy
-    const strategy = document.getElementById('llm-strategy').value;
-    await apiCall('/api/llm/strategy', { method: 'PUT', body: JSON.stringify({ strategy }) });
-
-    showToast('Activating LLM config...', 'info');
-    const result = await apiCall('/api/llm/activate', { method: 'POST' });
-    if (result && result.success) {
-        showToast(`Activated: ${result.healthy_count}/${result.total_count} providers healthy`, result.healthy_count > 0 ? 'success' : 'warning');
-        await llmLoadProviders();
-    } else {
-        showToast(result ? result.error : 'Activation failed', 'error');
-    }
-}
-
-async function llmExportConfig() {
-    const result = await apiCall('/api/llm/config/export');
-    if (!result || !result.success) {
-        showToast('Export failed', 'error');
-        return;
-    }
-    const blob = new Blob([JSON.stringify(result.bundle, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `llm-providers-${new Date().toISOString().slice(0,10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast('Config exported', 'success');
-}
-
-function llmImportTrigger() {
-    document.getElementById('llm-import-file').click();
-}
-
-async function llmImportFromFile(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    try {
-        const text = await file.text();
-        const bundle = JSON.parse(text);
-        const result = await apiCall('/api/llm/config/import', {
-            method: 'POST',
-            body: JSON.stringify({ bundle, overwrite: true }),
-        });
-        if (result && result.success) {
-            showToast(`Imported ${result.imported} provider(s)`, 'success');
-            await llmLoadProviders();
-        } else {
-            showToast(result ? result.error : 'Import failed', 'error');
-        }
-    } catch (e) {
-        showToast('Invalid JSON file', 'error');
-    }
-    event.target.value = '';
-}
-
-// Initialize LLM section
-function initLLMSection() {
-    llmProviderTypeChanged();
-    llmLoadProviders();
-
-    // Also try auto-loading saved config on first page load
-    apiCall('/api/llm/config/load', { method: 'POST' }).then(() => {
-        llmLoadProviders();
-    });
-
-    document.getElementById('llm-export-btn').addEventListener('click', llmExportConfig);
-    document.getElementById('llm-import-btn').addEventListener('click', llmImportTrigger);
-    document.getElementById('llm-import-file').addEventListener('change', llmImportFromFile);
+function initVLLMSection() {
+    vllmLoadStatus();
 }
 
 // =============================================================================
-// End LLM Provider Management
+// End vLLM Connection Management
 // =============================================================================
 
 function getIntValue(id, fallback) {
@@ -785,7 +515,7 @@ async function loadSystemStatus() {
     const serviceFlags = [
         ['web-status', status.web_available !== false],
         ['settings-agent-status', Boolean(status.camera_available)],
-        ['settings-ollama-status', Boolean(status.ollama_available)],
+        ['settings-vllm-status', Boolean(status.vllm_available || status.ollama_available)],
         ['settings-email-status', Boolean(status.email_available)]
     ];
     serviceFlags.forEach(([id, flag]) => {
@@ -861,8 +591,6 @@ async function loadEnvironmentSettings() {
     if (emailEl) emailEl.value = env.GMAIL_EMAIL || env.gmail_email || '';
     const passEl = document.getElementById('gmail-password');
     if (passEl) passEl.value = env.GMAIL_APP_PASSWORD || env.gmail_app_password || '';
-    const ollamaEl = document.getElementById('ollama-url');
-    if (ollamaEl) ollamaEl.value = env.OLLAMA_URL || env.ollama_url || '';
     const debugEl = document.getElementById('debug-mode');
     if (debugEl) {
         const value = env.DEBUG_MODE ?? env.debug_mode;
@@ -874,7 +602,6 @@ async function saveEnvironmentSettings() {
     const payload = {
         GMAIL_EMAIL: (document.getElementById('gmail-email') || { value: '' }).value,
         GMAIL_APP_PASSWORD: (document.getElementById('gmail-password') || { value: '' }).value,
-        OLLAMA_URL: (document.getElementById('ollama-url') || { value: '' }).value,
         DEBUG_MODE: (document.getElementById('debug-mode') || { checked: false }).checked ? '1' : '0'
     };
     const result = await apiCall('/api/system/environment', { method: 'POST', body: JSON.stringify(payload) });
@@ -963,7 +690,6 @@ function populateForm(config) {
     setNumberInput('pending-dedupe-ssim', clamp(advanced.pending_dedupe_ssim ?? 0.92, 0, 1));
 
     // Model selection is handled by loadAvailableModels()
-    const ollama = config.ollama || {};
 
     const notifications = config.notifications && typeof config.notifications === 'object' ? config.notifications.email || {} : {};
     const smtpEl = document.getElementById('smtp-server');
@@ -1004,7 +730,7 @@ function buildConfigFromForm() {
     const resolutionDefaults = cameraDefaults.resolution || {};
     const preprocessingDefaults = cameraDefaults.preprocessing || {};
     const advancedDefaults = currentConfig.advanced || {};
-    const previousOllama = currentConfig.ollama || {};
+    const previousVllm = currentConfig.vllm || currentConfig.ollama || {};
     const notificationsRoot = currentConfig.notifications && typeof currentConfig.notifications === 'object' ? currentConfig.notifications : {};
     const previousNotifications = notificationsRoot.email || {};
 
@@ -1066,10 +792,10 @@ function buildConfigFromForm() {
             motion_burst_ssim: motionSsim,
             pending_dedupe_ssim: pendingDedupe
         },
-        ollama: {
-            base_url: previousOllama.base_url || '',
-            model: (document.getElementById('vision-model') || {}).value || previousOllama.model || '',
-            timeout: previousOllama.timeout || 60
+        vllm: {
+            base_url: previousVllm.base_url || previousVllm.url || '',
+            model: (document.getElementById('vision-model') || {}).value || previousVllm.model || '',
+            timeout: previousVllm.timeout || 60
         },
         detection: {
             prompt: (document.getElementById('detection-prompt') || { value: '' }).value || ''
@@ -1083,26 +809,27 @@ async function loadAvailableModels() {
     const select = document.getElementById('vision-model');
     if (!select) return;
     
-    const result = await apiCall('/api/ollama_models');
+    const result = await apiCall('/api/llm/models');
     select.innerHTML = '';
     
     if (result && result.success && result.models && result.models.length > 0) {
         result.models.forEach(model => {
+            const name = typeof model === 'string' ? model : (model.id || model.name || String(model));
             const option = document.createElement('option');
-            option.value = model;
-            option.textContent = model;
+            option.value = name;
+            option.textContent = name;
             select.appendChild(option);
         });
         // Set selected value from config if available
-        const ollama = currentConfig.ollama || {};
-        if (ollama.model && result.models.includes(ollama.model)) {
-            select.value = ollama.model;
+        const vllmCfg = currentConfig.vllm || currentConfig.ollama || {};
+        if (vllmCfg.model && result.models.some(m => (typeof m === 'string' ? m : m.id) === vllmCfg.model)) {
+            select.value = vllmCfg.model;
         }
     } else {
-        // Fallback if Ollama unavailable
+        // Fallback if vLLM unavailable
         const fallback = document.createElement('option');
         fallback.value = '';
-        fallback.textContent = 'No models available - check Ollama connection';
+        fallback.textContent = 'No models available - check vLLM connection';
         select.appendChild(fallback);
     }
 }
@@ -1385,10 +1112,8 @@ async function saveAllSettings() {
     const configSaved = await saveConfiguration();
     const recipientsSaved = await saveRecipients();
 
-    // Also save LLM config if any providers are registered
-    if (llmProviders.length > 0) {
-        await llmSaveConfig();
-    }
+    // Also save vLLM config
+    await vllmSaveConfig();
 
     if (envSaved && logSaved && configSaved && recipientsSaved) {
         showToast('All settings saved successfully.', 'success');
@@ -1408,7 +1133,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadAvailableModels();
     updateThresholdDisplay();
     updatePromptLength();
-    initLLMSection();
+    initVLLMSection();
 
     const refreshBtn = document.getElementById('refresh-system-status');
     if (refreshBtn) refreshBtn.addEventListener('click', loadSystemStatus);

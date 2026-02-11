@@ -22,7 +22,7 @@ services:
       - FLASK_RUN_PORT=8080
       # vLLM server URL (required - start vLLM separately or use Helm chart)
       - VLLM_URL=http://vllm-server:8000
-      - VISION_MODEL=Qwen/Qwen3-VL-8B-Instruct
+      - VISION_MODEL=  # auto-detected from vLLM server
       - VLLM_TIMEOUT=300
       - VLLM_TEMPERATURE=0.1
     depends_on:
@@ -48,7 +48,7 @@ services:
     command:
       - vllm
       - serve
-      - Qwen/Qwen3-VL-8B-Instruct
+      - Qwen/Qwen3-VL-4B-Instruct
       - --host=0.0.0.0
       - --port=8000
       - --tensor-parallel-size=1

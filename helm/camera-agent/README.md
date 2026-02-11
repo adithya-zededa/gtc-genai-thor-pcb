@@ -75,8 +75,9 @@ echo "Open http://$NODE_IP:$NODE_PORT"
 | `image.tag` | Image version | `v4` |
 | `camera.enabled` | Mount camera device | `true` |
 | `camera.devicePath` | Camera device path | `/dev/video0` |
-| `camera.index` | OpenCV camera index | `0` |
-| `vllmServer.enabled` | Deploy vLLM server | `true` |
+| `camera.index` | OpenCV camera index | `0` || `speaker.enabled` | Mount speaker device for TTS | `true` |
+| `speaker.devicePath` | Speaker device path | `/dev/snd` |
+| `speaker.device` | ALSA device (e.g., hw:2,0) | `hw:2,0` || `vllmServer.enabled` | Deploy vLLM server | `true` |
 | `vllmServer.model` | VLM model to serve | `Qwen/Qwen3-VL-8B-Instruct` |
 | `vllmServer.timeout` | Inference timeout (seconds) | `300` |
 | `vllmServer.temperature` | Generation temperature | `0.1` |
@@ -170,12 +171,49 @@ camera:
   enabled: true
   devicePath: /dev/video0
 
+speaker:
+  enabled: true
+  devicePath: /dev/snd
+  device: "hw:2,0"  # USB speaker - find yours with 'aplay -l'
+
 vllmServer:
   enabled: true
   args:
     maxModelLen: 16384
     gpuMemoryUtilization: 0.80
 ```
+
+### USB Speaker Configuration
+
+To enable text-to-speech announcements for invoice totals:
+
+```bash
+# Find your USB speaker device
+aplay -l
+# Example output:
+# card 2: U0x19080x1331 [USB Device 0x1908:0x1331], device 0: USB Audio [USB Audio]
+
+# Or check sound cards
+cat /proc/asound/cards
+```
+
+```yaml
+# Configure in values.yaml
+speaker:
+  enabled: true
+  devicePath: /dev/snd
+  device: "hw:2,0"  # Use your card number from 'aplay -l'
+```
+
+The agent will automatically announce invoice totals like:
+- "Your total is thirteen dollars and eighty-one cents."
+- "Your total is one hundred dollars."
+
+**Troubleshooting:**
+- If TTS fails, check logs for speaker device errors
+- Ensure audio group (29) permissions are set
+- Verify `/dev/snd` is accessible in the pod
+- Test audio with: `kubectl exec -it <pod> -- aplay -D hw:2,0 <file>`
 
 ### Production Deployment with Email
 

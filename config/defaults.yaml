@@ -46,15 +46,9 @@ proactive:
   default_instruction: "Monitor the scene and detect any anomalies or objects of interest."
 
 inference:
-  backend: vllm
   vllm:
     url: http://localhost:8000
-    model: Qwen/Qwen3-VL-8B-Instruct
-    timeout: 300
-    temperature: 0.1
-  ollama:
-    url: http://localhost:11434
-    vision_model: qwen3-vl:8b
+    model: auto  # auto-detected from running server
     timeout: 300
     temperature: 0.1
 
@@ -65,9 +59,7 @@ flask:
   socketio_cors: "*"
 
 router:
-  enabled: false
-  routing_strategy: failover
-  auto_discover: true
+  enabled: true
   use_for_classification: true
   use_for_chat: true
 

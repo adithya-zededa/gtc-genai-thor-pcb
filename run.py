@@ -41,52 +41,34 @@ def main():
     from core.config import get_config
     config = get_config()
     
+    # 2a. Auto-detect the served model if not explicitly set
+    from core.model_detect import detect_model
+    detected = detect_model(
+        backend="vllm",
+        base_url=config.inference.vllm_url,
+    )
+    if not config.inference.model:
+        config.inference.model = detected
+    
     logger.info("=" * 60)
     logger.info("ZEDEDA Camera Monitoring Agent")
     logger.info("=" * 60)
     logger.info("Configuration loaded from: %s", os.getenv("CAMERA_AGENT_CONFIG", "config.yaml"))
     logger.info("Flask host: %s, port: %d", config.flask.host, config.flask.port)
-    logger.info("Inference backend: %s", config.inference.backend)
+    logger.info("Inference backend: vLLM")
     logger.info("Vision model: %s", config.inference.model)
     
-    # 2b. Initialize LLM router if enabled (env var) or if saved config exists
-    _llm_config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "llm_providers.json")
-    if config.router.enabled or os.path.isfile(_llm_config_path):
-        try:
-            if not config.router.enabled and os.path.isfile(_llm_config_path):
-                config.router.enabled = True
-                logger.info("LLM Router auto-enabled from saved config")
-
-            from router import get_router
-            router = get_router()
-
-            # Load saved provider configs if present
-            if os.path.isfile(_llm_config_path):
-                import json as _json
-                with open(_llm_config_path, "r", encoding="utf-8") as _f:
-                    _bundle = _json.load(_f)
-                from router.config import LLMProviderConfig, RoutingStrategy
-                _strat = _bundle.get("routing_strategy", "failover")
-                try:
-                    router.set_routing_strategy(RoutingStrategy(_strat))
-                except ValueError:
-                    pass
-                for _p in _bundle.get("providers", []):
-                    try:
-                        router.register_provider(LLMProviderConfig.from_dict(_p))
-                    except Exception:
-                        pass
-                logger.info("Loaded %d saved LLM provider config(s)", len(_bundle.get("providers", [])))
-
-            providers = router.list_providers()
-            logger.info("LLM Router enabled with %d provider(s):", len(providers))
-            for p in providers:
-                status = "✅" if p.get("status", {}).get("available") else "❌"
-                logger.info("  %s %s (%s) model=%s", status, p["name"], p["provider_type"], p.get("model", "auto"))
-        except Exception as exc:
-            logger.warning("LLM Router failed to initialize: %s", exc)
-    else:
-        logger.info("LLM Router: disabled (set LLM_ROUTER_ENABLED=true to enable)")
+    # 2b. Initialize LLM router
+    try:
+        from router import get_router
+        router = get_router()
+        providers = router.list_providers()
+        logger.info("LLM Router enabled – vLLM provider configured")
+        for p in providers:
+            status = "✅" if p.get("status", {}).get("available") else "❌"
+            logger.info("  %s %s model=%s", status, p["name"], p.get("model", "auto"))
+    except Exception as exc:
+        logger.warning("LLM Router failed to initialize: %s", exc)
     
     # 3. Initialize database
     from app.database import init_db, ensure_database_directory

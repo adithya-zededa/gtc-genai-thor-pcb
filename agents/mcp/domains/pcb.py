@@ -155,8 +155,10 @@ class PCBInterpreter:
             return None
 
         tool_def = self.registry.get(result.tool)
-        if not tool_def or agent_state not in tool_def.allowed_in_states:
+        if not tool_def:
             return None
+
+        # NOTE: No state-based filtering — the LLM decides all actions.
 
         arguments: Dict[str, Any] = {}
         allowed = _TOOL_PARAM_ALLOWLIST.get(result.tool, frozenset())
@@ -243,7 +245,7 @@ class PCBExecutor(BaseDomainExecutor):
 _pcb_registry: Optional[PCBToolRegistry] = None
 _pcb_interpreter: Optional[PCBInterpreter] = None
 _pcb_executor: Optional[PCBExecutor] = None
-_pcb_lock = threading.Lock()
+_pcb_lock = threading.RLock()
 
 
 def get_pcb_registry() -> PCBToolRegistry:

@@ -210,3 +210,28 @@ def get_invoice(invoice_id: int):
     if not invoice:
         return jsonify({"success": False, "error": "Invoice not found"}), 404
     return jsonify({"success": True, "invoice": invoice.to_dict()})
+
+
+@api_bp.route("/retail/invoices/<int:invoice_id>/download", methods=["GET"])
+def download_invoice_pdf(invoice_id: int):
+    """Download the PDF for a specific invoice."""
+    from flask import send_file
+    import os
+    
+    invoice = InvoiceRepository.get_by_id(invoice_id)
+    if not invoice:
+        return jsonify({"success": False, "error": "Invoice not found"}), 404
+    
+    if not invoice.pdf_path or not os.path.exists(invoice.pdf_path):
+        return jsonify({"success": False, "error": "PDF not available"}), 404
+    
+    try:
+        return send_file(
+            invoice.pdf_path,
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=f"invoice_{invoice_id}.pdf"
+        )
+    except Exception as e:
+        logger.error("Failed to send PDF file: %s", e)
+        return jsonify({"success": False, "error": "Failed to retrieve PDF"}), 500

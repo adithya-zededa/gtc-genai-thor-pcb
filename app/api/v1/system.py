@@ -103,7 +103,7 @@ def system_status():
             "disk_percent": psutil.disk_usage("/").percent,
             "camera_available": check_camera_availability(),
             "inference_available": check_inference_backend_availability(),
-            "inference_backend": config.inference.backend,
+            "inference_backend": "vllm",
             "uptime_seconds": uptime_seconds,
         }
         
@@ -167,9 +167,8 @@ def system_environment():
     try:
         env_vars = {
             "CAMERA_INDEX": os.getenv("CAMERA_INDEX", "0"),
-            "INFERENCE_BACKEND": config.inference.backend,
-            "VLLM_URL": config.inference.vllm_url if config.inference.backend.lower() == "vllm" else "",
-            "OLLAMA_URL": config.inference.ollama_url if config.inference.backend.lower() != "vllm" else "",
+            "INFERENCE_BACKEND": "vllm",
+            "VLLM_URL": config.inference.vllm_url,
             "VISION_MODEL": config.inference.model,
             "DIFF_THRESHOLD": os.getenv("DIFF_THRESHOLD", "0.80"),
             "CAPTURE_INTERVAL": os.getenv("CAPTURE_INTERVAL", "5"),
@@ -277,23 +276,12 @@ def test_camera():
 @api_bp.route("/test_inference")
 def test_inference():
     """Test the configured inference backend."""
-    config = get_config()
-    backend = config.inference.backend.lower()
-    
-    if backend == "vllm":
-        available = check_vllm_availability()
-        return jsonify({
-            "success": available,
-            "backend": "vllm",
-            "message": "vLLM connection successful" if available else "vLLM not available",
-        })
-    else:
-        available = check_ollama_availability()
-        return jsonify({
-            "success": available,
-            "backend": "ollama",
-            "message": "Ollama connection successful" if available else "Ollama not available",
-        })
+    available = check_vllm_availability()
+    return jsonify({
+        "success": available,
+        "backend": "vllm",
+        "message": "vLLM connection successful" if available else "vLLM not available",
+    })
 
 
 @api_bp.route("/test_vllm")
@@ -325,46 +313,28 @@ def test_vllm():
 
 @api_bp.route("/test_ollama")
 def test_ollama():
-    """Test Ollama connection."""
-    import requests
-    
-    config = get_config()
-    try:
-        response = requests.get(
-            f"{config.inference.ollama_url}/api/version",
-            timeout=config.http_timeout
-        )
-        response.raise_for_status()
-        return jsonify({
-            "success": True,
-            "message": "Ollama connection successful"
-        })
-    except requests.RequestException as exc:
-        return jsonify({
-            "success": False,
-            "error": f"Ollama connectivity failed: {exc}"
-        })
+    """Test Ollama connection (redirects to vLLM check)."""
+    available = check_vllm_availability()
+    return jsonify({
+        "success": available,
+        "message": "vLLM connection successful" if available else "vLLM not available",
+    })
 
 
 @api_bp.route("/ollama_models")
 def ollama_models():
-    """List available Ollama models (vision-capable only)."""
+    """List available models (redirects to vLLM models)."""
     import requests
     
     config = get_config()
     try:
         response = requests.get(
-            f"{config.inference.ollama_url}/api/tags",
+            f"{config.inference.vllm_url}/v1/models",
             timeout=config.http_timeout
         )
         response.raise_for_status()
         data = response.json()
-        models = data.get("models", [])
-        vision_keywords = ["llava", "gemma3", "qwen", "minicpm", "llama3.2-vision", "moondream"]
-        vision_models = [
-            m.get("name", "") for m in models
-            if any(kw in m.get("name", "").lower() for kw in vision_keywords)
-        ]
-        return jsonify({"success": True, "models": vision_models})
+        models = [m.get("id", "") for m in data.get("data", [])]
+        return jsonify({"success": True, "models": models})
     except requests.RequestException as exc:
         return jsonify({"success": False, "error": str(exc), "models": []})

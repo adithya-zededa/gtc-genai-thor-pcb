@@ -20,11 +20,14 @@ from core.logging import get_logger
 logger = get_logger(__name__)
 
 # Canonical mapping from string to TaskType — used by multiple endpoints.
+# All types now funnel through the custom prompt path.
 TASK_TYPE_MAP = {
     "package_detection": TaskType.PACKAGE_DETECTION,
     "ppe_detection": TaskType.PPE_DETECTION,
     "person_counting": TaskType.PERSON_COUNTING,
     "scene_description": TaskType.SCENE_DESCRIPTION,
+    "pcb_inspection": TaskType.PCB_INSPECTION,
+    "retail_billing": TaskType.RETAIL_BILLING,
     "custom": TaskType.CUSTOM,
 }
 
@@ -85,7 +88,7 @@ def analyze_prompt():
     """Analyze the current camera frame with a dynamic prompt."""
     try:
         data = request.get_json() or {}
-        task_type_str = data.get("task_type", "package_detection")
+        task_type_str = data.get("task_type", "custom")
         custom_prompt = data.get("custom_prompt", "")
         
         task_type = _parse_task_type(task_type_str)
@@ -121,7 +124,7 @@ def analyze_prompt():
         result = vlm_client.analyze(
             frame=frame,
             task_type=task_type,
-            user_query=custom_prompt if task_type == TaskType.CUSTOM else None,
+            user_query=custom_prompt or None,
         )
         
         if result is None:
@@ -224,7 +227,7 @@ def analyze_agentic():
     """Analyze the current camera frame with agentic tool calling."""
     try:
         data = request.get_json() or {}
-        task_type_str = data.get("task_type", "package_detection")
+        task_type_str = data.get("task_type", "custom")
         custom_prompt = data.get("prompt") or data.get("custom_prompt") or ""
         recipients = data.get("recipients", [])
         
@@ -352,8 +355,8 @@ def analyze_uploaded_image():
         if service:
             if task_type is None:
                 active_config = service.get_active_prompt_config()
-                task_type_str = active_config.get("task_type", "package_detection")
-                task_type = _parse_task_type(task_type_str) or TaskType.PACKAGE_DETECTION
+                task_type_str = active_config.get("task_type", "custom")
+                task_type = _parse_task_type(task_type_str) or TaskType.CUSTOM
                 if custom_prompt is None:
                     custom_prompt = active_config.get("custom_prompt", "")
                 if use_agentic is None:
@@ -371,8 +374,8 @@ def analyze_uploaded_image():
             vlm_client = create_vlm_client_from_config(config)
             
             if task_type is None:
-                task_type = TaskType.PACKAGE_DETECTION
-                task_type_str = "package_detection"
+                task_type = TaskType.CUSTOM
+                task_type_str = "custom"
             if use_agentic is None:
                 use_agentic = False
             

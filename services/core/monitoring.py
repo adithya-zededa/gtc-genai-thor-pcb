@@ -62,7 +62,7 @@ class StreamlinedMonitoringService:
         self.auto_start_publisher = auto_start_publisher
         
         # Dynamic prompt configuration
-        self._current_task_type: TaskType = TaskType.PACKAGE_DETECTION
+        self._current_task_type: TaskType = TaskType.CUSTOM
         self._custom_prompt: str = ""
         self._alerts_enabled: bool = False
         self._agentic_mode: bool = False

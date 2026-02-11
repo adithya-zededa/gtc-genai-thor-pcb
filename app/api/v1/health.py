@@ -22,7 +22,7 @@ def health_check():
     health_status = {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "inference_backend": config.inference.backend,
+        "inference_backend": "vllm",
         "components": {
             "database": False,
             "camera": False,

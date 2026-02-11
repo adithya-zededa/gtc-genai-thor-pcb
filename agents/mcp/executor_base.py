@@ -111,14 +111,8 @@ class BaseDomainExecutor:
             self._log_rejection(proposal)
             return {"status": "rejected", "reason": error, "proposal": proposal.to_dict()}
 
-        current_state = self.state_machine.state
-        if current_state not in tool.allowed_in_states:
-            proposal.reject(
-                f"Tool not allowed in state '{current_state.value}'. "
-                f"Allowed: {[s.value for s in tool.allowed_in_states]}"
-            )
-            self._log_rejection(proposal)
-            return {"status": "rejected", "reason": proposal.rejection_reason, "proposal": proposal.to_dict()}
+        # NOTE: State-based filtering removed — the LLM decides all actions.
+        # Tools define allowed_in_states for documentation only.
 
         if self._is_duplicate(proposal.tool_name, proposal.arguments):
             proposal.reject("Duplicate request (already submitted recently)")

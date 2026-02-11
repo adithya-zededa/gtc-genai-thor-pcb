@@ -238,11 +238,11 @@ class MCPManager:
         """
         self._ensure_init()
 
-        resolved = (
-            domain
-            or proposal.arguments.pop("__domain", None)
-            or DOMAIN_GENERAL
-        )
+        # Always strip the internal __domain tag from arguments so it never
+        # leaks into the actual tool call's **kwargs.
+        tagged_domain = proposal.arguments.pop("__domain", None)
+
+        resolved = domain or tagged_domain or DOMAIN_GENERAL
 
         _, _interpreter, executor, _registry = self.route("", resolved)
         return executor.submit_proposal(proposal)

@@ -48,7 +48,7 @@ def get_status():
     status = {
         "monitoring_active": service.is_monitoring if service else False,
         "camera_available": check_camera_availability(),
-        "inference_backend": config.inference.backend,
+        "inference_backend": "vllm",
         "inference_available": check_inference_backend_availability(),
         "stats": service._serialize_stats() if service else {},
     }

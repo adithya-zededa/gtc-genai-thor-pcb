@@ -23,12 +23,12 @@ logger = get_logger(__name__)
 _service_lock = threading.Lock()
 
 # Default tax rate (can be overridden via env var RETAIL_TAX_RATE)
-DEFAULT_TAX_RATE = 0.18  # 18% GST
+DEFAULT_TAX_RATE = 0.0825  # 8.25% US sales tax
 
 # Quantity bounds for sanity checking
 MIN_QUANTITY = 1
 MAX_QUANTITY = 9999
-MAX_UNIT_PRICE = 10_000_000.0  # 1 crore
+MAX_UNIT_PRICE = 100_000.0  # $100k sanity cap
 
 
 def get_tax_rate() -> float:
@@ -155,7 +155,7 @@ def calculate_bill(
         "total": total,
         "item_count": sum(li["quantity"] for li in line_items),
         "unique_items": len(line_items),
-        "currency": os.getenv("RETAIL_CURRENCY", "INR"),
+        "currency": os.getenv("RETAIL_CURRENCY", "USD"),
         "generated_at": datetime.now().isoformat(),
     }
 
@@ -181,10 +181,11 @@ def generate_invoice_html(
     try:
         from jinja2 import Environment, FileSystemLoader
 
-        template_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "templates",
-        )
+        # Resolve project root: __file__ is services/domains/retail/service.py
+        # Go up 4 levels to reach the project root directory
+        _this_dir = os.path.dirname(os.path.abspath(__file__))
+        _project_root = os.path.dirname(os.path.dirname(os.path.dirname(_this_dir)))
+        template_dir = os.path.join(_project_root, "templates")
         env = Environment(loader=FileSystemLoader(template_dir))
         template = env.get_template("invoice.html")
         return template.render(
@@ -204,7 +205,7 @@ def _generate_invoice_html_fallback(
     invoice_id: Optional[int],
 ) -> str:
     """Simple fallback HTML invoice when Jinja2 template is unavailable."""
-    currency = html.escape(str(bill.get("currency", "INR")))
+    currency = html.escape(str(bill.get("currency", "USD")))
     rows = ""
     for li in bill.get("line_items", []):
         safe_name = html.escape(str(li.get("name", "")))
@@ -301,7 +302,7 @@ def save_and_send_invoice(
 
     # 3. Send email
     try:
-        currency = bill.get("currency", "INR")
+        currency = bill.get("currency", "USD")
         email_result = send_email({
             "to": [recipient_email],
             "subject": f"Invoice #{invoice_id} — {currency} {bill['total']:.2f}",
@@ -314,6 +315,7 @@ def save_and_send_invoice(
 
         return {
             "success": True,
+            "message": f"✅ Invoice #{invoice_id} sent successfully to {recipient_email}. Total: {currency} {bill['total']:.2f}",
             "invoice_id": invoice_id,
             "email_result": email_result,
             "total": bill["total"],
@@ -324,5 +326,92 @@ def save_and_send_invoice(
             "success": True,
             "invoice_id": invoice_id,
             "email_error": str(e),
-            "message": "Invoice saved but email delivery failed",
+            "message": f"⚠️ Invoice #{invoice_id} saved but email delivery failed: {str(e)}",
+        }
+
+
+def generate_invoice_pdf(
+    bill: Dict[str, Any],
+    recipient: str = "",
+    invoice_id: Optional[int] = None,
+    output_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Generate a PDF invoice from a bill dict.
+
+    Uses weasyprint to convert the HTML invoice template to PDF format.
+
+    Args:
+        bill: Bill dict from :func:`calculate_bill`.
+        recipient: Recipient email address or name.
+        invoice_id: Optional invoice DB id.
+        output_path: Optional custom output path. If not provided, generates
+                    a timestamped filename in /tmp.
+
+    Returns:
+        Dict with success status, pdf_path, and invoice metadata.
+    """
+    try:
+        from weasyprint import HTML
+    except ImportError:
+        return {
+            "success": False,
+            "message": "PDF generation requires weasyprint library. Install with: pip install weasyprint",
+        }
+
+    # Generate HTML invoice
+    html_content = generate_invoice_html(bill, recipient, invoice_id)
+
+    # Determine output path
+    if not output_path:
+        from core.config import get_config
+        from core.utils import ensure_directory
+        
+        # Use persistent data directory for PDFs
+        config = get_config()
+        data_dir = str(config.data_dir) if config.data_dir else "./data"
+        invoices_dir = os.path.join(data_dir, "invoices")
+        ensure_directory(invoices_dir)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        invoice_label = f"invoice_{invoice_id}" if invoice_id else "invoice"
+        output_path = os.path.join(
+            invoices_dir,
+            f"{invoice_label}_{timestamp}.pdf"
+        )
+
+    try:
+        # Convert HTML to PDF
+        HTML(string=html_content).write_pdf(output_path)
+
+        # Get file size
+        file_size = os.path.getsize(output_path)
+
+        logger.info(
+            "PDF invoice generated: %s (%d bytes, %d items, total %.2f)",
+            output_path,
+            file_size,
+            bill.get("item_count", 0),
+            bill.get("total", 0),
+        )
+
+        return {
+            "success": True,
+            "message": f"PDF invoice generated successfully",
+            "data": {
+                "pdf_path": output_path,
+                "file_size": file_size,
+                "invoice_id": invoice_id,
+                "total": bill.get("total", 0),
+                "currency": bill.get("currency", "USD"),
+                "item_count": bill.get("item_count", 0),
+                "unique_items": bill.get("unique_items", 0),
+                "recipient": recipient,
+            },
+        }
+
+    except Exception as e:
+        logger.error("PDF generation failed: %s", e, exc_info=True)
+        return {
+            "success": False,
+            "message": f"PDF generation failed: {str(e)}",
         }

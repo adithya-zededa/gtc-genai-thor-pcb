@@ -1,46 +1,32 @@
 """
-Agent LLM Router - Central router for LLM service management
+Agent LLM Router - Single-provider vLLM router
 
-The router provides:
-- Dynamic provider registration/deregistration
-- Multiple routing strategies (priority, round-robin, failover, latency)
-- Automatic health monitoring
-- Thread-safe operations
+Routes all LLM requests to the vLLM deployment. No multi-provider
+routing, failover, or strategy selection — just a direct, optimised
+connection to vLLM.
 
 Usage:
-    from router import get_router, LLMProviderConfig
-    
+    from router import get_router
+
     router = get_router()
     response = router.chat(messages=[{"role": "user", "content": "Hello!"}])
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional
 
 from .config import (
-    LLMProviderType,
-    RoutingStrategy,
     LLMProviderConfig,
     ProviderStatus,
     ChatResponse,
 )
-from .base import LLMAdapter
-from .adapters import (
-    OllamaAdapter,
-    VLLMAdapter,
-    TGIAdapter,
-    OpenAICompatibleAdapter,
-    AnthropicAdapter,
-    OpenAIAdapter,
-    GoogleAdapter,
-)
+from .adapters import VLLMAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -51,18 +37,18 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TokenUsageStats:
-    """Token usage statistics for a provider."""
+    """Token usage statistics."""
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
     request_count: int = 0
-    
+
     def add(self, prompt: int, completion: int) -> None:
         self.prompt_tokens += prompt
         self.completion_tokens += completion
         self.total_tokens += prompt + completion
         self.request_count += 1
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "prompt_tokens": self.prompt_tokens,
@@ -73,46 +59,39 @@ class TokenUsageStats:
 
 
 class TokenUsageTracker:
-    """Tracks token usage across all providers."""
-    
+    """Tracks token usage for the vLLM provider."""
+
     def __init__(self):
         self._usage: Dict[str, TokenUsageStats] = {}
         self._lock = threading.Lock()
-    
-    def record(self, provider: str, model: str, usage: Optional[Dict[str, int]]) -> None:
+
+    def record(self, model: str, usage: Optional[Dict[str, int]]) -> None:
         """Record token usage for a request."""
         if not usage:
             return
-        
+
         prompt_tokens = usage.get("prompt_tokens", 0)
         completion_tokens = usage.get("completion_tokens", 0)
-        
+
         with self._lock:
-            key = f"{provider}/{model}"
+            key = f"vllm/{model}"
             if key not in self._usage:
                 self._usage[key] = TokenUsageStats()
             self._usage[key].add(prompt_tokens, completion_tokens)
-        
-        # Log the usage
+
         total = prompt_tokens + completion_tokens
         logger.info(
-            f"🔢 Token Usage [{provider}/{model}]: "
+            f"🔢 Token Usage [vllm/{model}]: "
             f"prompt={prompt_tokens}, completion={completion_tokens}, total={total}"
         )
-    
-    def get_usage(self, provider: Optional[str] = None) -> Dict[str, Any]:
+
+    def get_usage(self) -> Dict[str, Any]:
         """Get token usage stats."""
         with self._lock:
-            if provider:
-                # Filter by provider prefix
-                return {
-                    k: v.to_dict() for k, v in self._usage.items()
-                    if k.startswith(f"{provider}/")
-                }
             return {k: v.to_dict() for k, v in self._usage.items()}
-    
+
     def get_totals(self) -> Dict[str, int]:
-        """Get total token usage across all providers."""
+        """Get total token usage."""
         with self._lock:
             totals = TokenUsageStats()
             for stats in self._usage.values():
@@ -121,7 +100,7 @@ class TokenUsageTracker:
                 totals.total_tokens += stats.total_tokens
                 totals.request_count += stats.request_count
             return totals.to_dict()
-    
+
     def reset(self) -> None:
         """Reset all usage stats."""
         with self._lock:
@@ -147,53 +126,23 @@ def reset_token_usage() -> None:
 
 
 # =============================================================================
-# Adapter Registry
-# =============================================================================
-
-ADAPTER_REGISTRY: Dict[LLMProviderType, Type[LLMAdapter]] = {
-    LLMProviderType.ANTHROPIC: AnthropicAdapter,
-    LLMProviderType.OPENAI: OpenAIAdapter,
-    LLMProviderType.GOOGLE: GoogleAdapter,
-    LLMProviderType.GROQ: OpenAICompatibleAdapter,  # Groq uses OpenAI-compatible API
-    LLMProviderType.OLLAMA: OllamaAdapter,
-    LLMProviderType.VLLM: VLLMAdapter,
-    LLMProviderType.TGI: TGIAdapter,
-    LLMProviderType.LMSTUDIO: OpenAICompatibleAdapter,
-    LLMProviderType.OPENAI_COMPATIBLE: OpenAICompatibleAdapter,
-}
-
-
-def register_adapter(provider_type: LLMProviderType, adapter_class: Type[LLMAdapter]) -> None:
-    """Register a custom adapter for a provider type."""
-    ADAPTER_REGISTRY[provider_type] = adapter_class
-    logger.info(f"Registered adapter {adapter_class.__name__} for {provider_type.value}")
-
-
-# =============================================================================
-# Agent LLM Router
+# Agent LLM Router (vLLM-only)
 # =============================================================================
 
 class AgentLLMRouter:
     """
-    Central router for managing and routing LLM requests to multiple providers.
-    
-    Allows users to interact with the AI agent regardless of which LLM service
-    they're running - whether it's Ollama locally, vLLM in a container, or
-    cloud APIs like OpenAI/Anthropic.
-    
-    Features:
-    - Dynamic provider registration/deregistration
-    - Automatic failover to available providers
-    - Multiple routing strategies
-    - Health monitoring
-    
+    Single-provider router for vLLM.
+
+    All LLM requests are sent directly to the configured vLLM deployment.
+    Auto-configures from environment variables (VLLM_URL, VISION_MODEL).
+
     Thread-Safety:
-        All operations are thread-safe. Uses locks for registry modifications.
+        All operations are thread-safe.
     """
-    
+
     _instance: Optional["AgentLLMRouter"] = None
     _lock = threading.Lock()
-    
+
     def __new__(cls, *args, **kwargs):
         """Singleton pattern for global router instance."""
         if cls._instance is None:
@@ -202,529 +151,230 @@ class AgentLLMRouter:
                     cls._instance = super().__new__(cls)
                     cls._instance._initialized = False
         return cls._instance
-    
-    def __init__(
-        self,
-        routing_strategy: RoutingStrategy = RoutingStrategy.FAILOVER,
-        auto_discover: bool = True,
-    ):
+
+    def __init__(self):
         if getattr(self, '_initialized', False):
             return
-        
-        self._routing_strategy = routing_strategy
-        
-        # Provider registry
-        self._providers: Dict[str, LLMProviderConfig] = {}
-        self._provider_status: Dict[str, ProviderStatus] = {}
-        self._providers_lock = threading.RLock()
-        
-        # Adapter instances (lazy loaded)
-        self._adapters: Dict[LLMProviderType, LLMAdapter] = {}
-        self._adapters_lock = threading.Lock()
-        
-        # Round-robin state
-        self._rr_index = 0
-        self._rr_lock = threading.Lock()
-        
-        # Auto-discover providers from environment
-        if auto_discover:
-            self._auto_discover_providers()
-        
+
+        self._adapter = VLLMAdapter()
+        self._config: Optional[LLMProviderConfig] = None
+        self._status: Optional[ProviderStatus] = None
+        self._config_lock = threading.RLock()
+
+        # Auto-configure from environment
+        self._auto_configure()
+
         self._initialized = True
-        logger.info(f"AgentLLMRouter initialized with strategy: {routing_strategy.value}")
-    
-    def _auto_discover_providers(self) -> None:
-        """Auto-discover LLM providers from environment variables."""
-        
-        # Check for Anthropic
-        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-        anthropic_model = os.environ.get("ANTHROPIC_MODEL")
-        if anthropic_key and anthropic_model:
-            self.register_provider(LLMProviderConfig(
-                name="anthropic",
-                provider_type=LLMProviderType.ANTHROPIC,
-                model=anthropic_model,
-                priority=1,
-                supports_tools=True,
-                supports_vision=True,
-            ))
-        elif anthropic_key:
-            logger.warning("ANTHROPIC_API_KEY set but ANTHROPIC_MODEL not specified - provider not registered")
-        
-        # Check for OpenAI
-        openai_key = os.environ.get("OPENAI_API_KEY")
-        openai_model = os.environ.get("OPENAI_MODEL")
-        if openai_key and openai_model:
-            self.register_provider(LLMProviderConfig(
-                name="openai",
-                provider_type=LLMProviderType.OPENAI,
-                model=openai_model,
-                priority=2,
-                supports_tools=True,
-                supports_vision=True,
-            ))
-        elif openai_key:
-            logger.warning("OPENAI_API_KEY set but OPENAI_MODEL not specified - provider not registered")
-        
-        # Check for Google
-        google_key = os.environ.get("GOOGLE_API_KEY")
-        google_model = os.environ.get("GOOGLE_MODEL")
-        if google_key and google_model:
-            self.register_provider(LLMProviderConfig(
-                name="google",
-                provider_type=LLMProviderType.GOOGLE,
-                model=google_model,
-                priority=3,
-                supports_tools=True,
-                supports_vision=True,
-            ))
-        elif google_key:
-            logger.warning("GOOGLE_API_KEY set but GOOGLE_MODEL not specified - provider not registered")
-        
-        # Check for Groq
-        groq_key = os.environ.get("GROQ_API_KEY")
-        groq_model = os.environ.get("GROQ_MODEL")
-        if groq_key and groq_model:
-            self.register_provider(LLMProviderConfig(
-                name="groq",
-                provider_type=LLMProviderType.GROQ,
-                api_key=groq_key,
-                model=groq_model,
-                priority=4,
-                supports_tools=True,
-                supports_vision=False,  # Groq doesn't support vision yet
-            ))
-        elif groq_key:
-            logger.warning("GROQ_API_KEY set but GROQ_MODEL not specified - provider not registered")
-        
-        # Check for LLM_SERVER_URL (generic OpenAI-compatible)
-        llm_url = os.environ.get("LLM_SERVER_URL")
-        llm_model = os.environ.get("LLM_MODEL_NAME")
-        if llm_url and llm_model:
-            self.register_provider(LLMProviderConfig(
-                name="local-llm",
-                provider_type=LLMProviderType.OPENAI_COMPATIBLE,
-                url=llm_url,
-                model=llm_model,
-                api_key=os.environ.get("LLM_API_KEY"),
-                priority=5,
-                supports_tools=os.environ.get("LLM_SUPPORTS_TOOLS", "true").lower() == "true",
-            ))
-        elif llm_url:
-            logger.warning("LLM_SERVER_URL set but LLM_MODEL_NAME not specified - provider not registered")
-        
-        # Check for Ollama
-        ollama_url = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-        ollama_model = os.environ.get("OLLAMA_MODEL")
-        if ollama_model:
-            self.register_provider(LLMProviderConfig(
-                name="ollama",
-                provider_type=LLMProviderType.OLLAMA,
-                url=ollama_url,
-                model=ollama_model,
-                priority=10,
-                supports_tools=True,
-            ))
-        elif os.environ.get("USE_OLLAMA"):
-            logger.warning("USE_OLLAMA set but OLLAMA_MODEL not specified - provider not registered")
-        
-        # Load from JSON config
-        providers_json = os.environ.get("LLM_PROVIDERS")
-        if providers_json:
-            try:
-                providers = json.loads(providers_json)
-                for provider_data in providers:
-                    config = LLMProviderConfig.from_dict(provider_data)
-                    self.register_provider(config)
-            except (json.JSONDecodeError, KeyError) as e:
-                logger.error(f"Failed to parse LLM_PROVIDERS: {e}")
-    
-    def _get_adapter(self, provider_type: LLMProviderType) -> LLMAdapter:
-        """Get or create an adapter instance for a provider type."""
-        with self._adapters_lock:
-            if provider_type not in self._adapters:
-                adapter_class = ADAPTER_REGISTRY.get(provider_type, OpenAICompatibleAdapter)
-                self._adapters[provider_type] = adapter_class()
-            return self._adapters[provider_type]
-    
+        logger.info("AgentLLMRouter initialized (vLLM-only)")
+
+    def _auto_configure(self) -> None:
+        """Auto-configure vLLM provider from environment variables."""
+        vllm_url = os.environ.get("VLLM_URL", "http://localhost:8000")
+        vllm_model = os.environ.get("VISION_MODEL", "")
+        vllm_timeout = int(os.environ.get("VLLM_TIMEOUT", "300"))
+        vllm_temperature = float(os.environ.get("VLLM_TEMPERATURE", "0.1"))
+        vllm_api_key = os.environ.get("VLLM_API_KEY")
+
+        self._config = LLMProviderConfig(
+            name="vllm",
+            url=vllm_url,
+            model=vllm_model or None,
+            api_key=vllm_api_key,
+            timeout=vllm_timeout,
+            temperature=vllm_temperature,
+            supports_tools=True,
+            supports_vision=True,
+        )
+
+        self._status = ProviderStatus(
+            name="vllm",
+            available=False,
+            last_check=0,
+        )
+
+        # Check availability
+        self._check_availability()
+
+        logger.info(
+            "vLLM provider configured: url=%s model=%s",
+            self._config.url,
+            self._config.model or "auto",
+        )
+
     # =========================================================================
-    # Provider Registry Operations
+    # Configuration
     # =========================================================================
-    
-    def register_provider(self, config: LLMProviderConfig) -> bool:
-        """
-        Register a new LLM provider.
-        
-        Args:
-            config: Provider configuration
-            
-        Returns:
-            True if registered successfully
-        """
-        with self._providers_lock:
-            if config.name in self._providers:
-                logger.info(f"Provider '{config.name}' already registered, updating config")
-            
-            self._providers[config.name] = config
-            self._provider_status[config.name] = ProviderStatus(
-                name=config.name,
-                available=False,
-                last_check=0,
-            )
-            
-            logger.info(f"Registered LLM provider: {config.name} ({config.provider_type.value})")
-            
-            # Check availability
-            self._check_provider_availability(config.name)
-            
-            return True
-    
-    def unregister_provider(self, name: str) -> bool:
-        """Remove a provider from the router."""
-        with self._providers_lock:
-            if name in self._providers:
-                del self._providers[name]
-                del self._provider_status[name]
-                logger.info(f"Unregistered LLM provider: {name}")
-                return True
-            return False
-    
-    def get_provider(self, name: str) -> Optional[LLMProviderConfig]:
-        """Get a provider configuration by name."""
-        with self._providers_lock:
-            return self._providers.get(name)
-    
-    def list_providers(self) -> List[Dict[str, Any]]:
-        """List all registered providers with their status."""
-        with self._providers_lock:
-            result = []
-            for name, config in self._providers.items():
-                status = self._provider_status.get(name)
-                result.append({
-                    **config.to_dict(),
-                    "status": status.to_dict() if status else None,
-                })
-            return result
-    
+
+    def configure(
+        self,
+        url: Optional[str] = None,
+        model: Optional[str] = None,
+        api_key: Optional[str] = None,
+        timeout: Optional[int] = None,
+        temperature: Optional[float] = None,
+    ) -> None:
+        """Update vLLM configuration at runtime."""
+        with self._config_lock:
+            if self._config is None:
+                self._config = LLMProviderConfig(name="vllm")
+            if url is not None:
+                self._config.url = LLMProviderConfig._normalize_url(url)
+            if model is not None:
+                self._config.model = model
+            if api_key is not None:
+                self._config.api_key = api_key
+            if timeout is not None:
+                self._config.timeout = timeout
+            if temperature is not None:
+                self._config.temperature = temperature
+
+        self._check_availability()
+        logger.info("vLLM configuration updated: url=%s model=%s", self._config.url, self._config.model)
+
+    def get_config(self) -> Optional[LLMProviderConfig]:
+        """Get the current vLLM configuration."""
+        return self._config
+
     # =========================================================================
     # Availability Checking
     # =========================================================================
-    
-    def _check_provider_availability(self, name: str) -> bool:
-        """Check availability of a single provider."""
-        with self._providers_lock:
-            if name not in self._providers:
-                return False
-            config = self._providers[name]
-        
-        adapter = self._get_adapter(config.provider_type)
-        available, latency, error = adapter.check_availability(config)
-        
-        # Don't call list_models on every health check - it's expensive
-        # Models are only fetched on-demand via the /llm/models endpoint
-        
-        with self._providers_lock:
-            if name in self._provider_status:
-                status = self._provider_status[name]
-                status.available = available
-                status.last_check = time.time()
-                status.latency_ms = latency
-                status.last_error = error
-                
+
+    def _check_availability(self) -> bool:
+        """Check if the vLLM server is reachable."""
+        if self._config is None:
+            return False
+
+        available, latency, error = self._adapter.check_availability(self._config)
+
+        with self._config_lock:
+            if self._status:
+                self._status.available = available
+                self._status.last_check = time.time()
+                self._status.latency_ms = latency
+                self._status.last_error = error
                 if not available:
-                    status.error_count += 1
-        
+                    self._status.error_count += 1
+
         if available:
-            logger.debug(f"Provider {name} available (latency: {latency:.1f}ms)")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("vLLM available (latency: %.1fms)", latency)
         else:
-            logger.warning(f"Provider {name} unavailable: {error}")
-        
+            logger.warning(f"vLLM unavailable: {error}")
+
         return available
-    
-    def check_all_providers(self) -> Dict[str, bool]:
-        """Check availability of all registered providers."""
-        results = {}
-        
-        with self._providers_lock:
-            provider_names = list(self._providers.keys())
-        
-        for name in provider_names:
-            results[name] = self._check_provider_availability(name)
-        
-        return results
-    
+
+    def check_health(self) -> Dict[str, bool]:
+        """Check vLLM health. Returns dict for API compatibility."""
+        available = self._check_availability()
+        return {"vllm": available}
+
+    def is_available(self) -> bool:
+        """Check if vLLM is currently available."""
+        return self._status.available if self._status else False
+
     # =========================================================================
-    # Routing
+    # Provider info (API compatibility)
     # =========================================================================
-    
-    def _select_provider(self, require_tools: bool = False) -> Optional[LLMProviderConfig]:
-        """Select the best available provider based on routing strategy."""
-        
-        with self._providers_lock:
-            # Filter to enabled and available providers
-            candidates = []
-            for name, config in self._providers.items():
-                if not config.enabled:
-                    continue
-                
-                status = self._provider_status.get(name)
-                if not status or not status.available:
-                    continue
-                
-                if require_tools and not config.supports_tools:
-                    continue
-                
-                candidates.append((name, config, status))
-        
-        if not candidates:
+
+    def list_providers(self) -> List[Dict[str, Any]]:
+        """List the vLLM provider with status. Returns a list for API compat."""
+        if self._config is None:
+            return []
+        return [{
+            **self._config.to_dict(),
+            "status": self._status.to_dict() if self._status else None,
+        }]
+
+    def list_models(self) -> List[str]:
+        """List available models from the vLLM server."""
+        if self._config is None:
+            return []
+        return self._adapter.list_models(self._config)
+
+    def get_active_provider(self) -> Optional[Dict[str, Any]]:
+        """Get the vLLM provider info."""
+        if self._config is None:
             return None
-        
-        # Apply routing strategy
-        if self._routing_strategy == RoutingStrategy.PRIORITY:
-            candidates.sort(key=lambda x: x[1].priority)
-            return candidates[0][1]
-        
-        elif self._routing_strategy == RoutingStrategy.ROUND_ROBIN:
-            with self._rr_lock:
-                idx = self._rr_index % len(candidates)
-                self._rr_index += 1
-            return candidates[idx][1]
-        
-        elif self._routing_strategy == RoutingStrategy.LATENCY:
-            candidates.sort(key=lambda x: x[2].latency_ms)
-            return candidates[0][1]
-        
-        elif self._routing_strategy == RoutingStrategy.FAILOVER:
-            # Use priority order, failover handled in chat()
-            candidates.sort(key=lambda x: x[1].priority)
-            return candidates[0][1]
-        
-        # Default to priority
-        candidates.sort(key=lambda x: x[1].priority)
-        return candidates[0][1]
-    
-    def _get_all_providers_by_priority(self, require_tools: bool = False) -> List[LLMProviderConfig]:
-        """Get all available providers sorted by priority (for failover)."""
-        with self._providers_lock:
-            candidates = []
-            for name, config in self._providers.items():
-                if not config.enabled:
-                    continue
-                
-                status = self._provider_status.get(name)
-                if not status or not status.available:
-                    continue
-                
-                if require_tools and not config.supports_tools:
-                    continue
-                
-                candidates.append(config)
-            
-            candidates.sort(key=lambda x: x.priority)
-            return candidates
-    
+        return {
+            **self._config.to_dict(),
+            "status": self._status.to_dict() if self._status else None,
+        }
+
     # =========================================================================
     # Chat Interface
     # =========================================================================
-    
+
     def chat(
         self,
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
-        provider_name: Optional[str] = None,
         **kwargs
     ) -> ChatResponse:
         """
-        Send a chat request to an LLM provider.
-        
-        Automatically routes to the best available provider, with failover
-        support if the primary provider fails.
-        
+        Send a chat request to the vLLM provider.
+
         Args:
             messages: List of chat messages
             tools: Optional list of tool schemas for function calling
-            provider_name: Optional specific provider to use
             **kwargs: Additional arguments passed to the adapter
-            
+
         Returns:
             ChatResponse with the LLM's response
-            
+
         Raises:
-            RuntimeError: If no providers are available
+            RuntimeError: If vLLM is not configured or the request fails
         """
-        require_tools = tools is not None and len(tools) > 0
-        
-        # If specific provider requested
-        if provider_name:
-            config = self.get_provider(provider_name)
-            if not config:
-                raise RuntimeError(f"Provider '{provider_name}' not found")
-            
-            adapter = self._get_adapter(config.provider_type)
-            response = adapter.chat(config, messages, tools, **kwargs)
-            
-            # Track token usage
-            _token_tracker.record(config.name, config.model or "unknown", response.usage)
-            
-            # Update stats
-            with self._providers_lock:
-                if provider_name in self._provider_status:
-                    self._provider_status[provider_name].total_requests += 1
-            
-            return response
-        
-        # Failover strategy: try providers in priority order
-        if self._routing_strategy == RoutingStrategy.FAILOVER:
-            providers = self._get_all_providers_by_priority(require_tools)
-            
-            if not providers:
-                raise RuntimeError("No LLM providers available")
-            
-            last_error = None
-            for config in providers:
-                try:
-                    adapter = self._get_adapter(config.provider_type)
-                    response = adapter.chat(config, messages, tools, **kwargs)
-                    
-                    # Track token usage
-                    _token_tracker.record(config.name, config.model or "unknown", response.usage)
-                    
-                    # Update stats
-                    with self._providers_lock:
-                        if config.name in self._provider_status:
-                            self._provider_status[config.name].total_requests += 1
-                    
-                    return response
-                    
-                except Exception as e:
-                    logger.warning(f"Provider {config.name} failed: {e}, trying next...")
-                    last_error = e
-                    
-                    # Mark as unavailable temporarily
-                    with self._providers_lock:
-                        if config.name in self._provider_status:
-                            self._provider_status[config.name].error_count += 1
-                            self._provider_status[config.name].last_error = str(e)
-                    continue
-            
-            raise RuntimeError(f"All providers failed. Last error: {last_error}")
-        
-        # Other strategies: select single provider
-        config = self._select_provider(require_tools)
-        if not config:
-            raise RuntimeError("No LLM providers available")
-        
-        adapter = self._get_adapter(config.provider_type)
-        response = adapter.chat(config, messages, tools, **kwargs)
-        
+        if self._config is None:
+            raise RuntimeError("vLLM provider not configured")
+
+        response = self._adapter.chat(self._config, messages, tools, **kwargs)
+
         # Track token usage
-        _token_tracker.record(config.name, config.model or "unknown", response.usage)
-        
+        _token_tracker.record(self._config.model or "unknown", response.usage)
+
         # Update stats
-        with self._providers_lock:
-            if config.name in self._provider_status:
-                self._provider_status[config.name].total_requests += 1
-        
+        with self._config_lock:
+            if self._status:
+                self._status.total_requests += 1
+
         return response
-    
+
     def chat_stream(
         self,
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
-        provider_name: Optional[str] = None,
         **kwargs
     ):
         """
-        Send a streaming chat request to an LLM provider.
-        
-        Returns a generator that yields SSE-style events:
+        Send a streaming chat request to vLLM.
+
+        Yields SSE-style events:
         - {"type": "token", "content": "..."} - Text token
         - {"type": "tool_call", ...} - Tool call data
         - {"type": "done", "response": ChatResponse} - Final response
         - {"type": "error", "error": "..."} - Error occurred
-        
-        Args:
-            messages: List of chat messages
-            tools: Optional list of tool schemas for function calling
-            provider_name: Optional specific provider to use
-            **kwargs: Additional arguments passed to the adapter
-            
-        Yields:
-            Dict events with streaming response data
-            
-        Raises:
-            RuntimeError: If no providers are available
         """
-        require_tools = tools is not None and len(tools) > 0
-        
-        # If specific provider requested
-        if provider_name:
-            config = self.get_provider(provider_name)
-            if not config:
-                yield {"type": "error", "error": f"Provider '{provider_name}' not found"}
-                return
-            
-            adapter = self._get_adapter(config.provider_type)
-            
-            for event in adapter.chat_stream(config, messages, tools, **kwargs):
-                # Track usage when done or complete
-                event_type = event.get("type")
-                if event_type in ("done", "complete"):
-                    response = event.get("response") or event.get("full_response")
-                    if response and hasattr(response, 'usage'):
-                        _token_tracker.record(config.name, config.model or "unknown", response.usage)
-                        with self._providers_lock:
-                            if provider_name in self._provider_status:
-                                self._provider_status[provider_name].total_requests += 1
-                yield event
+        if self._config is None:
+            yield {"type": "error", "error": "vLLM provider not configured"}
             return
-        
-        # Select provider
-        config = self._select_provider(require_tools)
-        if not config:
-            yield {"type": "error", "error": "No LLM providers available"}
-            return
-        
-        adapter = self._get_adapter(config.provider_type)
-        
-        for event in adapter.chat_stream(config, messages, tools, **kwargs):
-            # Track usage when done or complete
+
+        for event in self._adapter.chat_stream(self._config, messages, tools, **kwargs):
             event_type = event.get("type")
             if event_type in ("done", "complete"):
                 response = event.get("response") or event.get("full_response")
                 if response and hasattr(response, 'usage'):
-                    _token_tracker.record(config.name, config.model or "unknown", response.usage)
-                    with self._providers_lock:
-                        if config.name in self._provider_status:
-                            self._provider_status[config.name].total_requests += 1
+                    _token_tracker.record(self._config.model or "unknown", response.usage)
+                    with self._config_lock:
+                        if self._status:
+                            self._status.total_requests += 1
             yield event
-    
-    # =========================================================================
-    # Configuration
-    # =========================================================================
-    
-    def set_routing_strategy(self, strategy: RoutingStrategy) -> None:
-        """Change the routing strategy."""
-        old = self._routing_strategy
-        self._routing_strategy = strategy
-        logger.info(f"Routing strategy changed: {old.value} -> {strategy.value}")
-    
-    def get_active_provider(self) -> Optional[Dict[str, Any]]:
-        """Get the currently active (highest priority available) provider."""
-        config = self._select_provider()
-        if config:
-            status = self._provider_status.get(config.name)
-            return {
-                **config.to_dict(),
-                "status": status.to_dict() if status else None,
-            }
-        return None
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Export router state as dictionary."""
         return {
-            "routing_strategy": self._routing_strategy.value,
-            "providers": self.list_providers(),
+            "provider": "vllm",
+            "config": self._config.to_dict() if self._config else None,
+            "status": self._status.to_dict() if self._status else None,
             "active_provider": self.get_active_provider(),
         }
 
@@ -736,11 +386,6 @@ class AgentLLMRouter:
 def get_router() -> AgentLLMRouter:
     """Get the global LLM router instance."""
     return AgentLLMRouter()
-
-
-def register_provider(config: LLMProviderConfig) -> bool:
-    """Register a provider with the global router."""
-    return get_router().register_provider(config)
 
 
 def chat(

@@ -20,15 +20,6 @@ def _check_url(url: str, timeout: float) -> bool:
         return False
 
 
-def check_ollama_availability() -> bool:
-    """Check if Ollama is available."""
-    config = get_config()
-    return _check_url(
-        f"{config.inference.ollama_url}/api/version",
-        timeout=config.http_timeout,
-    )
-
-
 def check_vllm_availability() -> bool:
     """Check if vLLM server is available."""
     config = get_config()
@@ -38,14 +29,10 @@ def check_vllm_availability() -> bool:
     )
 
 
-_BACKEND_CHECKERS = {
-    "vllm": check_vllm_availability,
-}
+# Keep for backward compatibility
+check_ollama_availability = check_vllm_availability
 
 
 def check_inference_backend_availability() -> bool:
-    """Check if the configured inference backend is available."""
-    config = get_config()
-    backend = config.inference.backend.lower()
-    checker = _BACKEND_CHECKERS.get(backend, check_ollama_availability)
-    return checker()
+    """Check if the vLLM inference backend is available."""
+    return check_vllm_availability()

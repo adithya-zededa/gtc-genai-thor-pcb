@@ -79,10 +79,7 @@ class MCPInterpreter:
         if not tool_def:
             return None
 
-        if agent_state not in tool_def.allowed_in_states:
-            return self._create_state_violation_proposal(
-                result.tool, agent_state, tool_def.allowed_in_states, session_id,
-            )
+        # NOTE: No state-based filtering — the LLM decides all actions.
 
         arguments: Dict[str, Any] = {}
         if result.params:

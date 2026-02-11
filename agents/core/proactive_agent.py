@@ -595,19 +595,11 @@ class ProactiveMonitoringAgent:
     @staticmethod
     def _resolve_plan(plan: Dict[str, Any]) -> tuple[TaskType, Optional[str]]:
         task_name = str(plan.get("task", "")).strip().lower()
-        mapping = {
-            "package_detection": TaskType.PACKAGE_DETECTION,
-            "pcb_inspection": TaskType.PCB_INSPECTION,
-            "ppe_detection": TaskType.PPE_DETECTION,
-            "person_counting": TaskType.PERSON_COUNTING,
-            "scene_description": TaskType.SCENE_DESCRIPTION,
-            "retail_billing": TaskType.RETAIL_BILLING,
-            "custom": TaskType.CUSTOM,
-        }
-        task_type = mapping.get(task_name, TaskType.CUSTOM)
+        # All tasks now funnel through CUSTOM — the custom_prompt carries
+        # the actual instruction for the VLM.
         custom_prompt = plan.get("custom_prompt")
-        if task_type != TaskType.CUSTOM and custom_prompt:
-            # Keep custom instructions as an overlay even for known tasks
-            return task_type, custom_prompt
-        return task_type, custom_prompt
-*** End File
+        if not custom_prompt:
+            # If the LLM emitted a legacy task name without a prompt,
+            # synthesise a reasonable instruction from the task name.
+            custom_prompt = task_name.replace("_", " ").capitalize() if task_name else None
+        return TaskType.CUSTOM, custom_prompt

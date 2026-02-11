@@ -43,7 +43,7 @@ def format_invoice_for_speech(
     total = data.get("total", 0)
     recipient = data.get("recipient", "")
 
-    currency = os.getenv("RETAIL_CURRENCY", "INR")
+    currency = os.getenv("RETAIL_CURRENCY", "USD")
     currency_spoken = {
         "INR": "rupees",
         "USD": "dollars",
@@ -132,7 +132,7 @@ def resend_invoice(invoice_id: int, recipient_email: str) -> Dict[str, Any]:
         }
 
     # Reconstruct bill data from DB model
-    currency = os.getenv("RETAIL_CURRENCY", "INR")
+    currency = os.getenv("RETAIL_CURRENCY", "USD")
     bill_data = {
         "line_items": invoice.items,
         "subtotal": invoice.subtotal,
@@ -164,6 +164,7 @@ def resend_invoice(invoice_id: int, recipient_email: str) -> Dict[str, Any]:
 
     return {
         "success": True,
-        "message": f"Invoice #{invoice.id} sent to {recipient_email}",
+        "message": f"✅ Invoice #{invoice.id} sent successfully to {recipient_email}. Total: {currency} {invoice.total:.2f}",
+        "invoice_id": invoice.id,
         "email_result": email_result,
     }

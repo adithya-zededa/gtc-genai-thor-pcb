@@ -86,6 +86,11 @@ class VLLMAdapter(LLMAdapter):
             "temperature": config.temperature,
         }
         
+        # Merge extra_body kwargs (e.g. chat_template_kwargs for Qwen3 thinking mode)
+        extra_body = kwargs.get("extra_body")
+        if extra_body and isinstance(extra_body, dict):
+            payload.update(extra_body)
+        
         if tools and config.supports_tools:
             payload["tools"] = self._convert_tools_to_openai_format(tools)
         

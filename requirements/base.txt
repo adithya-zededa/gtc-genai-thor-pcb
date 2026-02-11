@@ -29,3 +29,6 @@ numpy>=1.26.0
 
 # Text-to-speech (invoice audio summaries)
 gTTS>=2.5.0
+
+# PDF generation
+weasyprint>=62.0

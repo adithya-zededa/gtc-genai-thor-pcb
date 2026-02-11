@@ -225,6 +225,7 @@ class Invoice:
     tax: float = 0.0
     total: float = 0.0
     status: str = "draft"
+    pdf_path: Optional[str] = None
     created_at: Optional[str] = None
 
     @classmethod
@@ -241,6 +242,7 @@ class Invoice:
             tax=float(row["tax"]),
             total=float(row["total"]),
             status=row["status"],
+            pdf_path=row.get("pdf_path"),
             created_at=row["created_at"],
         )
 
@@ -264,6 +266,7 @@ class Invoice:
             "tax": self.tax,
             "total": self.total,
             "status": self.status,
+            "pdf_path": self.pdf_path,
             "created_at": self.created_at,
         }
 

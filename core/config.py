@@ -21,9 +21,7 @@ ENV_SOCKETIO_CORS = "SOCKETIO_CORS"
 ENV_DB_PATH = "CAMERA_AGENT_DB"
 ENV_DETECTED_DIR = "DETECTED_IMAGES_DIR"
 ENV_PROCESSED_DIR = "PROCESSED_FRAMES_DIR"
-ENV_OLLAMA_URL = "OLLAMA_URL"
 ENV_VLLM_URL = "VLLM_URL"
-ENV_INFERENCE_BACKEND = "INFERENCE_BACKEND"
 ENV_HTTP_TIMEOUT = "HTTP_REQUEST_TIMEOUT"
 ENV_CONFIG_PATH = "CAMERA_AGENT_CONFIG"
 
@@ -69,21 +67,18 @@ class CameraConfig:
 
 @dataclass
 class InferenceConfig:
-    """VLM/Ollama inference configuration."""
-    backend: str = "vllm"  # "vllm" or "ollama"
+    """vLLM inference configuration."""
+    backend: str = "vllm"
     vllm_url: str = "http://localhost:8000"
-    ollama_url: str = "http://localhost:11434"
-    model: str = "Qwen/Qwen3-VL-8B-Instruct"
+    model: str = ""  # auto-detected from running server; set VISION_MODEL to override
     timeout: int = 300
     temperature: float = 0.1
 
 
 @dataclass
 class RouterConfig:
-    """LLM Router configuration for multi-provider support."""
-    enabled: bool = False  # Set LLM_ROUTER_ENABLED=true to activate
-    routing_strategy: str = "failover"  # priority, round_robin, failover, latency
-    auto_discover: bool = True  # Auto-discover providers from env vars
+    """LLM Router configuration (vLLM-only)."""
+    enabled: bool = True  # Always enabled — vLLM is the sole provider
     use_for_classification: bool = True  # Use router for intent classification
     use_for_chat: bool = True  # Use router for conversational responses
 
@@ -138,10 +133,9 @@ class Config:
                 ).expanduser(),
             ),
             inference=InferenceConfig(
-                backend=os.getenv(ENV_INFERENCE_BACKEND, "vllm"),
+                backend="vllm",
                 vllm_url=os.getenv(ENV_VLLM_URL, "http://localhost:8000"),
-                ollama_url=os.getenv(ENV_OLLAMA_URL, "http://localhost:11434"),
-                model=os.getenv("VISION_MODEL", "Qwen/Qwen3-VL-8B-Instruct"),
+                model=os.getenv("VISION_MODEL", ""),  # resolved lazily via detect_model()
                 timeout=_safe_int_env("VLLM_TIMEOUT", 300),
                 temperature=_safe_float_env("VLLM_TEMPERATURE", 0.1),
             ),
@@ -153,9 +147,7 @@ class Config:
                 socketio_cors=os.getenv(ENV_SOCKETIO_CORS, DEFAULT_SOCKETIO_CORS),
             ),
             router=RouterConfig(
-                enabled=os.getenv("LLM_ROUTER_ENABLED", "").lower() in {"1", "true", "yes"},
-                routing_strategy=os.getenv("LLM_ROUTING_STRATEGY", "failover"),
-                auto_discover=os.getenv("LLM_AUTO_DISCOVER", "true").lower() in {"1", "true", "yes"},
+                enabled=True,
                 use_for_classification=os.getenv("LLM_ROUTER_FOR_CLASSIFICATION", "true").lower() in {"1", "true", "yes"},
                 use_for_chat=os.getenv("LLM_ROUTER_FOR_CHAT", "true").lower() in {"1", "true", "yes"},
             ),

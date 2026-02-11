@@ -15,46 +15,25 @@ logger = get_logger(__name__)
 def create_vlm_client_from_config(cfg: Dict[str, Any]) -> UnifiedVLMClient:
     """Create a VLM client from configuration.
     
-    Supports both Ollama and vLLM backends based on config and environment variables.
+    Uses the vLLM backend exclusively.
     Environment variables take precedence over config file settings.
     """
     app_config = get_config()
     
-    # Check environment variable for backend selection
-    env_backend = os.getenv("INFERENCE_BACKEND", "").lower()
+    vllm_cfg = cfg.get("vllm", {})
+    vllm_url = os.getenv("VLLM_URL") or str(vllm_cfg.get("url", app_config.inference.vllm_url)).rstrip("/")
+    from core.model_detect import detect_model
+    default_model = detect_model(backend="vllm", base_url=vllm_url, wait=False)
+    yaml_model = str(vllm_cfg.get("model", ""))
+    vision_model = yaml_model if yaml_model and yaml_model != "auto" else default_model
+    timeout = int(os.getenv("VLLM_TIMEOUT", vllm_cfg.get("timeout", app_config.inference.timeout)))
+    temperature = float(os.getenv("VLLM_TEMPERATURE", vllm_cfg.get("temperature", app_config.inference.temperature)))
     
-    # Determine backend: env var > config > default (vllm)
-    if env_backend == "vllm" or (not env_backend and cfg.get("vllm")):
-        # Use vLLM backend
-        vllm_cfg = cfg.get("vllm", {})
-        vllm_url = os.getenv("VLLM_URL") or str(vllm_cfg.get("url", app_config.inference.vllm_url)).rstrip("/")
-        default_model = os.getenv("VISION_MODEL", app_config.inference.model)
-        vision_model = str(vllm_cfg.get("model", default_model))
-        timeout = int(os.getenv("VLLM_TIMEOUT", vllm_cfg.get("timeout", app_config.inference.timeout)))
-        temperature = float(os.getenv("VLLM_TEMPERATURE", vllm_cfg.get("temperature", app_config.inference.temperature)))
-        
-        logger.info("Creating vLLM client: url=%s, model=%s", vllm_url, vision_model)
-        return UnifiedVLMClient(
-            base_url=vllm_url,
-            model=vision_model,
-            timeout=timeout,
-            backend=VLMBackend.VLLM,
-            temperature=temperature,
-        )
-    
-    # Fall back to Ollama config (legacy)
-    ollama_cfg = cfg.get("ollama", {})
-    ollama_url = os.getenv("OLLAMA_URL") or str(ollama_cfg.get("url", app_config.inference.ollama_url)).rstrip("/")
-    default_model = os.getenv("VISION_MODEL", "qwen3-vl:8b")
-    vision_model = str(ollama_cfg.get("vision_model", default_model))
-    timeout = int(ollama_cfg.get("timeout", app_config.inference.timeout))
-    temperature = float(ollama_cfg.get("temperature", app_config.inference.temperature))
-    
-    logger.info("Creating Ollama client (legacy fallback): url=%s, model=%s", ollama_url, vision_model)
+    logger.info("Creating vLLM client: url=%s, model=%s", vllm_url, vision_model)
     return UnifiedVLMClient(
-        base_url=ollama_url,
+        base_url=vllm_url,
         model=vision_model,
         timeout=timeout,
-        backend=VLMBackend.OLLAMA,
+        backend=VLMBackend.VLLM,
         temperature=temperature,
     )

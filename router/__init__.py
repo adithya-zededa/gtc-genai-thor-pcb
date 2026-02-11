@@ -1,41 +1,21 @@
 """
-LLM Router Package - Dynamic LLM Service Routing
+LLM Router Package - vLLM Service Routing
 
-This package provides a flexible router for connecting to various LLM backends,
-allowing users to bring in any LLM service they want.
-
-Supported Providers:
-    - Anthropic (Claude)
-    - OpenAI (GPT-4, etc.)
-    - Google (Gemini)
-    - Ollama (local)
-    - vLLM (self-hosted)
-    - TGI (Text Generation Inference)
-    - LM Studio (local)
-    - Any OpenAI-compatible API
+This package provides a direct router to the vLLM deployment for
+high-performance LLM inference.
 
 Usage:
-    from router import get_router, LLMProviderConfig
-    
+    from router import get_router
+
     router = get_router()
-    router.register_provider(LLMProviderConfig(
-        name="ollama-local",
-        provider_type="ollama",
-        url="http://localhost:11434",
-        model="llama3.2"
-    ))
-    
     response = router.chat(messages=[{"role": "user", "content": "Hello!"}])
 """
 
 from .config import (
-    LLMProviderType,
-    RoutingStrategy,
     LLMProviderConfig,
     ProviderStatus,
     ChatMessage,
     ChatResponse,
-    DEFAULT_MODELS,
 )
 
 from .base import LLMAdapter
@@ -43,7 +23,6 @@ from .base import LLMAdapter
 from .llm_router import (
     AgentLLMRouter,
     get_router,
-    register_provider,
     chat,
     get_token_usage,
     reset_token_usage,
@@ -76,19 +55,15 @@ from .resilience import (
 
 __all__ = [
     # Config
-    "LLMProviderType",
-    "RoutingStrategy", 
     "LLMProviderConfig",
     "ProviderStatus",
     "ChatMessage",
     "ChatResponse",
-    "DEFAULT_MODELS",
     # Base
     "LLMAdapter",
     # Router
     "AgentLLMRouter",
     "get_router",
-    "register_provider",
     "chat",
     # Token tracking
     "get_token_usage",

@@ -35,14 +35,20 @@ logger = get_logger(__name__)
 def tool_inspect_pcb(
     query: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Analyze the current camera frame for PCB defects.
-
-    Uses the VLM with ``PCB_INSPECTION`` task type.
-    """
+    """Analyze the current camera frame for PCB defects."""
     logger.info("tool_inspect_pcb invoked (query=%s)", query and query[:80])
 
     from services.core.monitoring import get_monitoring_service
     from agents.vlm.task_types import TaskType
+
+    _default_query = (
+        "Inspect this image for PCB (Printed Circuit Board) defects and quality issues. "
+        "Look for: solder bridges, missing components, cold solder joints, trace damage, "
+        "component misalignment, burn marks, and lifted pads. Identify the board type if "
+        "recognisable. Report has_defects, defects list (type, severity, location, description), "
+        "component_count, overall_quality, and should_alert (true if medium/high severity). "
+        "Respond with ONLY valid JSON."
+    )
 
     service = get_monitoring_service()
     if not service:
@@ -50,8 +56,8 @@ def tool_inspect_pcb(
 
     try:
         event = service.analyze_single_frame(
-            task_type=TaskType.PCB_INSPECTION,
-            custom_prompt=query or None,
+            task_type=TaskType.CUSTOM,
+            custom_prompt=query or _default_query,
         )
     except Exception as exc:
         return _safe_error("VLM PCB inspection failed", exc=exc)
@@ -89,7 +95,10 @@ def tool_classify_board() -> Dict[str, Any]:
         return {"success": False, "message": "Monitoring service not available"}
 
     try:
-        event = service.analyze_single_frame(task_type=TaskType.PCB_INSPECTION)
+        event = service.analyze_single_frame(
+            task_type=TaskType.CUSTOM,
+            custom_prompt="Identify the board type visible in this image. Report board_type, board_markings, and any visible text or logos. Respond with ONLY valid JSON.",
+        )
     except Exception as exc:
         return _safe_error("VLM board classification failed", exc=exc)
 

@@ -27,6 +27,9 @@ logger = get_logger(__name__)
 
 # ── Tool definitions ──────────────────────────────────────────────────────
 
+# All states — the LLM makes the decisions, not state filters.
+_ALL_STATES = tuple(AgentState)
+
 TOOL_SCAN_TRAY_ITEMS = MCPToolDefinition(
     name="scan_tray_items",
     description="Analyze the current camera frame to identify, classify, and count items placed on a tray or counter for billing.",
@@ -36,7 +39,7 @@ TOOL_SCAN_TRAY_ITEMS = MCPToolDefinition(
     ],
     output_schema=standard_output_schema(),
     requires_confirmation=False,
-    allowed_in_states=(AgentState.IDLE, AgentState.MONITORING),
+    allowed_in_states=_ALL_STATES,
 )
 
 TOOL_LOOKUP_ITEM_PRICE = MCPToolDefinition(
@@ -49,36 +52,37 @@ TOOL_LOOKUP_ITEM_PRICE = MCPToolDefinition(
     ],
     output_schema=standard_output_schema(),
     requires_confirmation=False,
-    allowed_in_states=(AgentState.OFF, AgentState.IDLE, AgentState.MONITORING, AgentState.ANALYZING),
+    allowed_in_states=_ALL_STATES,
 )
 
 TOOL_CREATE_BILL = MCPToolDefinition(
     name="create_bill",
-    description="Assemble a bill from detected items. Matches items against the catalog for prices.",
+    description="STEP 1: Assemble a bill from detected items and look up prices in the catalog. This creates the bill data structure but does NOT generate the final invoice document. After this, you must call generate_invoice to create the PDF and announce the total.",
     category="retail_billing",
     input_schema=[
         MCPParameterSchema(name="items", type=MCPSchemaType.ARRAY, description="List of item dicts. If omitted, uses the last scan result.", required=False, items_type=MCPSchemaType.OBJECT),
     ],
     output_schema=standard_output_schema(),
     requires_confirmation=False,
-    allowed_in_states=(AgentState.IDLE, AgentState.MONITORING, AgentState.ANALYZING),
+    allowed_in_states=_ALL_STATES,
 )
 
 TOOL_GENERATE_INVOICE = MCPToolDefinition(
     name="generate_invoice",
-    description="Render an HTML invoice from the current bill and save it to the database.",
+    description="STEP 2: Generate the final customer invoice with HTML + PDF formats, announce the total via speaker, and save to database. This creates the complete invoice document that customers can view/download. Always call this after create_bill when the user requests an invoice.",
     category="retail_billing",
     input_schema=[
-        MCPParameterSchema(name="recipient_email", type=MCPSchemaType.STRING, description="Recipient email for the invoice header", required=False, max_length=200),
+        MCPParameterSchema(name="recipient_email", type=MCPSchemaType.STRING, description="Recipient email or name for the invoice", required=False, max_length=200),
+        MCPParameterSchema(name="output_path", type=MCPSchemaType.STRING, description="Optional custom output path for the PDF file", required=False, max_length=500),
     ],
     output_schema=standard_output_schema(),
     requires_confirmation=False,
-    allowed_in_states=(AgentState.IDLE, AgentState.MONITORING, AgentState.ANALYZING),
+    allowed_in_states=_ALL_STATES,
 )
 
 TOOL_SEND_INVOICE_EMAIL = MCPToolDefinition(
     name="send_invoice_email",
-    description="Email the generated invoice to a specified recipient.",
+    description="Email the generated invoice to a specified recipient. Use this only when the customer explicitly requests email delivery.",
     category="retail_billing",
     input_schema=[
         MCPParameterSchema(name="recipient_email", type=MCPSchemaType.STRING, description="Email address to send the invoice to", required=True, max_length=200),
@@ -86,19 +90,7 @@ TOOL_SEND_INVOICE_EMAIL = MCPToolDefinition(
     output_schema=standard_output_schema(),
     requires_confirmation=True,
     confirmation_message="Send the invoice to {recipient_email}?",
-    allowed_in_states=(AgentState.IDLE, AgentState.MONITORING, AgentState.ALERTING),
-)
-
-TOOL_SPEAK_INVOICE = MCPToolDefinition(
-    name="speak_invoice",
-    description="Convert a finalized invoice into spoken audio. Produces a short, human-friendly spoken summary of the invoice.",
-    category="retail_billing",
-    input_schema=[
-        MCPParameterSchema(name="text", type=MCPSchemaType.STRING, description="The spoken-friendly summary text to convert to audio", required=True, max_length=2000),
-    ],
-    output_schema=standard_output_schema(),
-    requires_confirmation=False,
-    allowed_in_states=(AgentState.IDLE, AgentState.MONITORING, AgentState.ANALYZING),
+    allowed_in_states=_ALL_STATES,
 )
 
 
@@ -108,7 +100,7 @@ class RetailToolRegistry(MCPToolRegistry):
     """Registry containing only retail-domain tools."""
 
     def _register_default_tools(self) -> None:
-        for tool in [TOOL_SCAN_TRAY_ITEMS, TOOL_LOOKUP_ITEM_PRICE, TOOL_CREATE_BILL, TOOL_GENERATE_INVOICE, TOOL_SEND_INVOICE_EMAIL, TOOL_SPEAK_INVOICE]:
+        for tool in [TOOL_SCAN_TRAY_ITEMS, TOOL_LOOKUP_ITEM_PRICE, TOOL_CREATE_BILL, TOOL_GENERATE_INVOICE, TOOL_SEND_INVOICE_EMAIL]:
             self.register(tool)
 
 
@@ -119,7 +111,7 @@ class RetailInterpreter:
 
     _VALID_TOOLS: FrozenSet[str] = frozenset([
         "scan_tray_items", "lookup_item_price", "create_bill",
-        "generate_invoice", "send_invoice_email", "speak_invoice",
+        "generate_invoice", "send_invoice_email",
     ])
 
     def __init__(self, registry: Optional[RetailToolRegistry] = None):
@@ -152,13 +144,17 @@ class RetailInterpreter:
             return None
 
         tool_def = self.registry.get(result.tool)
-        if not tool_def or agent_state not in tool_def.allowed_in_states:
+        if not tool_def:
             return None
 
-        # Build arguments from classifier result
+        # NOTE: No state-based filtering here — the LLM decides all actions.
+        # State checks remain in tool definitions for documentation purposes only.
+
+        # Build arguments from classifier result, filtering to valid schema params
+        valid_param_names = {p.name for p in tool_def.input_schema} if tool_def.input_schema else set()
         arguments: Dict[str, Any] = {}
         for key, value in result.params.items():
-            if value:
+            if value and key in valid_param_names:
                 arguments[key] = value
 
         # Special case: for scan_tray_items, default query to user message if not provided
@@ -252,21 +248,37 @@ class RetailExecutor(BaseDomainExecutor):
 
         All business logic is delegated to tools and services.
         """
+        import inspect
         from agents.tools.retail import (
             tool_scan_tray_items,
             tool_lookup_item_price,
             tool_create_bill,
             tool_generate_invoice,
             tool_send_invoice_email,
-            tool_speak_invoice,
         )
 
+        def _strip(fn, args: Dict[str, Any]) -> Dict[str, Any]:
+            """Strip keys not accepted by *fn* to prevent unexpected-kwarg errors."""
+            sig = inspect.signature(fn)
+            if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+                return args  # function accepts **kwargs, nothing to strip
+            valid = set(sig.parameters)
+            dropped = set(args) - valid
+            if dropped:
+                logger.debug("Stripping unexpected args %s before calling %s", dropped, fn.__name__)
+            return {k: v for k, v in args.items() if k in valid}
+
         pipeline = self._get_pipeline()
+
+        # Defence-in-depth: strip any arguments not accepted by the target tool.
+        # The interpreter already filters to schema params, but the executor may
+        # inject additional keys (bill, scan_result, etc.) that ARE expected.
+        # _strip() removes anything not in the function signature.
 
         # ── scan_tray_items ───────────────────────────────────────────────
 
         if tool_name == "scan_tray_items":
-            result = tool_scan_tray_items(**arguments)
+            result = tool_scan_tray_items(**_strip(tool_scan_tray_items, arguments))
             if result.get("success"):
                 pipeline.scan_result = result.get("data", {})
                 pipeline.updated_at = time.time()
@@ -275,7 +287,7 @@ class RetailExecutor(BaseDomainExecutor):
         # ── lookup_item_price ─────────────────────────────────────────────
 
         if tool_name == "lookup_item_price":
-            return tool_lookup_item_price(**arguments)
+            return tool_lookup_item_price(**_strip(tool_lookup_item_price, arguments))
 
         # ── create_bill ───────────────────────────────────────────────────
 
@@ -284,8 +296,33 @@ class RetailExecutor(BaseDomainExecutor):
             if "items" not in arguments or not arguments.get("items"):
                 if pipeline.scan_result:
                     arguments = {**arguments, "scan_result": pipeline.scan_result}
+                else:
+                    # Auto-pipeline: scan first when no scan result exists.
+                    # If a recent general-domain frame analysis exists, pass its
+                    # description as context so the VLM scan prompt can reference
+                    # the items already identified visually.
+                    logger.info("create_bill: no scan result available, auto-running scan_tray_items")
+                    scan_query = arguments.get("query", "Identify and count all items on the tray for billing")
+                    try:
+                        from agents.mcp.globals import get_mcp_executor as _get_general_executor
+                        last_analysis = _get_general_executor().context.get("last_frame_analysis")
+                        if last_analysis and last_analysis.get("description"):
+                            scan_query += (
+                                f"\n\nA recent frame analysis found these items: "
+                                f"{last_analysis['description']}"
+                            )
+                            logger.info("create_bill: enriching auto-scan with prior frame analysis")
+                    except Exception:
+                        pass  # General executor unavailable — proceed without context
+                    scan_result = tool_scan_tray_items(query=scan_query)
+                    if scan_result.get("success"):
+                        pipeline.scan_result = scan_result.get("data", {})
+                        pipeline.updated_at = time.time()
+                        arguments = {**arguments, "scan_result": pipeline.scan_result}
+                    else:
+                        return {"success": False, "message": f"Auto-pipeline: scan_tray_items failed — {scan_result.get('message', 'unknown error')}"}
 
-            result = tool_create_bill(**arguments)
+            result = tool_create_bill(**_strip(tool_create_bill, arguments))
             if result.get("success"):
                 pipeline.bill = result
                 pipeline.updated_at = time.time()
@@ -298,15 +335,39 @@ class RetailExecutor(BaseDomainExecutor):
             if "bill" not in arguments or not arguments.get("bill"):
                 if pipeline.bill:
                     arguments = {**arguments, "bill": pipeline.bill}
+                else:
+                    # Auto-pipeline: scan → bill → invoice when no bill exists
+                    logger.info("generate_invoice: no bill available, running auto-pipeline (scan → bill → invoice)")
+                    scan_query = arguments.get("query", "Identify and count all items on the tray for billing")
+                    try:
+                        from agents.mcp.globals import get_mcp_executor as _get_general_executor
+                        last_analysis = _get_general_executor().context.get("last_frame_analysis")
+                        if last_analysis and last_analysis.get("description"):
+                            scan_query += (
+                                f"\n\nA recent frame analysis found these items: "
+                                f"{last_analysis['description']}"
+                            )
+                    except Exception:
+                        pass
+                    scan_result = tool_scan_tray_items(query=scan_query)
+                    if scan_result.get("success"):
+                        pipeline.scan_result = scan_result.get("data", {})
+                        pipeline.updated_at = time.time()
 
-            result = tool_generate_invoice(**arguments)
+                        bill_result = tool_create_bill(scan_result=pipeline.scan_result)
+                        if bill_result.get("success"):
+                            pipeline.bill = bill_result
+                            pipeline.updated_at = time.time()
+                            arguments = {**arguments, "bill": pipeline.bill}
+                        else:
+                            return {"success": False, "message": f"Auto-pipeline: create_bill failed — {bill_result.get('message', 'unknown error')}"}
+                    else:
+                        return {"success": False, "message": f"Auto-pipeline: scan_tray_items failed — {scan_result.get('message', 'unknown error')}"}
+
+            result = tool_generate_invoice(**_strip(tool_generate_invoice, arguments))
             if result.get("success"):
                 pipeline.invoice_id = result.get("data", {}).get("invoice_id")
                 pipeline.updated_at = time.time()
-
-                # Auto-invoke TTS after successful invoice generation
-                # This is explicit orchestration policy, not hidden business logic
-                self._auto_invoke_tts(result, pipeline)
 
             return result
 
@@ -320,55 +381,9 @@ class RetailExecutor(BaseDomainExecutor):
                 elif pipeline.bill:
                     arguments = {**arguments, "bill": pipeline.bill}
 
-            return tool_send_invoice_email(**arguments)
-
-        # ── speak_invoice ─────────────────────────────────────────────────
-
-        if tool_name == "speak_invoice":
-            return tool_speak_invoice(**arguments)
+            return tool_send_invoice_email(**_strip(tool_send_invoice_email, arguments))
 
         raise ValueError(f"No retail handler for: {tool_name}")
-
-    # ── TTS auto-invocation (explicit orchestration policy) ───────────────
-
-    def _auto_invoke_tts(
-        self,
-        invoice_result: Dict[str, Any],
-        pipeline: _PipelineState,
-    ) -> None:
-        """Auto-invoke TTS after successful invoice generation.
-
-        This is an explicit orchestration policy:
-        "After generating an invoice, automatically speak it unless it fails."
-
-        The business logic for determining WHAT to speak lives in the service layer.
-        This method just orchestrates the call sequence.
-
-        On failure, log and continue — invoice generation is never affected.
-        """
-        try:
-            from services.domains.retail.invoice_service import format_invoice_for_speech
-            from agents.tools.retail import tool_speak_invoice
-
-            # Delegate text composition to service layer (business logic)
-            speech_text = format_invoice_for_speech(
-                invoice_result,
-                pipeline.bill,
-                full_narration=False,  # Default: short summary
-            )
-
-            if not speech_text:
-                logger.warning("TTS skipped — could not format speech text from invoice")
-                return
-
-            # Execute TTS tool
-            tts_result = tool_speak_invoice(text=speech_text)
-            if not tts_result.get("success"):
-                logger.warning("TTS invocation failed: %s", tts_result.get("message"))
-
-        except Exception as exc:
-            # TTS failure must never break the invoice pipeline
-            logger.error("speak_invoice auto-invocation failed (non-fatal): %s", exc, exc_info=True)
 
 
 # ── Singletons ────────────────────────────────────────────────────────────
@@ -376,7 +391,7 @@ class RetailExecutor(BaseDomainExecutor):
 _retail_registry: Optional[RetailToolRegistry] = None
 _retail_interpreter: Optional[RetailInterpreter] = None
 _retail_executor: Optional[RetailExecutor] = None
-_retail_lock = threading.Lock()
+_retail_lock = threading.RLock()
 
 
 def get_retail_registry() -> RetailToolRegistry:

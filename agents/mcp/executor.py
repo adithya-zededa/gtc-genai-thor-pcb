@@ -80,10 +80,19 @@ class MCPExecutor(BaseDomainExecutor):
             )
             self.state_machine.set_session(self._current_session.id)
 
-        if self.state_machine.state == AgentState.OFF:
+        current = self.state_machine.state
+        if current == AgentState.OFF:
             self.state_machine.transition_to(AgentState.IDLE, "start_monitoring_session")
-
-        self.state_machine.transition_to(AgentState.MONITORING, "start_monitoring_session")
+            self.state_machine.transition_to(AgentState.MONITORING, "start_monitoring_session")
+        elif current == AgentState.MONITORING:
+            # Already monitoring — session was replaced above, no state change needed
+            logger.info("start_monitoring_session: already in MONITORING, reusing state")
+        elif current == AgentState.ERROR:
+            self.state_machine.transition_to(AgentState.IDLE, "start_monitoring_session")
+            self.state_machine.transition_to(AgentState.MONITORING, "start_monitoring_session")
+        else:
+            # IDLE, ANALYZING, ALERTING — all can transition to MONITORING
+            self.state_machine.transition_to(AgentState.MONITORING, "start_monitoring_session")
 
         service = get_monitoring_service()
         if service:
@@ -183,6 +192,7 @@ class MCPExecutor(BaseDomainExecutor):
 
     def _handle_analyze_frame(self, args: Dict[str, Any]) -> Dict[str, Any]:
         from services.core.monitoring import get_monitoring_service
+        from agents.vlm.task_types import TaskType
 
         old_state = self.state_machine.state
         if self.state_machine.can_transition_to(AgentState.ANALYZING):
@@ -194,18 +204,29 @@ class MCPExecutor(BaseDomainExecutor):
                 return {"success": False, "message": "Monitoring service not available"}
 
             query = args.get("query")
-            event = service.analyze_single_frame(custom_prompt=query)
+            # When the user provides a specific query, pass it as the
+            # custom prompt so the VLM answers their question directly.
+            task_type = TaskType.CUSTOM if query else None
+            event = service.analyze_single_frame(
+                task_type=task_type,
+                custom_prompt=query,
+            )
 
             if event:
+                result_data = {
+                    "detected": event.detected,
+                    "confidence": event.confidence,
+                    "description": event.vision_description,
+                    "should_alert": event.should_alert,
+                }
+                # Store the latest frame analysis so downstream tools
+                # (e.g. retail create_bill) can reference it when no
+                # domain-specific scan has been performed yet.
+                self.context["last_frame_analysis"] = result_data
                 return {
                     "success": True,
                     "message": "Frame analyzed",
-                    "data": {
-                        "detected": event.detected,
-                        "confidence": event.confidence,
-                        "description": event.vision_description,
-                        "should_alert": event.should_alert,
-                    },
+                    "data": result_data,
                 }
             return {"success": False, "message": service.last_error or "Analysis failed"}
         finally:
@@ -293,6 +314,8 @@ class MCPExecutor(BaseDomainExecutor):
             "ppe_detection": TaskType.PPE_DETECTION,
             "person_counting": TaskType.PERSON_COUNTING,
             "scene_description": TaskType.SCENE_DESCRIPTION,
+            "pcb_inspection": TaskType.PCB_INSPECTION,
+            "retail_billing": TaskType.RETAIL_BILLING,
             "custom": TaskType.CUSTOM,
         }
 
