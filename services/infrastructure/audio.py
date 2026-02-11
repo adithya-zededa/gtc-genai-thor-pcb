@@ -84,10 +84,12 @@ class AudioPlayer:
         
         # ffmpeg - reliable audio player for containers (use audio filter for volume)
         # Works well in headless environments
+        # Properly transcode audio to stereo PCM for ALSA compatibility
         ffmpeg_args = ["-loglevel", "error", "-i"]  # -i will be followed by the file path
         # Add volume filter (range 0.0-10.0, where 1.0 is 100%)
         volume_factor = self._volume / 100.0
-        ffmpeg_args.extend(["-af", f"volume={volume_factor}"])
+        # Convert to stereo, resample to 48kHz (common for USB audio), and apply volume
+        ffmpeg_args.extend(["-af", f"volume={volume_factor},aresample=48000", "-ac", "2"])
         if self._speaker_device:
             # Use ALSA output with specific device
             ffmpeg_args.extend(["-f", "alsa", self._speaker_device])
@@ -173,17 +175,32 @@ class AudioPlayer:
                     cmd = [player] + extra_args + [audio_path]
                 
                 try:
-                    subprocess.Popen(
+                    # Use subprocess.run to wait for completion and check result
+                    result = subprocess.run(
                         cmd,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        timeout=10  # 10 second timeout for playback
                     )
                     device_info = f" (device: {self._speaker_device})" if self._speaker_device else ""
-                    logger.info("Audio playback started via %s%s at %d%% volume", 
-                               player, device_info, self._volume)
-                    return True
+                    
+                    if result.returncode == 0:
+                        logger.info("Audio playback completed successfully via %s%s at %d%% volume", 
+                                   player, device_info, self._volume)
+                        return True
+                    else:
+                        error_msg = result.stderr.decode('utf-8', errors='ignore').strip() if result.stderr else "Unknown error"
+                        logger.warning("Player %s failed with code %d: %s", 
+                                      player, result.returncode, error_msg[:200])
+                        # Try next player
+                        continue
+                        
+                except subprocess.TimeoutExpired:
+                    logger.warning("Player %s timed out after 10 seconds", player)
+                    continue
                 except Exception as exc:
-                    logger.debug("Player %s failed: %s", player, exc)
+                    logger.warning("Player %s failed: %s", player, exc)
+                    continue
 
         logger.warning(
             "No audio player found on the system. Audio saved to: %s",

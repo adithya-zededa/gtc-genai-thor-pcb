@@ -5,7 +5,7 @@ replicaCount: 1
 image:
   repository: adithyazededa/camera-agent-thor-vllm
   pullPolicy: Always
-  tag: "v192"
+  tag: "v194"
 
 imagePullSecrets: []
 nameOverride: ""
