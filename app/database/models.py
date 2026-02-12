@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 
@@ -45,7 +45,7 @@ class User:
 
 
 @dataclass
-class DetectionLog:
+class DetectionLog:  # pylint: disable=too-many-instance-attributes
     """Detection log model representing a detection event."""
 
     id: Optional[int] = None
@@ -64,8 +64,6 @@ class DetectionLog:
         """Create DetectionLog from database row."""
         if row is None:
             return None
-
-        import json
 
         decision_details = {}
         if row["decision_details"]:
@@ -224,7 +222,7 @@ class RetailCatalogItem:
 
 
 @dataclass
-class Invoice:
+class Invoice:  # pylint: disable=too-many-instance-attributes
     """Invoice model representing a generated retail invoice."""
 
     id: Optional[int] = None
@@ -259,8 +257,6 @@ class Invoice:
     @property
     def items(self) -> List[Dict[str, Any]]:
         """Parse items from JSON string."""
-        import json
-
         try:
             return json.loads(self.items_json)
         except (json.JSONDecodeError, TypeError):
@@ -283,7 +279,7 @@ class Invoice:
 
 
 @dataclass
-class PCBDefect:
+class PCBDefect:  # pylint: disable=too-many-instance-attributes
     """PCB defect record from inspection analysis."""
 
     id: Optional[int] = None

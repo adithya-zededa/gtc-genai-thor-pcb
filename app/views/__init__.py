@@ -3,6 +3,8 @@
 These routes handle page rendering for the web interface.
 """
 
+# pylint: disable=import-outside-toplevel
+
 from flask import Blueprint, abort, redirect, render_template, url_for
 
 from app.database import DetectionLogRepository, UserRepository

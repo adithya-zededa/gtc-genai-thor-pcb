@@ -7,7 +7,7 @@ making it easier to add new repositories and maintain consistency.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Generic, List, Optional, TypeVar
+from typing import Any, Generic, List, Optional, TypeVar
 
 T = TypeVar("T")
 
@@ -30,32 +30,32 @@ class BaseRepository(ABC, Generic[T]):
     @abstractmethod
     def _from_row(row) -> Optional[T]:
         """Convert a database row to a model instance."""
-        ...
+        raise NotImplementedError
 
     @staticmethod
     @abstractmethod
     def get_by_id(entity_id: int) -> Optional[T]:
         """Retrieve a single entity by its primary key."""
-        ...
+        raise NotImplementedError
 
     @staticmethod
     @abstractmethod
     def get_all(**kwargs) -> List[T]:
         """Retrieve all entities, optionally filtered."""
-        ...
+        raise NotImplementedError
 
     @staticmethod
     @abstractmethod
     def create(**kwargs) -> Any:
         """Create a new entity and return its ID or the entity."""
-        ...
+        raise NotImplementedError
 
     @staticmethod
     def delete(entity_id: int) -> bool:
         """Delete an entity by ID. Override in subclasses that support deletion."""
-        raise NotImplementedError(f"delete() not implemented for this repository")
+        raise NotImplementedError("delete() not implemented for this repository")
 
     @staticmethod
     def update(entity_id: int, **kwargs) -> bool:
         """Update an entity by ID. Override in subclasses that support updates."""
-        raise NotImplementedError(f"update() not implemented for this repository")
+        raise NotImplementedError("update() not implemented for this repository")

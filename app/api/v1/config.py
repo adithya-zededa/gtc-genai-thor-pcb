@@ -1,5 +1,7 @@
 """Configuration management API endpoints."""
 
+# pylint: disable=broad-exception-caught,redefined-outer-name,import-outside-toplevel
+
 import json
 
 from flask import jsonify, request

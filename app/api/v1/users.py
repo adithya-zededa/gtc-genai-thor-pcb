@@ -48,8 +48,8 @@ def users():
         return jsonify({"success": True, "message": "User added successfully"})
 
     # GET method
-    users = UserRepository.get_all(active_only=True)
-    return jsonify([user.to_dict() for user in users])
+    users_list = UserRepository.get_all(active_only=True)
+    return jsonify([user.to_dict() for user in users_list])
 
 
 @api_bp.route("/users/<int:user_id>", methods=["DELETE", "PUT"])

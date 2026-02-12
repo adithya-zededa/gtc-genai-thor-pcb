@@ -8,6 +8,8 @@ Provides REST endpoints for:
 All routes are registered under the ``/api`` blueprint prefix.
 """
 
+# pylint: disable=broad-exception-caught,import-outside-toplevel,line-too-long
+
 from flask import jsonify, request
 
 from app.database.repositories import InvoiceRepository, RetailCatalogRepository

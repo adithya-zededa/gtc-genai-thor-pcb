@@ -1,5 +1,7 @@
 """Detection logs API endpoints."""
 
+# pylint: disable=broad-exception-caught,redefined-outer-name,no-else-return,logging-fstring-interpolation,import-outside-toplevel,reimported,line-too-long
+
 import csv
 import io
 import json

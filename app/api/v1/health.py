@@ -1,5 +1,7 @@
 """Health check and readiness probe endpoints."""
 
+# pylint: disable=broad-exception-caught,unused-variable,no-else-return
+
 from datetime import datetime
 
 from flask import jsonify

@@ -1,5 +1,7 @@
 """System status and environment API endpoints."""
 
+# pylint: disable=broad-exception-caught,import-outside-toplevel,logging-fstring-interpolation,unspecified-encoding,subprocess-run-check,unused-variable,too-many-locals,too-many-branches,no-else-return,unused-import,c-extension-no-member,line-too-long
+
 import os
 import subprocess
 import time

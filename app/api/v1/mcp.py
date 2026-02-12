@@ -20,7 +20,6 @@ from agents.mcp.base import (
     get_agent_state_machine,
     get_audit_log,
     get_mcp_executor,
-    get_mcp_interpreter,
     get_tool_registry,
 )
 from agents.mcp.manager import VALID_DOMAINS, get_mcp_manager

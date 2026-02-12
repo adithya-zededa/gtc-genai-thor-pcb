@@ -1,17 +1,20 @@
 """Database connection management and initialization."""
 
+# pylint: disable=line-too-long
+
 from __future__ import annotations
 
 import sqlite3
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from queue import Empty, Queue
+from queue import Empty, Full, Queue
 from typing import Optional
 
 from core.config import get_config
 from core.logging import get_logger
 from core.utils import ensure_directory
+from .constants import DEFAULT_LOG_SETTINGS
 
 logger = get_logger(__name__)
 
@@ -110,7 +113,7 @@ class ConnectionPool:
                 # Return connection to pool
                 try:
                     self.pool.put_nowait(conn)
-                except Exception:
+                except Full:
                     # Pool is full, close connection
                     conn.close()
 
@@ -128,7 +131,7 @@ class ConnectionPool:
 
 
 # Global connection pool instance
-_connection_pool: Optional[ConnectionPool] = None
+_POOL_STATE: dict[str, Optional[ConnectionPool]] = {"connection_pool": None}
 _pool_lock = threading.Lock()
 
 
@@ -137,7 +140,7 @@ def ensure_database_directory() -> None:
     config = get_config()
     try:
         ensure_directory(config.database.path.parent)
-    except Exception as exc:
+    except OSError as exc:
         logger.error(
             "Failed to prepare database directory %s: %s",
             config.database.path.parent,
@@ -147,15 +150,21 @@ def ensure_database_directory() -> None:
 
 def _get_connection_pool() -> ConnectionPool:
     """Get or create the global connection pool."""
-    global _connection_pool
-
-    if _connection_pool is None:
+    if _POOL_STATE["connection_pool"] is None:
         with _pool_lock:
-            if _connection_pool is None:
+            if _POOL_STATE["connection_pool"] is None:
                 config = get_config()
-                _connection_pool = ConnectionPool(config.database.path, pool_size=10)
+                _POOL_STATE["connection_pool"] = ConnectionPool(
+                    config.database.path,
+                    pool_size=10,
+                )
 
-    return _connection_pool
+    connection_pool = _POOL_STATE["connection_pool"]
+    if connection_pool is None:
+        config = get_config()
+        connection_pool = ConnectionPool(config.database.path, pool_size=10)
+        _POOL_STATE["connection_pool"] = connection_pool
+    return connection_pool
 
 
 @contextmanager
@@ -416,8 +425,6 @@ def _apply_migrations(cursor: sqlite3.Cursor) -> None:
 
 def _seed_log_settings(cursor: sqlite3.Cursor) -> None:
     """Seed default log settings if not present."""
-    from .repositories import DEFAULT_LOG_SETTINGS
-
     cursor.execute(
         """
         INSERT INTO log_settings (id, log_level, log_retention, max_log_size, log_to_file, log_to_console, log_database)
@@ -443,7 +450,7 @@ def _seed_retail_catalog(cursor: sqlite3.Cursor) -> None:
     Also updates existing entries to current USD prices.
     """
 
-    _DEFAULT_CATALOG = [
+    default_catalog = [
         # ── Snacks & Bars ────────────────────────────────────────────
         ("Yoggies Strawberry", "SNK-YOGG-STRW", 3.99, "snacks"),
         ("Yoggies Probiotic Strawberry", "SNK-YOGG-PROB", 4.49, "snacks"),
@@ -514,7 +521,7 @@ def _seed_retail_catalog(cursor: sqlite3.Cursor) -> None:
         ("Toothpaste", "HYG-TPST-001", 5.49, "hygiene"),
     ]
 
-    for item_name, sku, price, category in _DEFAULT_CATALOG:
+    for item_name, sku, price, category in default_catalog:
         cursor.execute(
             """INSERT INTO retail_catalog (item_name, sku, price, category)
                VALUES (?, ?, ?, ?)

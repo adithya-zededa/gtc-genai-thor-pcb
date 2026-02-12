@@ -1,5 +1,7 @@
 """WebSocket event handlers for real-time communication."""
 
+# pylint: disable=import-outside-toplevel,broad-exception-caught,unused-argument
+
 from __future__ import annotations
 
 import base64

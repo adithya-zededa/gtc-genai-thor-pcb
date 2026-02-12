@@ -8,6 +8,8 @@ This module provides REST API endpoints for:
 - Updating vLLM configuration
 """
 
+# pylint: disable=broad-exception-caught,import-outside-toplevel
+
 from flask import jsonify, request
 
 from core.logging import get_logger

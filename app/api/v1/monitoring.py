@@ -10,7 +10,6 @@ from typing import Any, Dict
 
 from flask import jsonify, request
 
-from core.config import get_config
 from core.logging import get_logger
 from services.core.camera import check_camera_availability
 from services.core.inference import check_inference_backend_availability
@@ -44,15 +43,17 @@ def _extract_proactive_config(payload: Dict[str, Any]) -> Dict[str, Any]:
 @api_bp.route("/status")
 def get_status():
     """Get comprehensive system status including circuit breaker state."""
-    config = get_config()
     service = get_monitoring_service()
+    stats: Dict[str, Any] = {}
+    if service and hasattr(service, "_serialize_stats"):
+        stats = service._serialize_stats()  # pylint: disable=protected-access
 
     status = {
         "monitoring_active": service.is_monitoring if service else False,
         "camera_available": check_camera_availability(),
         "inference_backend": "vllm",
         "inference_available": check_inference_backend_availability(),
-        "stats": service._serialize_stats() if service else {},
+        "stats": stats,
     }
 
     # Add circuit breaker status if agent is running

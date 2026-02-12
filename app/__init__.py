@@ -4,6 +4,8 @@ This module provides the application factory pattern for creating
 Flask app instances with proper configuration and extensions.
 """
 
+# pylint: disable=import-outside-toplevel
+
 from flask import Flask
 from flask_socketio import SocketIO
 

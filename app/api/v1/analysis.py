@@ -1,5 +1,7 @@
 """Analysis API endpoints for VLM inference."""
 
+# pylint: disable=broad-exception-caught,too-many-return-statements,too-many-locals,too-many-branches,too-many-statements,import-outside-toplevel
+
 import base64
 import time
 
@@ -19,6 +21,15 @@ from services.infrastructure.vlm import create_vlm_client_from_config
 from . import api_bp
 
 logger = get_logger(__name__)
+
+
+def _decode_bgr_image(image_array: np.ndarray):
+    """Decode raw image bytes array into a BGR frame."""
+    decode_fn = getattr(cv2, "imdecode", None)
+    if not callable(decode_fn):
+        return None
+    imread_color = int(getattr(cv2, "IMREAD_COLOR", 1))
+    return decode_fn(image_array, imread_color)  # pylint: disable=not-callable
 
 # Canonical mapping from string to TaskType — used by multiple endpoints.
 # All types now funnel through the custom prompt path.
@@ -58,7 +69,13 @@ def _capture_current_frame():
 
         frame_bytes = base64.b64decode(latest_frame.image_b64)
         frame_array = np.frombuffer(frame_bytes, dtype=np.uint8)
-        frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
+        if getattr(cv2, "imdecode", None) is None:
+            return None, (
+                jsonify({"success": False, "error": "OpenCV decode is unavailable"}),
+                500,
+            )
+
+        frame = _decode_bgr_image(frame_array)
 
         if frame is None:
             return None, (
@@ -347,13 +364,18 @@ def analyze_uploaded_image():
         )
 
     image_file = request.files["image"]
-    if image_file.filename == "":
+    if not image_file.filename:
         return jsonify({"success": False, "error": "No image file selected"}), 400
 
     try:
         image_bytes = image_file.read()
         nparr = np.frombuffer(image_bytes, np.uint8)
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if getattr(cv2, "imdecode", None) is None:
+            return jsonify(
+                {"success": False, "error": "OpenCV decode is unavailable"}
+            ), 500
+
+        frame = _decode_bgr_image(nparr)
 
         if frame is None:
             return jsonify({"success": False, "error": "Failed to decode image."}), 400

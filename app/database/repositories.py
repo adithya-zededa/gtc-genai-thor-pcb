@@ -3,10 +3,11 @@
 Each repository handles CRUD operations for a specific domain model.
 """
 
+# pylint: disable=line-too-long
+
 from __future__ import annotations
 
 import json
-import sqlite3
 import threading
 import time
 from typing import Any, Dict, List, Optional
@@ -15,7 +16,6 @@ from core.logging import get_logger
 
 from .connection import get_db_connection
 from .models import (
-    ConfigHistory,
     DetectionLog,
     Invoice,
     LogSettings,
@@ -25,17 +25,6 @@ from .models import (
 )
 
 logger = get_logger(__name__)
-
-# Default log settings
-DEFAULT_LOG_SETTINGS = {
-    "log_level": "INFO",
-    "log_retention": 30,
-    "max_log_size": 100,
-    "log_to_file": True,
-    "log_to_console": True,
-    "log_database": False,
-}
-
 
 class UserRepository:
     """Repository for User data operations with caching for performance."""
@@ -185,6 +174,7 @@ class DetectionLogRepository:
         return DetectionLog.from_row(row)
 
     @staticmethod
+    # pylint: disable=too-many-arguments
     def create(
         timestamp: str,
         confidence: float,
@@ -252,7 +242,7 @@ class DetectionLogRepository:
         return [DetectionLog.from_row(row) for row in rows]
 
 
-class ConfigHistoryRepository:
+class ConfigHistoryRepository:  # pylint: disable=too-few-public-methods
     """Repository for ConfigHistory data operations."""
 
     @staticmethod
@@ -482,7 +472,7 @@ class RetailCatalogRepository:
                         ).fetchone()
                         if row:
                             created.append(RetailCatalogItem.from_row(row))
-                except Exception as e:
+                except (TypeError, ValueError, KeyError) as e:
                     logger.warning("Skipping catalog item: %s", e)
             conn.commit()
         return created
@@ -492,6 +482,7 @@ class InvoiceRepository:
     """Repository for Invoice data operations."""
 
     @staticmethod
+    # pylint: disable=too-many-arguments
     def create(
         recipient_email: str,
         items_json: str,
@@ -580,6 +571,7 @@ class PCBDefectRepository:
     """Repository for PCBDefect data operations."""
 
     @staticmethod
+    # pylint: disable=too-many-arguments
     def create(
         board_type: str,
         defect_type: str,

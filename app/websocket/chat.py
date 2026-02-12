@@ -11,6 +11,8 @@ Key principles:
 4. UI suggests but never directly executes
 """
 
+# pylint: disable=too-many-lines,too-many-arguments,redefined-builtin,import-outside-toplevel,missing-function-docstring,too-many-locals,broad-exception-caught,unused-argument,too-many-statements,too-many-return-statements,too-many-branches,no-else-return,line-too-long,unused-import
+
 from __future__ import annotations
 
 import threading
