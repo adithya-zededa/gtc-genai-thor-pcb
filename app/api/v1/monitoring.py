@@ -116,8 +116,8 @@ def agent_memory():
         empty_counts = {
             "total": 0,
             "detections": 0,
-            "unlabeled": 0,
-            "labeled": 0,
+            "stable": 0,
+            "unstable": 0,
             "alerts": 0,
             "reused": 0,
             "no_detections": 0,

@@ -15,7 +15,6 @@ All REST endpoints are served under the `/api` prefix (v1).
 | users        | `/api/users`       | User management                   |
 | system       | `/api/system`      | System metrics (CPU, memory, GPU) |
 | mcp          | `/api/mcp`         | MCP tool listing & execution      |
-| retail       | `/api/retail`      | Retail billing endpoints          |
 | llm          | `/api/llm`         | LLM router status & testing       |
 
 ## Versioning

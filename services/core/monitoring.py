@@ -163,6 +163,10 @@ class StreamlinedMonitoringService:
         if not self.agent:
             if not self.initialize():
                 return False
+        agent = self.agent
+        if agent is None:
+            self.last_error = "Agent initialization failed"
+            return False
         
         self.is_monitoring = True
         self._thread = threading.Thread(
@@ -198,9 +202,22 @@ class StreamlinedMonitoringService:
             self.last_error = "Instruction is required"
             return False
 
+        # Scope enforcement: proactive mode is intentionally PCB-defect-only.
+        # Non-PCB requests are refused explicitly at the service boundary.
+        try:
+            ProactiveMonitoringAgent.validate_instruction_scope(instruction)
+        except ValueError as exc:
+            self.last_error = str(exc)
+            return False
+
         if not self.agent:
             if not self.initialize():
                 return False
+
+        agent = self.agent
+        if agent is None:
+            self.last_error = "Agent initialization failed"
+            return False
 
         if self.is_monitoring:
             logger.info("Pausing reactive monitoring while proactive mode is active")
@@ -211,14 +228,18 @@ class StreamlinedMonitoringService:
             self._proactive_config = merged_config
 
             if self.proactive_agent and self.proactive_agent.is_running:
-                self.proactive_agent.update_instruction(instruction)
+                try:
+                    self.proactive_agent.update_instruction(instruction)
+                except ValueError as exc:
+                    self.last_error = str(exc)
+                    return False
                 self._proactive_instruction = instruction.strip()
                 return True
 
             self.proactive_agent = ProactiveMonitoringAgent(
                 instruction=instruction,
-                vlm_client=self.agent.vlm_client,
-                detection_agent=self.agent,
+                vlm_client=agent.vlm_client,
+                detection_agent=agent,
                 publisher_getter=self._publisher_getter,
                 event_callback=self._record_detection,
                 config=merged_config,
@@ -364,6 +385,10 @@ class StreamlinedMonitoringService:
         agentic: bool,
     ) -> Optional[DetectionEvent]:
         """Run a single analysis pass (agentic or standard)."""
+        agent = self.agent
+        if agent is None:
+            raise RuntimeError("Agent not initialized")
+
         if agentic:
             config = load_camera_config()
             recipients = (
@@ -371,13 +396,13 @@ class StreamlinedMonitoringService:
                 .get("email", {})
                 .get("recipients", [])
             )
-            return self.agent.analyze_agentic(
+            return agent.analyze_agentic(
                 frame=frame,
                 task_type=task_type,
                 custom_prompt=custom_prompt,
                 recipients=recipients,
             )
-        return self.agent.analyze_with_prompt(
+        return agent.analyze_with_prompt(
             frame=frame,
             task_type=task_type,
             custom_prompt=custom_prompt,
@@ -464,7 +489,7 @@ class StreamlinedMonitoringService:
                 response=event.full_response,
                 image_path=event.image_path or "",
                 frame_number=metadata.get("frame_number"),
-                reason=metadata.get("reason"),
+                reason=str(metadata.get("reason") or ""),
                 vision_description=getattr(event, "vision_description", ""),
                 decision_details=event.decision_trace,
                 tool_trace=getattr(event, "tool_trace", []),

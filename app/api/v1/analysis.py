@@ -34,12 +34,7 @@ def _decode_bgr_image(image_array: np.ndarray):
 # Canonical mapping from string to TaskType — used by multiple endpoints.
 # All types now funnel through the custom prompt path.
 TASK_TYPE_MAP = {
-    "package_detection": TaskType.PACKAGE_DETECTION,
-    "ppe_detection": TaskType.PPE_DETECTION,
-    "person_counting": TaskType.PERSON_COUNTING,
-    "scene_description": TaskType.SCENE_DESCRIPTION,
     "pcb_inspection": TaskType.PCB_INSPECTION,
-    "retail_billing": TaskType.RETAIL_BILLING,
     "custom": TaskType.CUSTOM,
 }
 

@@ -294,40 +294,40 @@
             segments.push(`<p><span class="font-semibold text-gray-700">Confidence:</span> ${confidenceDisplay}</p>`);
         }
 
-        if (typeof details.shipping_label_present !== 'undefined') {
-            let labelDisplay = 'unknown';
-            if (details.shipping_label_present === true) {
-                labelDisplay = 'visible';
-            } else if (details.shipping_label_present === false) {
-                labelDisplay = 'not visible';
-            } else if (typeof details.shipping_label_present === 'string') {
-                labelDisplay = escapeHtml(details.shipping_label_present);
+        if (typeof details.pcb_stable !== 'undefined') {
+            let stabilityDisplay = 'unknown';
+            if (details.pcb_stable === true) {
+                stabilityDisplay = 'stable';
+            } else if (details.pcb_stable === false) {
+                stabilityDisplay = 'unstable';
+            } else if (typeof details.pcb_stable === 'string') {
+                stabilityDisplay = escapeHtml(details.pcb_stable);
             }
-            segments.push(`<p><span class="font-semibold text-gray-700">Shipping Label:</span> ${labelDisplay}</p>`);
+            segments.push(`<p><span class="font-semibold text-gray-700">PCB Stability:</span> ${stabilityDisplay}</p>`);
         }
 
-        if (details.box_description) {
-            segments.push(`<p><span class="font-semibold text-gray-700">Box Details:</span> ${escapeHtml(details.box_description)}</p>`);
+        if (details.pcb_description) {
+            segments.push(`<p><span class="font-semibold text-gray-700">PCB Details:</span> ${escapeHtml(details.pcb_description)}</p>`);
         }
 
-        if (details.shipping_label_analysis) {
-            const analysis = details.shipping_label_analysis;
+        if (details.pcb_stability_analysis) {
+            const analysis = details.pcb_stability_analysis;
             const summaryText = typeof analysis.summary === 'string' ? analysis.summary : JSON.stringify(analysis);
             const confidence = typeof analysis.presence_confidence === 'number'
                 ? `${(Math.max(0, Math.min(1, analysis.presence_confidence)) * 100).toFixed(0)}%`
                 : 'n/a';
             const candidates = typeof analysis.candidate_count === 'number' ? analysis.candidate_count : 'n/a';
-            segments.push(`<p><span class="font-semibold text-gray-700">Local Label Analysis:</span> ${escapeHtml(summaryText)} (confidence ${confidence}, candidates ${candidates})</p>`);
+            segments.push(`<p><span class="font-semibold text-gray-700">Local Stability Analysis:</span> ${escapeHtml(summaryText)} (confidence ${confidence}, candidates ${candidates})</p>`);
         }
 
-        if (details.packaging_analysis) {
-            const packaging = details.packaging_analysis;
-            const summaryText = typeof packaging.summary === 'string' ? packaging.summary : JSON.stringify(packaging);
-            const confidence = typeof packaging.confidence === 'number'
-                ? `${(Math.max(0, Math.min(1, packaging.confidence)) * 100).toFixed(0)}%`
+        if (details.pcb_analysis) {
+            const pcb = details.pcb_analysis;
+            const summaryText = typeof pcb.summary === 'string' ? pcb.summary : JSON.stringify(pcb);
+            const confidence = typeof pcb.confidence === 'number'
+                ? `${(Math.max(0, Math.min(1, pcb.confidence)) * 100).toFixed(0)}%`
                 : 'n/a';
-            const candidates = typeof packaging.candidate_count === 'number' ? packaging.candidate_count : 'n/a';
-            segments.push(`<p><span class="font-semibold text-gray-700">Classical Packaging Analysis:</span> ${escapeHtml(summaryText)} (confidence ${confidence}, candidates ${candidates})</p>`);
+            const candidates = typeof pcb.candidate_count === 'number' ? pcb.candidate_count : 'n/a';
+            segments.push(`<p><span class="font-semibold text-gray-700">Classical PCB Analysis:</span> ${escapeHtml(summaryText)} (confidence ${confidence}, candidates ${candidates})</p>`);
         }
 
         if (Array.isArray(details.tools_used) && details.tools_used.length) {

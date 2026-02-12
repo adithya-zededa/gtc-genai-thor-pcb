@@ -12,7 +12,6 @@ from .models import (
     Invoice,
     LogSettings,
     PCBDefect,
-    RetailCatalogItem,
     User,
 )
 from .repositories import (
@@ -21,7 +20,6 @@ from .repositories import (
     InvoiceRepository,
     LogSettingsRepository,
     PCBDefectRepository,
-    RetailCatalogRepository,
     UserRepository,
 )
 
@@ -37,7 +35,6 @@ __all__ = [
     "User",
     "ConfigHistory",
     "LogSettings",
-    "RetailCatalogItem",
     "Invoice",
     "PCBDefect",
     # Repositories
@@ -45,7 +42,6 @@ __all__ = [
     "UserRepository",
     "ConfigHistoryRepository",
     "LogSettingsRepository",
-    "RetailCatalogRepository",
     "InvoiceRepository",
     "PCBDefectRepository",
 ]

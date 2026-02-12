@@ -32,7 +32,6 @@ def register_api_versions(app: Flask) -> None:
         logs,
         mcp,
         monitoring,
-        retail,
         system,
         users,
     )
@@ -47,7 +46,6 @@ def register_api_versions(app: Flask) -> None:
         logs,
         mcp,
         monitoring,
-        retail,
         system,
         users,
     )

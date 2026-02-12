@@ -37,7 +37,6 @@ from agents.mcp.base import (
 from agents.mcp.manager import (
     DOMAIN_GENERAL,
     DOMAIN_PCB,
-    DOMAIN_RETAIL,
     get_mcp_manager,
 )
 from core.logging import get_logger
@@ -418,18 +417,6 @@ def register_chat_handlers(socketio: "SocketIO") -> None:
 
             response_content = f"✅ **{tool_result['tool_name']}** executed successfully.\n\n{message_text}"
 
-            # Format detailed line-item breakdown for billing tools
-            if tool_result.get("tool_name") == "create_bill" and output.get(
-                "line_items"
-            ):
-                response_content += _format_bill_details(output)
-
-            # Add download link for generated invoices
-            if tool_result.get("tool_name") == "generate_invoice":
-                invoice_id = output.get("invoice_id")
-                if invoice_id:
-                    response_content += f"\n\n[Download PDF](/api/v1/retail/invoices/{invoice_id}/download)"
-
             response = ChatMessage.tool(
                 content=response_content,
                 tool_name=tool_result["tool_name"],
@@ -610,46 +597,6 @@ def register_chat_handlers(socketio: "SocketIO") -> None:
 # =============================================================================
 
 
-def _format_bill_details(bill: Dict[str, Any]) -> str:
-    """Format bill line items into a detailed Markdown table for the chat."""
-    currency = bill.get("currency", "USD")
-    line_items = bill.get("line_items", [])
-    if not line_items:
-        return ""
-
-    lines = [
-        "\n\n| # | Item | Qty | Unit Price | Total |",
-        "|---|------|-----|-----------|-------|",
-    ]
-    for idx, li in enumerate(line_items, 1):
-        name = li.get("name", "Unknown")
-        qty = li.get("quantity", 1)
-        unit_price = float(li.get("unit_price", 0))
-        line_total = float(li.get("line_total", 0))
-        lines.append(
-            f"| {idx} | {name} | {qty} | {currency} {unit_price:.2f} | {currency} {line_total:.2f} |"
-        )
-
-    subtotal = float(bill.get("subtotal", 0))
-    tax = float(bill.get("tax", 0))
-    tax_rate = float(bill.get("tax_rate", 0))
-    total = float(bill.get("total", 0))
-
-    lines.append("")
-    lines.append(f"**Subtotal:** {currency} {subtotal:.2f}")
-    lines.append(f"**Tax ({tax_rate * 100:.0f}%):** {currency} {tax:.2f}")
-    lines.append(f"**Total:** {currency} {total:.2f}")
-
-    # Add warnings if present
-    warnings = bill.get("warnings", [])
-    if warnings:
-        lines.append("")
-        for w in warnings:
-            lines.append(f"⚠️ {w}")
-
-    return "\n".join(lines)
-
-
 def _process_user_message(
     chat_session: ChatSession,
     user_text: str,
@@ -659,7 +606,7 @@ def _process_user_message(
     """Process a user message through the interpretation phase.
 
     This function:
-    1. Routes to the correct domain MCP (pcb / retail / general)
+    1. Routes to the correct domain MCP (pcb / general)
     2. Interprets user intent
     3. Produces tool call proposals if appropriate
     4. Submits proposals for approval/auto-execution
@@ -703,7 +650,7 @@ def _process_user_message(
         _emit_pending_proposal(socketio, session_id, result)
 
         domain_label = ""
-        if resolved_domain in (DOMAIN_PCB, DOMAIN_RETAIL):
+        if resolved_domain == DOMAIN_PCB:
             domain_label = f" [{resolved_domain.upper()}]"
 
         return ChatMessage.assistant(
@@ -734,10 +681,6 @@ def _process_user_message(
             response_content = (
                 f"✅ **{proposal.tool_name}** completed.\n\n{message_text}"
             )
-
-            # Format detailed line-item breakdown for billing tools
-            if proposal.tool_name == "create_bill" and output.get("line_items"):
-                response_content += _format_bill_details(output)
 
             # Add additional data if present
             if data:
@@ -818,12 +761,11 @@ def _generate_llm_response(
                 "role": "system",
                 "content": (
                     "You are a helpful AI assistant embedded in an industrial camera "
-                    "monitoring system. You help users with PCB inspection, retail "
-                    "billing, and camera monitoring tasks.\n\n"
+                    "monitoring system. You help users with PCB inspection and "
+                    "camera monitoring tasks.\n\n"
                     f"The agent is currently in **{state.value}** state.\n\n"
                     "Available capabilities:\n"
                     "- PCB inspection: inspect boards, classify boards, detect defects, send alerts\n"
-                    "- Retail billing: scan items, look up prices, create bills, generate invoices\n"
                     "- Camera monitoring: start/stop monitoring, analyze frames\n\n"
                     "Keep responses concise and helpful. Use markdown formatting.\n"
                     "Respond directly without internal reasoning or analysis preamble."
@@ -882,10 +824,6 @@ def _generate_welcome_message(state: AgentState) -> str:
         f'- **"Inspect the PCB"** - Analyze a board for defects\n'
         f'- **"Send an alert if you see a defective Arduino"** - Defect alert\n'
         f'- **"Generate a defect report"** - View defect summary\n\n'
-        f"### 🛒 Retail Billing\n"
-        f'- **"Scan the tray and count the items"** - Identify items\n'
-        f'- **"Create a bill and generate an invoice"** - Billing workflow\n'
-        f'- **"Send the invoice to email@example.com"** - Email invoice\n\n'
         f"### 📷 Camera Monitoring\n"
         f'- **"Start monitoring"** - Begin a new monitoring session\n'
         f'- **"End session"** or **"Stop monitoring"** - End the current session\n'

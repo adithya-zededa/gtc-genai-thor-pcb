@@ -1,8 +1,7 @@
 """Shared validation helpers for domain tool handlers.
 
 Consolidates duplicate email-validation, error-formatting, and input-clamping
-logic that was previously copy-pasted across ``agents/tools/pcb.py`` and
-``agents/tools/retail.py``.
+logic used by PCB domain tools.
 """
 
 from __future__ import annotations

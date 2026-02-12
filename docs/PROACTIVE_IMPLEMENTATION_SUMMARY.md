@@ -60,7 +60,7 @@ agent.start_proactive_monitoring(
 
 # No code changes needed for different tasks
 agent.update_instruction(
-    "Watch for packages without shipping labels"
+  "Inspect each stopped PCB for defects"
 )
 ```
 
@@ -80,7 +80,7 @@ Avoids redundant analysis:
 ```python
 inspected_signatures = {
     "pcb-board-001": timestamp,  # Already inspected
-    "package-box-large": timestamp,  # Already checked
+  "pcb-board-002": timestamp,  # Already checked
 }
 # LLM maintains signature consistency across frames
 ```
@@ -213,24 +213,24 @@ curl -X POST http://localhost:8080/api/monitoring/proactive/start \
 6. Full inspection: "PCB is stable and ready, running inspection"
 7. Avoids re-inspection: "Same PCB signature, already inspected"
 
-### Example 2: Package Label Verification
+### Example 2: PCB Defect Alerting
 
 ```bash
 curl -X POST http://localhost:8080/api/monitoring/proactive/start \
   -H "Content-Type: application/json" \
   -d '{
-    "instruction": "Watch for packages without shipping labels and alert if found."
+    "instruction": "Watch for PCB defects and alert when a defect is detected."
   }'
 ```
 
 **Agent Behavior:**
-1. Monitors for cardboard boxes
-2. Detects box: "Cardboard box visible"
-3. Quick-checks as box moves
+1. Monitors for PCBs on the conveyor
+2. Detects board: "PCB visible"
+3. Quick-checks as board moves
 4. Runs inspection when stable
-5. Detects missing label: "Box lacks shipping label"
+5. Detects defect condition from visual evidence
 6. Emits alert event
-7. Remembers box to avoid re-checking
+7. Remembers board signature to avoid re-checking
 
 ### Example 3: Custom Monitoring
 

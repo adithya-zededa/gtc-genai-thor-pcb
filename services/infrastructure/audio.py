@@ -1,7 +1,7 @@
 """Infrastructure service for audio playback.
 
 Provides platform-agnostic audio playback using available system players.
-Can be reused across domains (retail TTS, alert sounds, notifications, etc.).
+Can be reused across inspection workflows (alert sounds, notifications, etc.).
 
 Supports configurable audio device via SPEAKER_DEVICE environment variable.
 Supports volume control via SPEAKER_VOLUME environment variable (0-100).

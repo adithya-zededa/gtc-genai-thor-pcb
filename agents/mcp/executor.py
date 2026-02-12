@@ -219,9 +219,8 @@ class MCPExecutor(BaseDomainExecutor):
                     "description": event.vision_description,
                     "should_alert": event.should_alert,
                 }
-                # Store the latest frame analysis so downstream tools
-                # (e.g. retail create_bill) can reference it when no
-                # domain-specific scan has been performed yet.
+                # Store the latest frame analysis for subsequent
+                # PCB-oriented tool calls in the same session.
                 self.context["last_frame_analysis"] = result_data
                 return {
                     "success": True,
@@ -310,12 +309,7 @@ class MCPExecutor(BaseDomainExecutor):
             return {"success": False, "message": "Service not available"}
 
         task_map = {
-            "package_detection": TaskType.PACKAGE_DETECTION,
-            "ppe_detection": TaskType.PPE_DETECTION,
-            "person_counting": TaskType.PERSON_COUNTING,
-            "scene_description": TaskType.SCENE_DESCRIPTION,
             "pcb_inspection": TaskType.PCB_INSPECTION,
-            "retail_billing": TaskType.RETAIL_BILLING,
             "custom": TaskType.CUSTOM,
         }
 
@@ -323,9 +317,21 @@ class MCPExecutor(BaseDomainExecutor):
         if not task_type:
             return {"success": False, "message": "Invalid task type"}
 
+        # Behavior change: this agent is PCB-only. Reject custom detection
+        # instructions that are classified outside the PCB inspection scope.
+        custom_instructions = args.get("custom_instructions", "")
+        if task_type == TaskType.CUSTOM and custom_instructions:
+            from agents.classifiers.llm_classifier import get_classifier
+            classified = get_classifier().classify(custom_instructions)
+            if classified.domain != "pcb":
+                return {
+                    "success": False,
+                    "message": "Out of scope: only PCB inspection instructions are supported.",
+                }
+
         service.set_active_prompt(
             task_type=task_type,
-            custom_prompt=args.get("custom_instructions", ""),
+            custom_prompt=custom_instructions,
             alerts_enabled=True,
             agentic_mode=True,
         )

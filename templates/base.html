@@ -184,10 +184,7 @@
                 <div class="glass-ultra-thin rounded-xl p-4">
                     <label class="input-label">Analysis Type</label>
                     <select id="test-task-type" class="input-glass w-full">
-                        <option value="package_detection">Package Detection</option>
-                        <option value="ppe_detection">PPE/Safety Detection</option>
-                        <option value="person_counting">Person Counting</option>
-                        <option value="scene_description">Scene Description</option>
+                        <option value="pcb_inspection">PCB Inspection</option>
                         <option value="custom">Custom Analysis</option>
                     </select>
                 </div>
@@ -439,7 +436,7 @@
             document.getElementById('test-result-container').classList.add('hidden');
             document.getElementById('analyze-image-btn').disabled = true;
             document.getElementById('test-custom-prompt').value = '';
-            document.getElementById('test-task-type').value = 'package_detection';
+            document.getElementById('test-task-type').value = 'pcb_inspection';
             document.getElementById('test-agentic-toggle').checked = false;
             updateCustomPromptVisibility();
             // Reset drop zone styling

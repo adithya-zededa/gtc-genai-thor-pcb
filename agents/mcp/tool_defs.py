@@ -286,7 +286,7 @@ TOOL_SET_DETECTION_TASK = MCPToolDefinition(
             type=MCPSchemaType.STRING,
             description="The type of detection task",
             required=True,
-            enum=("package_detection", "ppe_detection", "person_counting", "scene_description", "custom"),
+            enum=("pcb_inspection", "custom"),
         ),
         MCPParameterSchema(
             name="custom_instructions",

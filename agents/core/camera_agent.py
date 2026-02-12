@@ -132,7 +132,7 @@ class CircuitBreaker:
 
 class StreamlinedAgent:
     """
-    Streamlined detection agent using a single Vision Language Model.
+    Streamlined PCB inspection agent using a single Vision Language Model.
     
     This agent uses a VLM for all scene understanding and decision-making,
     providing flexible multi-purpose analysis without specialized object detectors.
@@ -196,8 +196,8 @@ class StreamlinedAgent:
         """Save detection frame to disk and return the path."""
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            label_status = "labeled" if getattr(result, 'shipping_label_present', False) else "unlabeled"
-            filename = f"detection_{timestamp}_{label_status}.jpg"
+            readiness_status = "ready" if getattr(result, 'pcb_stable', False) else "not_ready"
+            filename = f"detection_{timestamp}_{readiness_status}.jpg"
             filepath = self.images_dir / filename
             
             cv2.imwrite(str(filepath), frame)
@@ -382,7 +382,7 @@ class StreamlinedAgent:
         if self.save_images:
             image_path = self._save_detection_image(frame, vlm_result)
         
-        # Derive label from VLM reasoning instead of hardcoding
+        # Derive the event label from VLM reasoning instead of hardcoding.
         primary_label = "no_detection"
         if vlm_result.detected:
             primary_label = getattr(vlm_result, 'primary_label', None) or "detection"
@@ -395,16 +395,16 @@ class StreamlinedAgent:
             vision_description=vlm_result.reasoning,
             full_response=vlm_result.raw_response[:500],
             should_alert=vlm_result.should_alert,
-            shipping_label_present=vlm_result.shipping_label_present,
+            pcb_stable=vlm_result.pcb_stable,
             image_path=image_path,
             tools_used=["unified_vlm"],
             tool_trace=[],
             decision_trace={
                 "classification": "VLM_DECISION",
                 "detected": vlm_result.detected,
-                "box_count": vlm_result.box_count,
+                "pcb_count": vlm_result.pcb_count,
                 "confidence": vlm_result.confidence,
-                "shipping_label_present": vlm_result.shipping_label_present,
+                "pcb_stable": vlm_result.pcb_stable,
                 "should_alert": vlm_result.should_alert,
             },
         )
@@ -418,12 +418,12 @@ class StreamlinedAgent:
         # Log result
         if vlm_result.should_alert:
             logger.info(
-                "🔔 ALERT: Unlabeled box detected! Confidence: %.2f",
+                "🔔 ALERT: PCB defect condition detected (confidence: %.2f)",
                 vlm_result.confidence
             )
         elif vlm_result.detected:
             logger.info(
-                "📦 Box detected with label. Confidence: %.2f",
+                "🟢 PCB detected without defect trigger (confidence: %.2f)",
                 vlm_result.confidence
             )
         
@@ -468,7 +468,7 @@ class StreamlinedAgent:
                 vision_description=result.reasoning,
                 full_response=result.raw_response or "",
                 should_alert=result.should_alert,
-                shipping_label_present=None,
+                pcb_stable=result.details.get("pcb_stable"),
                 image_path=image_path,
                 tools_used=["unified_vlm"],
                 tool_trace=[],
@@ -572,7 +572,7 @@ class StreamlinedAgent:
                 vision_description=analysis.reasoning,
                 full_response=analysis.raw_response[:500] if analysis.raw_response else "",
                 should_alert=analysis.should_alert,
-                shipping_label_present=analysis.details.get("shipping_label_present"),
+                pcb_stable=analysis.details.get("pcb_stable"),
                 image_path=image_path,
                 tools_used=["unified_vlm"] + agentic_result.tools_used,
                 tool_trace=tool_trace,
@@ -635,7 +635,7 @@ class StreamlinedAgent:
             "detected": event.detected,
             "confidence": round(event.confidence, 3),
             "primary_label": event.primary_label,
-            "shipping_label_present": event.shipping_label_present,
+            "pcb_stable": event.pcb_stable,
             "should_alert": event.should_alert,
             "source": source,
         }

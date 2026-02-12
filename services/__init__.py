@@ -4,7 +4,7 @@ Restructured layout:
     services/
     ├── core/           - Camera, monitoring, inference
     ├── infrastructure/ - Configuration, VLM client factory
-    └── domains/        - PCB and retail domain services
+    └── domains/        - PCB domain services
 
 All symbols are re-exported here for backward compatibility.
 """
@@ -39,14 +39,6 @@ from .infrastructure.config import (
 from .infrastructure.vlm import create_vlm_client_from_config
 
 # Domain services
-from .domains.retail import (
-    lookup_items as retail_lookup_items,
-    lookup_item_by_sku as retail_lookup_item_by_sku,
-    calculate_bill as retail_calculate_bill,
-    generate_invoice_html as retail_generate_invoice_html,
-    save_invoice as retail_save_invoice,
-    save_and_send_invoice as retail_save_and_send_invoice,
-)
 from .domains.pcb import (
     record_defect as pcb_record_defect,
     should_alert as pcb_should_alert,
@@ -78,13 +70,6 @@ __all__ = [
     "StreamlinedMonitoringService",
     # VLM service
     "create_vlm_client_from_config",
-    # Retail service
-    "retail_lookup_items",
-    "retail_lookup_item_by_sku",
-    "retail_calculate_bill",
-    "retail_generate_invoice_html",
-    "retail_save_invoice",
-    "retail_save_and_send_invoice",
     # PCB service
     "pcb_record_defect",
     "pcb_should_alert",

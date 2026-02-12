@@ -185,45 +185,8 @@ class LogSettings:
 
 
 @dataclass
-class RetailCatalogItem:
-    """Retail catalog item representing a product in the store catalog."""
-
-    id: Optional[int] = None
-    item_name: str = ""
-    sku: str = ""
-    price: float = 0.0
-    category: str = "other"
-    created_at: Optional[str] = None
-
-    @classmethod
-    def from_row(cls, row) -> Optional["RetailCatalogItem"]:
-        """Create RetailCatalogItem from database row."""
-        if row is None:
-            return None
-        return cls(
-            id=row["id"],
-            item_name=row["item_name"],
-            sku=row["sku"],
-            price=float(row["price"]),
-            category=row["category"],
-            created_at=row["created_at"],
-        )
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return {
-            "id": self.id,
-            "item_name": self.item_name,
-            "sku": self.sku,
-            "price": self.price,
-            "category": self.category,
-            "created_at": self.created_at,
-        }
-
-
-@dataclass
 class Invoice:  # pylint: disable=too-many-instance-attributes
-    """Invoice model representing a generated retail invoice."""
+    """Invoice model representing a generated inspection summary invoice."""
 
     id: Optional[int] = None
     timestamp: Optional[str] = None

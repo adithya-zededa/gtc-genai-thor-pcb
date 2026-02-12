@@ -11,7 +11,7 @@ real-time camera monitoring with AI-powered inference capabilities.
 .
 ├── agents/              # Agent logic
 │   ├── core/            # Core agent, state management, alerting
-│   ├── tools/           # Tool definitions & executors (email, PCB, retail)
+│   ├── tools/           # Tool definitions & executors (email, PCB)
 │   ├── mcp/             # Model Context Protocol server & domain MCPs
 │   ├── classifiers/     # LLM-based classification
 │   └── vlm/             # Vision Language Model client & prompts
@@ -27,7 +27,7 @@ real-time camera monitoring with AI-powered inference capabilities.
 ├── services/            # Business logic
 │   ├── core/            # Camera, monitoring, inference services
 │   ├── infrastructure/  # Config I/O, VLM client factory
-│   └── domains/         # Domain-specific (PCB, retail)
+│   └── domains/         # Domain-specific (PCB)
 ├── requirements/        # Split dependency manifests
 ├── tests/               # Test suite
 │   ├── unit/            # Fast isolated tests

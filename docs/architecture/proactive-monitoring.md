@@ -50,8 +50,8 @@ The LLM continuously reasons about observations:
 ┌─────────────────────────────────────────────────────────────┐
 │          User Provides Natural Language Instruction          │
 │  "Monitor the conveyor for PCB defects"                     │
-│  "Watch for packages without shipping labels"               │
-│  "Check PPE compliance for workers"                          │
+│  "Inspect each stopped board for solder defects"            │
+│  "Alert on PCB defect conditions"                           │
 └────────────────────────┬────────────────────────────────────┘
                          │
                          ▼
@@ -229,10 +229,6 @@ if decision.action == ActionType.FULL_INSPECTION:
 
 The inspection uses the `analysis_plan` from the decision to determine which task-specific analysis to run:
 - `pcb_inspection` - PCB defect detection
-- `package_detection` - Shipping box and label detection
-- `ppe_detection` - PPE compliance checking
-- `person_counting` - People counting
-- `retail_billing` - Item identification for billing
 - `custom` - Natural language custom analysis
 
 ## Scene Signature Tracking
@@ -248,7 +244,7 @@ To avoid redundant analysis, the agent tracks **scene signatures** - consistent 
 # Scene signatures help the LLM remember what it has seen
 inspected_signatures = {
     "pcb-board-001-centered": 1738252800.5,  # timestamp
-    "package-box-large-label": 1738252750.2,
+  "pcb-board-002-centered": 1738252750.2,
 }
 ```
 
@@ -369,37 +365,22 @@ POST /api/monitoring/proactive/stop
 - Runs full inspection when stable
 - Remembers PCB signature to avoid re-inspection
 
-### 2. Package Label Verification
+### 2. PCB Defect Alerting
 
 **Instruction:**
 ```
-"Watch for packages without shipping labels and alert if found."
+"Watch for PCB defects and alert if found."
 ```
 
 **Agent Behavior:**
-- Monitors for cardboard boxes
-- Quick-checks when box appears
-- Runs full inspection when box is stable
-- Detects missing shipping labels
-- Emits alert event if label missing
-- Avoids re-checking same box
+- Monitors for PCB boards
+- Quick-checks when a board appears
+- Runs full inspection when a board is stable
+- Detects manufacturing defect conditions
+- Emits alert event when defects are found
+- Avoids re-checking the same board
 
-### 3. PPE Compliance Monitoring
-
-**Instruction:**
-```
-"Check that all workers in the area are wearing hard hats and reflective vests."
-```
-
-**Agent Behavior:**
-- Waits while area is empty
-- Detects when people enter frame
-- Quick-checks for rough people count
-- Runs PPE compliance analysis when scene stable
-- Re-checks if new people arrive
-- Tracks compliance over time
-
-### 4. Custom Monitoring Task
+### 3. Custom Monitoring Task
 
 **Instruction:**
 ```
@@ -458,9 +439,8 @@ The proactive agent is highly efficient:
 
 ✅ **Good Instructions:**
 - "Monitor the conveyor for PCB defects and inspect boards when they stop"
-- "Watch for packages without shipping labels"
-- "Check PPE compliance for all workers"
-- "Alert if any equipment is left unattended for more than 1 minute"
+- "Alert when any PCB appears bent, burned, or missing components"
+- "Inspect boards for solder bridges and lifted pads"
 
 ❌ **Poor Instructions:**
 - "Do stuff" (too vague)

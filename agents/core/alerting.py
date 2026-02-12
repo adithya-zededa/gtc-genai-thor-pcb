@@ -66,8 +66,8 @@ class AlertManager:
             if not coerce_bool(email_action.get("enabled"), coerce_bool(legacy_email.get("enabled"), True)):
                 return False
 
-            subject_template = email_action.get("subject") or legacy_email.get("subject") or "Unlabeled Packaging Box Detected"
-            body_template = email_action.get("body") or legacy_email.get("body") or "An unlabeled packaging box was detected."
+            subject_template = email_action.get("subject") or legacy_email.get("subject") or "PCB Inspection Alert"
+            body_template = email_action.get("body") or legacy_email.get("body") or "A PCB inspection alert condition was detected."
 
             template_vars = {
                 "timestamp": event.timestamp,
@@ -75,9 +75,9 @@ class AlertManager:
                 "primary_label": event.primary_label,
                 "full_response": event.full_response,
                 "device": f"/dev/video{os.getenv('CAMERA_INDEX', '0')}",
-                "shipping_label_present": (
-                    "yes" if event.shipping_label_present else (
-                        "no" if event.shipping_label_present is not None else "unknown"
+                "pcb_stable": (
+                    "yes" if event.pcb_stable else (
+                        "no" if event.pcb_stable is not None else "unknown"
                     )
                 ),
                 "should_alert": str(event.should_alert).lower(),

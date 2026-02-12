@@ -6,7 +6,7 @@ Uses a single LLM inference call that returns structured JSON to classify
 Output schema::
 
     {
-        "domain": "pcb" | "retail" | "general",
+        "domain": "pcb" | "general",
         "tool":   "<tool_name or null>",
         "confidence": 0.0 – 1.0,
         "params": { ... extracted parameters ... }
@@ -38,7 +38,7 @@ logger = get_logger(__name__)
 class ClassificationResult:
     """Structured output of the LLM intent classifier."""
 
-    domain: str                          # pcb | retail | general
+    domain: str                          # pcb | general
     tool: Optional[str] = None           # e.g. "scan_tray_items"
     confidence: float = 0.0
     params: Dict[str, Any] = field(default_factory=dict)
@@ -61,28 +61,23 @@ class ClassificationResult:
 # ---------------------------------------------------------------------------
 
 _CLASSIFICATION_PROMPT = """\
-You are an intent-classification assistant for an industrial monitoring system.
+You are an intent-classification assistant for a PCB conveyor inspection system.
 
 Given the user message below, decide:
 1. Which **domain** the request belongs to.
 2. Which **tool** (if any) should be called.
-3. Extract any **parameters** the user provided (emails, item names, board types, etc.).
+3. Extract any **parameters** the user provided (emails, board types, severities, etc.).
 
 ## Domains
 
 | domain   | description |
 |----------|-------------|
-| pcb      | Anything about printed circuit boards, soldering, defects, board types (Arduino, Raspberry Pi, ESP32 …), quality inspection. |
-| retail   | Anything about retail items, trays, products, billing, invoices, pricing, checkout, inventory counting. |
-| general  | Camera monitoring, session control, greetings, help, status, or anything that doesn't fit pcb/retail. |
+| pcb      | PCB inspection on a conveyor, board presence, motion/stopped state, board defects, board-type identification, defect logging/reporting. |
+| general  | Session control, greetings, help, status, and other non-inspection camera control tasks. |
 
-## Important: Retail Workflow Priority
-
-When users request retail billing tasks:
-- If the user mentions "invoice" (generate invoice, create invoice, make invoice), **ALWAYS** use `generate_invoice` tool.
-- The `generate_invoice` tool automatically handles all steps: scanning, pricing, bill creation, PDF generation, and speaker announcement.
-- Only use `create_bill` when the user explicitly wants JUST the bill calculation without the final invoice document.
-- Example: "create a bill and generate an invoice" → use `generate_invoice` (not create_bill)
+Scope constraint:
+- The system is PCB-only.
+- Any user request about non-PCB domains must be routed to `general` with `tool=null`.
 
 ## Tools
 
@@ -95,15 +90,6 @@ When users request retail billing tasks:
 | log_defect             | User wants to record / save / log a defect. |
 | generate_defect_report | User wants a report or summary of past defects. |
 
-### Retail domain tools
-| tool                 | when to pick |
-|----------------------|--------------|
-| scan_tray_items      | User wants to look at / scan / count items on a tray or counter. |
-| lookup_item_price    | User wants to check / look up the price of a specific item. |
-| create_bill          | User wants to create / calculate / tally a bill (prices and totals). Use ONLY when user wants bill calculation without the final invoice document. |
-| generate_invoice     | User mentions 'invoice' OR wants PDF OR wants speaker announcement OR wants a complete billing document. ALWAYS use this for invoice requests. |
-| send_invoice_email   | User wants to email / send an invoice or bill to someone. |
-
 ### General domain tools
 | tool                      | when to pick |
 |---------------------------|--------------|
@@ -114,7 +100,7 @@ When users request retail billing tasks:
 | analyze_current_frame     | User wants to analyze / look at / describe / examine what's in the camera view. |
 | query_history             | User asks about recent detections, past events, history. |
 | get_session_summary       | User wants a summary / recap of the monitoring session. |
-| set_detection_task        | User wants to change what the agent detects (package, PPE, person counting, custom). |
+| set_detection_task        | User wants to set PCB inspection task behavior (pcb_inspection or custom). |
 | send_alert_email          | User wants to send an alert email about a detection. |
 | shutdown_agent            | User wants to completely shut down the agent. |
 | acknowledge_error         | User wants to acknowledge / dismiss an error state. |
@@ -124,7 +110,6 @@ Pick `null` for the tool when the message is a greeting, help request, thanks, o
 ## Parameter extraction rules
 - **emails**: extract all email addresses from the text.
 - **board_type**: if a specific board is mentioned (arduino, raspberry pi, esp32, stm32, jetson, etc.), extract it.
-- **item_name**: if a specific product/item name is mentioned for price lookup, extract it.
 - **severity**: if a severity level (low/medium/high) is mentioned, extract it.
 - **recipient_email**: the primary email to send something to.
 - **recipients**: list of emails for alerts.
@@ -133,7 +118,7 @@ Pick `null` for the tool when the message is a greeting, help request, thanks, o
 ## Output format
 Respond ONLY with a JSON object — no explanation, no markdown fences:
 
-{"domain":"<pcb|retail|general>","tool":"<tool_name or null>","confidence":<0.0-1.0>,"params":{...},"rationale":"<one sentence>"}
+{"domain":"<pcb|general>","tool":"<tool_name or null>","confidence":<0.0-1.0>,"params":{...},"rationale":"<one sentence>"}
 
 ## User message
 """
@@ -282,7 +267,7 @@ class LLMIntentClassifier:
 
         # Validate domain
         domain = parsed.get("domain", "general")
-        if domain not in ("pcb", "retail", "general"):
+        if domain not in ("pcb", "general"):
             domain = "general"
 
         llm_params = parsed.get("params") or {}

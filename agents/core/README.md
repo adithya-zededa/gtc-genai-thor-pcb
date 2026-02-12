@@ -12,7 +12,7 @@ This directory contains the core agent implementations for the camera monitoring
 - ✅ No hardcoded rules or SSIM thresholds
 - ✅ LLM reasoning drives all decisions
 - ✅ Temporal awareness across frames
-- ✅ Natural language instruction parsing
+- ✅ PCB-only natural language instruction parsing (non-PCB requests are refused)
 - ✅ Intelligent action selection (wait, quick_check, full_inspection)
 - ✅ Scene signature tracking to avoid redundancy
 
@@ -125,7 +125,7 @@ class MonitoringContext:
 
 - `start()` - Start the monitoring loop
 - `stop()` - Stop the monitoring loop
-- `update_instruction(instruction: str)` - Update monitoring objective
+- `update_instruction(instruction: str)` - Update PCB defect monitoring objective
 - `snapshot() -> Dict` - Get current state snapshot
 - `get_performance_metrics() -> Dict` - Get performance statistics
 
@@ -134,7 +134,7 @@ class MonitoringContext:
 ```python
 # Initialize agent
 agent = ProactiveMonitoringAgent(
-    instruction="Watch for packages without shipping labels",
+    instruction="Inspect PCBs for solder bridges and lifted pads",
     vlm_client=vlm_client,
     detection_agent=detection_agent,
     publisher_getter=get_camera_publisher,
@@ -165,7 +165,7 @@ agent.stop()
 
 ### `camera_agent.py` - Streamlined Detection Agent
 
-**Purpose:** Executes domain-specific vision analysis tasks (PCB inspection, package detection, PPE compliance, etc.)
+**Purpose:** Executes vision analysis tasks used by monitoring workflows.
 
 Used by the ProactiveMonitoringAgent to run full inspections when the LLM decides conditions are optimal.
 
@@ -230,8 +230,7 @@ Instructions are natural language, not code:
 ```python
 # ✅ Good
 "Monitor the conveyor for PCB defects"
-"Watch for packages without shipping labels"
-"Check PPE compliance for workers"
+"Inspect boards for solder bridges and misaligned components"
 
 # ❌ Bad (trying to impose rules)
 "If SSIM > 0.95 then skip"

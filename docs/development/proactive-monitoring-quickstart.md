@@ -55,14 +55,14 @@ The server starts at `http://localhost:8080`
 1. Navigate to `http://localhost:8080`
 2. Go to monitoring dashboard
 3. Click "Start Proactive Monitoring"
-4. Enter instruction: `"Monitor the scene for packages without shipping labels"`
+4. Enter instruction: `"Monitor the conveyor for PCB defects"`
 
 **Via API:**
 ```bash
 curl -X POST http://localhost:8080/api/monitoring/proactive/start \
   -H "Content-Type: application/json" \
   -d '{
-    "instruction": "Monitor the scene for packages without shipping labels"
+    "instruction": "Monitor the conveyor for PCB defects"
   }'
 ```
 
@@ -72,7 +72,7 @@ curl -X POST http://localhost:8080/api/monitoring/proactive/start \
   "success": true,
   "status": {
     "running": true,
-    "instruction": "Monitor the scene for packages without shipping labels",
+    "instruction": "Monitor the conveyor for PCB defects",
     "context": {
       "frames_processed": 0
     }
@@ -94,7 +94,7 @@ curl http://localhost:8080/api/monitoring/proactive/status
   "success": true,
   "status": {
     "running": true,
-    "instruction": "Monitor the scene for packages without shipping labels",
+    "instruction": "Monitor the conveyor for PCB defects",
     "context": {
       "frames_processed": 145,
       "frames_since_scene_change": 8,
@@ -109,7 +109,7 @@ curl http://localhost:8080/api/monitoring/proactive/status
       "last_decision": {
         "action": "wait",
         "confidence": 0.95,
-        "reasoning": "Scene is empty, no packages present, continue monitoring"
+        "reasoning": "Scene is empty, no PCB present, continue monitoring"
       }
     }
   }

@@ -64,12 +64,12 @@ class AnalysisResult:
         }
     
     @property
-    def box_count(self) -> int:
-        return self.details.get("box_count", 0)
+    def pcb_count(self) -> int:
+        return self.details.get("pcb_count", 0)
     
     @property
-    def shipping_label_present(self) -> Optional[bool]:
-        return self.details.get("shipping_label_present")
+    def pcb_stable(self) -> Optional[bool]:
+        return self.details.get("pcb_stable")
     
     @property
     def person_count(self) -> int:
@@ -121,8 +121,8 @@ class DetectionResult:
     detected: bool
     confidence: float
     reasoning: str
-    box_count: int
-    shipping_label_present: Optional[bool]
+    pcb_count: int
+    pcb_stable: Optional[bool]
     should_alert: bool
     raw_response: str
     
@@ -131,8 +131,8 @@ class DetectionResult:
             "detected": self.detected,
             "confidence": self.confidence,
             "reasoning": self.reasoning,
-            "box_count": self.box_count,
-            "shipping_label_present": self.shipping_label_present,
+            "pcb_count": self.pcb_count,
+            "pcb_stable": self.pcb_stable,
             "should_alert": self.should_alert,
             "raw_response": self.raw_response,
         }
@@ -146,8 +146,8 @@ class DetectionResult:
             should_alert=self.should_alert,
             raw_response=self.raw_response,
             details={
-                "box_count": self.box_count,
-                "shipping_label_present": self.shipping_label_present,
+                "pcb_count": self.pcb_count,
+                "pcb_stable": self.pcb_stable,
             },
         )
 
@@ -495,10 +495,10 @@ class UnifiedVLMClient:
         if cv_context:
             context_parts = []
             
-            box_count = cv_context.get("packaging_box_count", 0)
+            pcb_count = cv_context.get("pcb_count", 0)
             rfdet_hint = cv_context.get("rfdet_hint", "")
-            if box_count > 0:
-                context_parts.append(f"Object detector found approximately {box_count} potential box(es).")
+            if pcb_count > 0:
+                context_parts.append(f"Object detector found approximately {pcb_count} potential PCB(s).")
             if rfdet_hint:
                 context_parts.append(rfdet_hint)
             
@@ -696,7 +696,7 @@ class UnifiedVLMClient:
             details = {k: v for k, v in parsed.items() 
                       if k not in ("detected", "confidence", "reasoning")}
             
-            for bool_field in ["shipping_label_present"]:
+            for bool_field in ["pcb_stable"]:
                 if bool_field in details:
                     details[bool_field] = self._coerce_bool(details[bool_field])
             
@@ -751,8 +751,8 @@ class UnifiedVLMClient:
             detected=result.detected,
             confidence=result.confidence,
             reasoning=result.reasoning,
-            box_count=result.details.get("box_count", 0),
-            shipping_label_present=result.details.get("shipping_label_present"),
+            pcb_count=result.details.get("pcb_count", 0),
+            pcb_stable=result.details.get("pcb_stable"),
             should_alert=result.should_alert,
             raw_response=result.raw_response,
         )

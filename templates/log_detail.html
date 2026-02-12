@@ -91,25 +91,25 @@
                             </div>
                             {% endif %}
 
-                            {% if decision.shipping_label_present is defined %}
-                                {% set label_value = decision.shipping_label_present %}
-                                {% if label_value is sameas(true) %}
-                                    {% set label_status = 'Visible' %}
-                                    {% set label_color = 'var(--system-green)' %}
-                                    {% set label_icon = 'fa-check-circle' %}
-                                {% elif label_value is sameas(false) %}
-                                    {% set label_status = 'Not Visible' %}
-                                    {% set label_color = 'var(--system-red)' %}
-                                    {% set label_icon = 'fa-exclamation-triangle' %}
+                            {% if decision.pcb_stable is defined %}
+                                {% set stability_value = decision.pcb_stable %}
+                                {% if stability_value is sameas(true) %}
+                                    {% set stability_status = 'Stable' %}
+                                    {% set stability_color = 'var(--system-green)' %}
+                                    {% set stability_icon = 'fa-check-circle' %}
+                                {% elif stability_value is sameas(false) %}
+                                    {% set stability_status = 'Unstable' %}
+                                    {% set stability_color = 'var(--system-red)' %}
+                                    {% set stability_icon = 'fa-exclamation-triangle' %}
                                 {% else %}
-                                    {% set label_status = 'Unknown' %}
-                                    {% set label_color = 'var(--text-secondary)' %}
-                                    {% set label_icon = 'fa-question-circle' %}
+                                    {% set stability_status = 'Unknown' %}
+                                    {% set stability_color = 'var(--text-secondary)' %}
+                                    {% set stability_icon = 'fa-question-circle' %}
                                 {% endif %}
                             <div>
-                                <p class="text-xs font-medium uppercase tracking-wide text-secondary">Shipping Label</p>
-                                <p class="mt-1 text-base font-semibold flex items-center" style="color: {{ label_color }};">
-                                    <i class="fas {{ label_icon }} mr-2"></i>{{ label_status }}
+                                <p class="text-xs font-medium uppercase tracking-wide text-secondary">PCB Stability</p>
+                                <p class="mt-1 text-base font-semibold flex items-center" style="color: {{ stability_color }};">
+                                    <i class="fas {{ stability_icon }} mr-2"></i>{{ stability_status }}
                                 </p>
                             </div>
                             {% endif %}

@@ -1,6 +1,6 @@
 """Base domain executor — shared submit/approve/reject/dedup/timeout logic.
 
-Both ``PCBExecutor``, ``RetailExecutor``, and the general ``MCPExecutor``
+Both ``PCBExecutor`` and the general ``MCPExecutor``
 previously contained ~200 lines of near-identical proposal lifecycle code.
 This base class factors that out; subclasses only implement ``_invoke()``.
 """

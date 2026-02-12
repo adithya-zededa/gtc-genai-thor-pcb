@@ -11,7 +11,7 @@ def test_agent_memory_counts_and_summary():
             "detected": False,
             "primary_label": "no_detection",
             "confidence": 0.1,
-            "shipping_label_present": None,
+            "pcb_stable": None,
             "should_alert": False,
             "source": "analysis",
         }
@@ -21,9 +21,9 @@ def test_agent_memory_counts_and_summary():
         {
             "timestamp": "2025-11-17T10:01:00",
             "detected": True,
-            "primary_label": "packaging_box_unlabeled",
+            "primary_label": "pcb_unstable",
             "confidence": 0.85,
-            "shipping_label_present": False,
+            "pcb_stable": False,
             "should_alert": True,
             "source": "analysis",
         }
@@ -33,9 +33,9 @@ def test_agent_memory_counts_and_summary():
         {
             "timestamp": "2025-11-17T10:02:00",
             "detected": True,
-            "primary_label": "packaging_box_with_label",
+            "primary_label": "pcb_stable",
             "confidence": 0.65,
-            "shipping_label_present": True,
+            "pcb_stable": True,
             "should_alert": False,
             "source": "agent_ssim_guard",
         }
@@ -45,7 +45,7 @@ def test_agent_memory_counts_and_summary():
 
     assert snapshot["counts"]["total"] == 3
     assert snapshot["counts"]["detections"] == 2
-    assert snapshot["counts"]["unlabeled"] == 1
+    assert snapshot["counts"]["unstable"] == 1
     assert snapshot["counts"]["alerts"] == 1
 
     summary = memory.summarise()
@@ -64,7 +64,7 @@ def test_agent_memory_resize_preserves_recent_entries():
             {
                 "timestamp": f"2025-11-17T10:0{idx}:00",
                 "detected": idx % 2 == 0,
-                "shipping_label_present": False if idx % 3 == 0 else None,
+                "pcb_stable": False if idx % 3 == 0 else None,
                 "should_alert": idx % 2 == 0,
                 "source": "analysis",
             }

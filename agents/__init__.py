@@ -18,7 +18,7 @@ Restructured layout::
     │   ├── executor    - General-domain executor
     │   ├── globals     - Singleton accessors
     │   ├── manager     - Domain router
-    │   └── domains/    - PCB, retail domain MCPs
+    │   └── domains/    - PCB domain MCP
     ├── classifiers/    - LLM intent classifier
     └── vlm/            - Vision Language Model client
 

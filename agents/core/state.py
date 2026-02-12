@@ -11,7 +11,7 @@ from collections import deque
 
 @dataclass(slots=True)
 class DetectionEvent:
-    """Represents a packaging box detection event."""
+    """Represents a PCB inspection event."""
 
     timestamp: str
     confidence: float
@@ -21,7 +21,7 @@ class DetectionEvent:
     vision_description: str = ""
     decision_trace: Dict[str, Any] = field(default_factory=dict)
     detected: bool = False
-    shipping_label_present: Optional[bool] = None
+    pcb_stable: Optional[bool] = None
     should_alert: bool = True
     tools_used: List[str] = field(default_factory=list)
     tool_trace: List[Dict[str, Any]] = field(default_factory=list)
@@ -37,7 +37,7 @@ class DetectionEvent:
             "vision_description": self.vision_description,
             "decision_trace": self.decision_trace,
             "detected": self.detected,
-            "shipping_label_present": self.shipping_label_present,
+            "pcb_stable": self.pcb_stable,
             "should_alert": self.should_alert,
             "tools_used": self.tools_used,
             "tool_trace": self.tool_trace,
@@ -111,8 +111,8 @@ class AgentMemory:
 
         total = counts["total"]
         detections = counts["detections"]
-        unlabeled = counts["unlabeled"]
-        labeled = counts["labeled"]
+        stable = counts["stable"]
+        unstable = counts["unstable"]
         alerts = counts["alerts"]
         reused = counts["reused"]
 
@@ -121,10 +121,10 @@ class AgentMemory:
 
         detection_clause = f"Detections: {detections}"
         breakdown_bits: List[str] = []
-        if unlabeled:
-            breakdown_bits.append(f"{unlabeled} unlabeled")
-        if labeled:
-            breakdown_bits.append(f"{labeled} labeled")
+        if stable:
+            breakdown_bits.append(f"{stable} stable")
+        if unstable:
+            breakdown_bits.append(f"{unstable} unstable")
         if breakdown_bits:
             detection_clause += f" ({', '.join(breakdown_bits)})"
         summary_parts.append(detection_clause + ".")
@@ -145,16 +145,16 @@ class AgentMemory:
     def _calc_counts(events: List[Dict[str, Any]]) -> Dict[str, int]:
         """Calculate event counts."""
         detections = sum(1 for event in events if event.get("detected"))
-        unlabeled = sum(1 for event in events if event.get("detected") and event.get("shipping_label_present") is False)
-        labeled = sum(1 for event in events if event.get("detected") and event.get("shipping_label_present") is True)
+        stable = sum(1 for event in events if event.get("detected") and event.get("pcb_stable") is True)
+        unstable = sum(1 for event in events if event.get("detected") and event.get("pcb_stable") is False)
         alerts = sum(1 for event in events if event.get("should_alert"))
         reused = sum(1 for event in events if event.get("source") == "agent_ssim_guard")
         no_detections = sum(1 for event in events if not event.get("detected"))
         return {
             "total": len(events),
             "detections": detections,
-            "unlabeled": unlabeled,
-            "labeled": labeled,
+            "stable": stable,
+            "unstable": unstable,
             "alerts": alerts,
             "reused": reused,
             "no_detections": no_detections,
@@ -167,15 +167,15 @@ class AgentMemory:
             return ""
 
         if not event.get("detected"):
-            return "no packaging boxes required action"
+            return "no PCB requiring inspection"
 
-        shipping_label_present = event.get("shipping_label_present")
-        if shipping_label_present is True:
-            descriptor = "packaging box with visible label"
-        elif shipping_label_present is False:
-            descriptor = "unlabeled packaging box"
+        pcb_stable = event.get("pcb_stable")
+        if pcb_stable is True:
+            descriptor = "PCB present and stable under camera"
+        elif pcb_stable is False:
+            descriptor = "PCB present but not yet stable"
         else:
-            descriptor = "packaging box with unknown label status"
+            descriptor = "PCB detected with unknown stability"
 
         if event.get("should_alert"):
             descriptor += " (alert raised)"

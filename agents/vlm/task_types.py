@@ -15,10 +15,5 @@ class TaskType(Enum):
 
     CUSTOM = "custom"
 
-    # kept as aliases for backward-compat / readability
-    PACKAGE_DETECTION = "package_detection"
-    PPE_DETECTION = "ppe_detection"
-    PERSON_COUNTING = "person_counting"
-    SCENE_DESCRIPTION = "scene_description"
+    # kept as alias for explicit PCB flow readability
     PCB_INSPECTION = "pcb_inspection"
-    RETAIL_BILLING = "retail_billing"

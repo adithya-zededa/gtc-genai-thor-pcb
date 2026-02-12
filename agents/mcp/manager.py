@@ -1,8 +1,7 @@
-"""MCP Manager / Router — dispatches messages to domain-specific MCPs.
+"""MCP Manager / Router — dispatches messages to PCB/general MCPs.
 
-Supports three domains:
+Supports two domains:
     - **pcb**    → PCBInterpreter / PCBExecutor   (agents.pcb_mcp)
-    - **retail** → RetailInterpreter / RetailExecutor (agents.retail_mcp)
     - **general** → MCPInterpreter / MCPExecutor  (agents.mcp)
 
 Routing logic
@@ -43,10 +42,9 @@ logger = get_logger(__name__)
 # =============================================================================
 
 DOMAIN_PCB = "pcb"
-DOMAIN_RETAIL = "retail"
 DOMAIN_GENERAL = "general"
 
-VALID_DOMAINS = frozenset([DOMAIN_PCB, DOMAIN_RETAIL, DOMAIN_GENERAL])
+VALID_DOMAINS = frozenset([DOMAIN_PCB, DOMAIN_GENERAL])
 
 
 # =============================================================================
@@ -73,10 +71,6 @@ class MCPManager:
         self._pcb_executor = None
         self._pcb_registry = None
 
-        self._retail_interpreter = None
-        self._retail_executor = None
-        self._retail_registry = None
-
     # ------------------------------------------------------------------
     # Lazy initialisation
     # ------------------------------------------------------------------
@@ -100,19 +94,6 @@ class MCPManager:
                 logger.info("PCB MCP loaded successfully")
             except Exception as exc:
                 logger.error("Failed to load PCB MCP: %s", exc, exc_info=True)
-
-            try:
-                from agents.mcp.domains.retail import (
-                    get_retail_interpreter,
-                    get_retail_executor,
-                    get_retail_registry,
-                )
-                self._retail_interpreter = get_retail_interpreter()
-                self._retail_executor = get_retail_executor()
-                self._retail_registry = get_retail_registry()
-                logger.info("Retail MCP loaded successfully")
-            except Exception as exc:
-                logger.error("Failed to load Retail MCP: %s", exc, exc_info=True)
 
             self._initialised = True
 
@@ -157,7 +138,7 @@ class MCPManager:
         message : str
             The raw user message (used for auto-detection if *domain* is None).
         domain : str, optional
-            Explicit domain override (``"pcb"``, ``"retail"``, ``"general"``).
+            Explicit domain override (``"pcb"`` or ``"general"``).
 
         Returns
         -------
@@ -174,15 +155,6 @@ class MCPManager:
                 self._pcb_interpreter,
                 self._pcb_executor,
                 self._pcb_registry,
-            )
-
-        if resolved_domain == DOMAIN_RETAIL and self._retail_interpreter:
-            logger.info("Routing to Retail MCP")
-            return (
-                DOMAIN_RETAIL,
-                self._retail_interpreter,
-                self._retail_executor,
-                self._retail_registry,
             )
 
         # Fall through to generic MCP
@@ -261,11 +233,6 @@ class MCPManager:
             if result.get("status") != "error":
                 return result
 
-        if domain == DOMAIN_RETAIL and self._retail_executor:
-            result = self._retail_executor.approve_proposal(proposal_id)
-            if result.get("status") != "error":
-                return result
-
         if domain == DOMAIN_GENERAL:
             return get_mcp_executor().approve_proposal(proposal_id)
 
@@ -291,11 +258,6 @@ class MCPManager:
             if result.get("status") != "error":
                 return result
 
-        if domain == DOMAIN_RETAIL and self._retail_executor:
-            result = self._retail_executor.reject_proposal(proposal_id, reason)
-            if result.get("status") != "error":
-                return result
-
         if domain == DOMAIN_GENERAL:
             return get_mcp_executor().reject_proposal(proposal_id, reason)
 
@@ -317,12 +279,6 @@ class MCPManager:
                     p["domain"] = DOMAIN_PCB
                     proposals.append(p)
 
-        if domain is None or domain == DOMAIN_RETAIL:
-            if self._retail_executor:
-                for p in self._retail_executor.get_pending_proposals():
-                    p["domain"] = DOMAIN_RETAIL
-                    proposals.append(p)
-
         if domain is None or domain == DOMAIN_GENERAL:
             for p in get_mcp_executor().get_pending_proposals():
                 p["domain"] = DOMAIN_GENERAL
@@ -340,8 +296,6 @@ class MCPManager:
 
         if self._pcb_registry:
             result[DOMAIN_PCB] = self._pcb_registry.get_display_list(state)
-        if self._retail_registry:
-            result[DOMAIN_RETAIL] = self._retail_registry.get_display_list(state)
         result[DOMAIN_GENERAL] = get_tool_registry().get_display_list(state)
 
         return result
@@ -354,8 +308,6 @@ class MCPManager:
         """Yield all available executors (domain-specific first)."""
         if self._pcb_executor:
             yield self._pcb_executor
-        if self._retail_executor:
-            yield self._retail_executor
         yield get_mcp_executor()
 
 

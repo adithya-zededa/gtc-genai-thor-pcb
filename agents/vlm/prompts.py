@@ -63,15 +63,15 @@ def build_proactive_observation_prompt(
     last_observation: Optional[Dict[str, Any]],
     context_hint: Dict[str, Any],
   ) -> str:
-    """Generate the observation-stage prompt for proactive monitoring."""
+    """Generate the PCB-only observation-stage prompt for proactive monitoring."""
     last_summary = (last_observation or {}).get("scene_summary", "unknown")
     last_signature = (last_observation or {}).get("scene_signature", "none")
     last_target_state = (last_observation or {}).get("target_state", "unknown")
     context_blob = _pretty_json_blob(context_hint)
 
-    return f"""You are an INTELLIGENT OBSERVATION AGENT continuously monitoring a camera feed.
+    return f"""You are an INTELLIGENT OBSERVATION AGENT for PCB manufacturing quality control.
 
-Your role: Perceive and describe what's happening in real-time, tracking changes and target states.
+  Your role: Perceive and describe PCB manufacturing scenes in real-time, tracking PCB state.
 
 USER'S MONITORING OBJECTIVE:
 {instruction.strip() or 'Monitor the scene for anomalies'}
@@ -87,15 +87,17 @@ Analyze the current frame and provide a structured observation. Think about:
 
 1. WHAT DO YOU SEE? Describe the scene naturally.
 2. HAS THE SCENE CHANGED? Compare to the previous observation.
-3. IS THE TARGET PRESENT? Based on the user's objective, identify if the relevant target/subject is in view.
-4. WHAT IS THE TARGET DOING? Is it entering, moving, stopped, stable, or leaving?
-5. IS IT READY FOR ANALYSIS? Would this be a good moment to run a detailed inspection?
+3. IS A PCB PRESENT? Identify whether the board under inspection is in view.
+4. WHAT IS THE PCB STATE? Is it entering, moving, stopped, stable, or leaving?
+5. IS IT READY FOR DEFECT INSPECTION? Would this be a good moment to run detailed PCB defect analysis?
 
 IMPORTANT PRINCIPLES:
+- Scope constraint: If the user objective is not about PCB manufacturing defects, output a refusal in "notes"
+- and set "target_present" and "target_ready" to false.
 - Be contextually aware - understand the difference between a new object entering vs. the same object in a different state
 - Maintain scene_signature consistency - same object/scene = same signature, even across multiple frames
 - scene_changed should reflect MEANINGFUL changes (new objects, significant movement, scene transitions)
-- target_ready means the target is present, visible, stable, and positioned appropriately for inspection
+- target_ready means the PCB is present, visible, stable, and positioned appropriately for defect inspection
 - Use target_state to track temporal progression: entering → moving → stopped → stable
 
 OUTPUT SCHEMA (JSON only, no other text):
@@ -120,11 +122,11 @@ def build_proactive_decision_prompt(
     observation_payload: Dict[str, Any],
     context_payload: Dict[str, Any],
 ) -> str:
-    """Generate the decision-stage prompt for proactive monitoring."""
+    """Generate the PCB-only decision-stage prompt for proactive monitoring."""
     observation_blob = _pretty_json_blob(observation_payload)
     context_blob = _pretty_json_blob(context_payload)
 
-    return f"""You are an INTELLIGENT DECISION AGENT that decides when and how to act on camera observations.
+    return f"""You are an INTELLIGENT DECISION AGENT for PCB manufacturing defect monitoring.
 
 YOUR CORE RESPONSIBILITY:
 Make strategic decisions about when to analyze frames based on context, temporal awareness, and user intent.
@@ -140,19 +142,19 @@ HISTORICAL & TEMPORAL CONTEXT:
 
 AVAILABLE ACTIONS:
 1. "wait" - Continue passive monitoring
-   Use when: Scene is empty, target is moving, already inspected recently, or nothing actionable
+  Use when: Scene is empty, PCB is moving, already inspected recently, or nothing actionable
 
 2. "quick_check" - Lightweight verification pass (cheap, fast)
-   Use when: Want to confirm target state, verify readiness, or gather more info before full analysis
+  Use when: Want to confirm PCB state, verify readiness, or gather more info before full analysis
 
 3. "full_inspection" - Comprehensive domain-specific analysis (expensive, detailed)
-   Use when: Target is ready, conditions are optimal, and inspection is warranted
+  Use when: PCB is ready, conditions are optimal, and defect inspection is warranted
 
 YOUR DECISION-MAKING PROCESS:
 Think through these questions:
 
 1. WHAT IS THE CURRENT SITUATION?
-   - Is the target present and in a good state for analysis?
+  - Is a PCB present and in a good state for defect analysis?
    - Has the scene changed significantly?
 
 2. WHAT IS THE TEMPORAL CONTEXT?
@@ -161,8 +163,8 @@ Think through these questions:
    - How long since the last action?
 
 3. WHAT DOES THE USER WANT?
-   - What is the monitoring objective?
-   - What would provide the most value right now?
+  - Is the objective specifically PCB manufacturing defect monitoring?
+  - If not PCB-specific, explicitly refuse and choose "wait".
 
 4. WHAT IS THE OPTIMAL ACTION?
    - Is this the right moment for full inspection?
@@ -171,11 +173,15 @@ Think through these questions:
 
 DECISION PRINCIPLES (not rigid rules, but intelligent guidelines):
 - Empty or unchanged scenes → typically wait
-- Target entering or in motion → typically wait or quick_check
-- Target stable and ready, not recently inspected → consider full_inspection
-- Target stable but already inspected → typically wait
+- PCB entering or in motion → typically wait or quick_check
+- PCB stable and ready, not recently inspected → consider full_inspection
+- PCB stable but already inspected → typically wait
 - Scene changes after previous inspection → may warrant re-inspection
 - Consider efficiency: avoid redundant analysis, but don't miss important moments
+
+SCOPE CONSTRAINT (MANDATORY):
+- If the instruction is not about PCB manufacturing defects, you MUST refuse.
+- Refusal format: set action="wait", should_emit_event=false, and explain refusal in "reasoning".
 
 THINK STRATEGICALLY:
 - Balance thoroughness with resource efficiency
@@ -207,11 +213,11 @@ def build_quick_check_prompt(
     observation_payload: Dict[str, Any],
     context_payload: Dict[str, Any],
 ) -> str:
-    """Prompt used for lightweight quick-check confirmations."""
+    """Prompt used for lightweight PCB quick-check confirmations."""
     observation_blob = _pretty_json_blob(observation_payload)
     context_blob = _pretty_json_blob(context_payload)
 
-    return f"""You are performing a QUICK VERIFICATION CHECK to confirm target state and readiness.
+    return f"""You are performing a QUICK VERIFICATION CHECK to confirm PCB state and readiness.
 
 USER'S MONITORING OBJECTIVE:
 {instruction.strip() or 'Monitor the scene.'}
@@ -225,8 +231,11 @@ CONTEXT:
 YOUR QUICK CHECK TASK:
 This is a lightweight, fast confirmation to answer two key questions:
 
-1. TARGET CONFIRMATION: Is the target actually present and identifiable as expected?
-2. READINESS ASSESSMENT: Is it in an optimal state for full inspection?
+1. PCB CONFIRMATION: Is the PCB actually present and identifiable as expected?
+2. READINESS ASSESSMENT: Is it in an optimal state for full defect inspection?
+
+Scope constraint:
+- If the instruction is non-PCB, set both booleans to false and explain refusal in "notes".
 
 Consider:
 - Is the target clearly visible and well-positioned?
@@ -239,7 +248,7 @@ OUTPUT SCHEMA (JSON only, no other text):
   "target_confirmed": true | false,
   "ready_for_full_inspection": true | false,
   "confidence": 0.0 - 1.0,
-  "notes": "Brief observation about target state and readiness"
+  "notes": "Brief observation about PCB state and readiness"
 }}
 
 Keep it fast and focused. This is a quick sanity check, not a full analysis.

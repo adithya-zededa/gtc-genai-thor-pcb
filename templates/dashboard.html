@@ -466,20 +466,20 @@
             if (entry.source === 'agent_ssim_guard') {
                 return 'Reused previous decision (no new action).';
             }
-            return 'No packaging boxes required action.';
+            return 'No PCB required action.';
         }
 
-        if (entry.shipping_label_present === false) {
+        if (entry.pcb_stable === false) {
             return entry.should_alert
-                ? 'Unlabeled packaging box detected and alert generated.'
-                : 'Unlabeled packaging box detected without alert.';
+                ? 'PCB detected in unstable state and alert generated.'
+                : 'PCB detected in unstable state without alert.';
         }
 
-        if (entry.shipping_label_present === true) {
-            return 'Packaging box with visible label logged for awareness.';
+        if (entry.pcb_stable === true) {
+            return 'PCB detected and stable under camera.';
         }
 
-        return 'Packaging activity recorded with unknown label status.';
+        return 'PCB activity recorded with unknown stability state.';
     }
 
     function renderAgentMemory(events) {
@@ -513,7 +513,7 @@
             const badge = document.createElement('span');
             badge.className = 'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold';
             if (entry.detected) {
-                if (entry.shipping_label_present === false) {
+                if (entry.pcb_stable === false) {
                     badge.className += ' bg-rose-100 text-rose-700';
                     badge.textContent = entry.should_alert ? 'Alert' : 'Detection';
                 } else {
@@ -540,14 +540,11 @@
             }
 
             const metrics = entry.scene_metrics || {};
-            if (typeof metrics.box_count === 'number' && Number.isFinite(metrics.box_count)) {
-                metaBits.push(`boxes≈${metrics.box_count}`);
+            if (typeof metrics.pcb_count === 'number' && Number.isFinite(metrics.pcb_count)) {
+                metaBits.push(`pcbs≈${metrics.pcb_count}`);
             }
-            if (typeof metrics.label_count === 'number' && Number.isFinite(metrics.label_count)) {
-                metaBits.push(`labels≈${metrics.label_count}`);
-            }
-            if (typeof metrics.labels_per_box === 'number' && Number.isFinite(metrics.labels_per_box)) {
-                metaBits.push(`labels/box≈${metrics.labels_per_box}`);
+            if (typeof metrics.ready_pcb_count === 'number' && Number.isFinite(metrics.ready_pcb_count)) {
+                metaBits.push(`ready≈${metrics.ready_pcb_count}`);
             }
 
             if (Array.isArray(entry.tools_used) && entry.tools_used.length) {
@@ -638,24 +635,21 @@
     
     // Override base handlers
     function handleDetectionEvent(data) {
-        const labelStatus = data.event.shipping_label_present === true
-            ? 'with shipping label'
-            : data.event.shipping_label_present === false
-                ? 'without shipping label'
-                : 'with unknown label status';
+        const stabilityStatus = data.event.pcb_stable === true
+            ? 'stable under camera'
+            : data.event.pcb_stable === false
+                ? 'not stable under camera'
+                : 'with unknown stability';
         const localSummaries = [];
-        if (data.event.label_analysis_summary) {
-            localSummaries.push(data.event.label_analysis_summary);
-        }
-        if (data.event.packaging_analysis_summary) {
-            localSummaries.push(data.event.packaging_analysis_summary);
+        if (data.event.pcb_analysis_summary) {
+            localSummaries.push(data.event.pcb_analysis_summary);
         }
         const toolsUsed = Array.isArray(data.event.tools_used) ? data.event.tools_used : [];
         if (toolsUsed.length) {
             localSummaries.push(`Tools: ${toolsUsed.join(', ')}`);
         }
         const analysisSummary = localSummaries.length ? ` • ${localSummaries.join(' • ')}` : '';
-        addActivity(`Packaging box detected ${labelStatus} (confidence ${(data.event.confidence * 100).toFixed(0)}%)${analysisSummary}`, 'detection');
+        addActivity(`PCB detected ${stabilityStatus} (confidence ${(data.event.confidence * 100).toFixed(0)}%)${analysisSummary}`, 'detection');
         updateStats(data.stats);
         updateAgentSummary();
     }

@@ -1,15 +1,15 @@
 # ZEDEDA Camera Monitoring Agent
 
-An AI-powered camera monitoring system that detects packaging/shipping boxes in real time and raises alerts when a box is missing a visible shipping label.
+An AI-powered camera monitoring system that inspects printed circuit boards (PCBs) on a conveyor and raises alerts for defect conditions.
 
 ## Overview
 
-The ZEDEDA Camera Monitoring Agent captures video from a camera device and now features a proactive, LLM-directed monitoring loop. The agent continuously observes the feed, maintains temporal context, reasons about targets (PCB, PPE, retail, etc.), and decides when to run lightweight checks versus full inspections. Alerts are generated only when the LLM concludes that the user’s natural-language instruction requires action (e.g., an unlabeled package or PCB defect).
+The ZEDEDA Camera Monitoring Agent captures video from a camera device and now features a proactive, LLM-directed monitoring loop. The agent continuously observes the conveyor feed, maintains temporal context, reasons about PCB motion and stability, and decides when to run lightweight checks versus full defect inspections. Alerts are generated only when the LLM concludes that the user’s natural-language instruction requires action (e.g., a PCB defect).
 
 ## Key Features
 
 - **Proactive Monitoring Loop**: Two-stage LLM pipeline (observation + decision) keeps temporal context and autonomously pulls the trigger on analyses.
-- **Instruction-Aware Reasoning**: User prompts like “watch for PCB defects” or “monitor unlabeled packages” guide the agent’s behavior without code changes.
+- **Instruction-Aware Reasoning**: User prompts like “watch for PCB defects” or “inspect stopped boards under the camera” guide the agent’s behavior without code changes.
 - **Adaptive Actions**: LLM chooses between wait, quick_check, and full_inspection, eliminating rigid SSIM/threshold heuristics.
 - **Agent Memory & Summaries**: Rolling memory plus scene signatures prevent redundant inspections of the same object.
 - **Agentic Tooling & Alerts**: Full inspections reuse the Unified VLM + alert stack (email, WebSocket, DB logging).

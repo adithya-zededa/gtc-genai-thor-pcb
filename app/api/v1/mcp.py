@@ -41,7 +41,7 @@ def list_tools():
 
     Query params:
         state: Filter tools available in a specific agent state
-        domain: Filter by domain (pcb, retail, general). Omit for all.
+        domain: Filter by domain (pcb, general). Omit for all.
     """
     state_machine = get_agent_state_machine()
     domain = request.args.get("domain", "").strip() or None
@@ -326,7 +326,7 @@ def get_pending_proposals():
     """Get all proposals pending approval.
 
     Query params:
-        domain: Filter by domain (pcb, retail, general). Omit for all.
+        domain: Filter by domain (pcb, general). Omit for all.
     """
     domain = request.args.get("domain", "").strip() or None
     manager = get_mcp_manager()

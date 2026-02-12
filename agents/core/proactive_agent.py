@@ -1,29 +1,17 @@
-"""Proactive monitoring loop driven entirely by LLM reasoning.
+"""PCB-only proactive monitoring loop driven entirely by LLM reasoning.
 
-This module implements an intelligent, context-aware camera monitoring agent that:
+This module intentionally narrows the proactive agent scope to a single purpose:
+detecting PCB manufacturing defects.
 
-1. OBSERVES: Continuously watches camera feed and perceives changes
-2. REASONS: Maintains temporal context and understands scene state
-3. DECIDES: Uses LLM intelligence to determine when/how to analyze frames
-4. ADAPTS: Responds to natural-language user instructions dynamically
+Scope constraints (enforced in this file):
+- Non-PCB instructions are explicitly refused.
+- Full inspections are always executed as PCB defect inspections.
+- Non-manufacturing inspection behavior is removed from this agent.
 
-KEY PRINCIPLES:
-- NO hardcoded thresholds (no SSIM, no fixed task switches)
-- NO rule-based logic (no "if PCB then analyze")
-- ALL decisions come from LLM reasoning over context
-- Temporal awareness across frames
-- Avoids redundant analysis through scene signature tracking
-
-ARCHITECTURE:
-    User Instruction (natural language)
-            ↓
-    Continuous Monitoring Loop:
-        1. Capture frame → 2. LLM Observation (lightweight)
-        3. LLM Decision (intelligent) → 4. Execute Action
-        5. Update Context → Repeat
-
-The agent maintains rich contextual state and provides it to the LLM at each
-decision point, enabling truly intelligent, adaptive behavior.
+Preserved behavior:
+- Two-stage LLM reasoning (observation → decision)
+- Contextual temporal state tracking
+- Signature-based inspection de-duplication
 """
 
 from __future__ import annotations
@@ -36,6 +24,7 @@ from enum import Enum
 from typing import Callable, Dict, List, Optional, Any
 
 from core.logging import get_logger
+from agents.classifiers import get_classifier
 from agents.vlm.client import UnifiedVLMClient
 from agents.vlm.prompts import (
     build_proactive_observation_prompt,
@@ -185,13 +174,12 @@ class MonitoringContext:
 
 
 class ProactiveMonitoringAgent:
-    """Intelligent, LLM-driven camera monitoring agent.
+    """Intelligent, LLM-driven PCB defect monitoring agent.
     
     This agent continuously monitors a camera feed and uses an LLM to make
-    all decisions about when and how to analyze frames. Unlike reactive systems
-    with hardcoded rules and thresholds, this agent:
+    all decisions about when and how to analyze PCB frames.
     
-    - Understands context from natural language instructions
+    - Accepts only PCB-focused natural language instructions
     - Maintains temporal awareness across frames
     - Reasons about optimal moments for analysis
     - Adapts behavior based on scene changes and history
@@ -202,7 +190,7 @@ class ProactiveMonitoringAgent:
     1. OBSERVATION STAGE (cheap/fast):
        - Describes current frame
        - Detects scene changes
-       - Identifies target state
+    - Identifies PCB state
        - Updates temporal context
     
     2. DECISION STAGE (intelligent):
@@ -213,6 +201,11 @@ class ProactiveMonitoringAgent:
     Configuration values are GUIDELINES for the LLM, not rigid rules.
     The LLM makes final decisions based on reasoning, not thresholds.
     """
+
+    SCOPE_REFUSAL_MESSAGE = (
+        "Refused: proactive monitoring accepts only PCB manufacturing defect "
+        "inspection instructions."
+    )
 
     DEFAULTS = {
         "frame_interval_seconds": 1.5,  # How often to check frames (guideline)
@@ -234,6 +227,10 @@ class ProactiveMonitoringAgent:
         event_callback: Optional[Callable[[DetectionEvent, Dict[str, Any]], None]] = None,
         config: Optional[Dict[str, Any]] = None,
     ) -> None:
+        # Scope gate: this agent is PCB-only by design. Non-PCB instructions
+        # are rejected explicitly instead of attempting generalized inspection.
+        self.validate_instruction_scope(instruction)
+
         self.vlm_client = vlm_client
         self.detection_agent = detection_agent
         self._publisher_getter = publisher_getter
@@ -288,6 +285,8 @@ class ProactiveMonitoringAgent:
         return self._running
 
     def update_instruction(self, instruction: str) -> None:
+        # Preserve explicit refusal behavior for runtime updates as well.
+        self.validate_instruction_scope(instruction)
         self.context.instruction = instruction.strip()
         logger.info("Updated proactive instruction: %s", self.context.instruction)
 
@@ -553,11 +552,11 @@ class ProactiveMonitoringAgent:
         observation: ObservationResult,
         decision: DecisionResult,
     ) -> Optional[DetectionEvent]:
-        task_type, custom_prompt = self._resolve_plan(decision.analysis_plan)
-        custom_text = custom_prompt or self.context.instruction
+        custom_text = self._resolve_pcb_defect_prompt(decision.analysis_plan)
         event = self.detection_agent.analyze_with_prompt(
             frame=frame_obj.raw_frame,
-            task_type=task_type,
+            # Scope lock: full inspection is always PCB defect inspection.
+            task_type=TaskType.CUSTOM,
             custom_prompt=custom_text,
         )
         if event:
@@ -593,13 +592,23 @@ class ProactiveMonitoringAgent:
         return f"scene-{frame_number}-{safe_summary or 'unknown'}"
 
     @staticmethod
-    def _resolve_plan(plan: Dict[str, Any]) -> tuple[TaskType, Optional[str]]:
-        task_name = str(plan.get("task", "")).strip().lower()
-        # All tasks now funnel through CUSTOM — the custom_prompt carries
-        # the actual instruction for the VLM.
-        custom_prompt = plan.get("custom_prompt")
-        if not custom_prompt:
-            # If the LLM emitted a legacy task name without a prompt,
-            # synthesise a reasonable instruction from the task name.
-            custom_prompt = task_name.replace("_", " ").capitalize() if task_name else None
-        return TaskType.CUSTOM, custom_prompt
+    def _resolve_pcb_defect_prompt(plan: Dict[str, Any]) -> str:
+        requested_focus = str(plan.get("custom_prompt", "")).strip()
+        # Non-PCB execution paths were intentionally removed here. We always
+        # issue a PCB manufacturing-defect instruction and only append optional
+        # focus text emitted by the LLM decision stage.
+        base_prompt = (
+            "Inspect this PCB for manufacturing defects such as missing or "
+            "misaligned components, solder bridges, insufficient solder joints, "
+            "lifted pads, damaged traces, and contamination."
+        )
+        if not requested_focus:
+            return base_prompt
+        return f"{base_prompt} Focus area: {requested_focus}"
+
+    @classmethod
+    def validate_instruction_scope(cls, instruction: str) -> None:
+        result = get_classifier().classify(instruction or "")
+        if result.domain == "pcb":
+            return
+        raise ValueError(f"{cls.SCOPE_REFUSAL_MESSAGE} Received domain: {result.domain}.")
