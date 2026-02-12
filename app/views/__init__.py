@@ -3,7 +3,7 @@
 These routes handle page rendering for the web interface.
 """
 
-from flask import Blueprint, render_template, redirect, url_for, abort
+from flask import Blueprint, abort, redirect, render_template, url_for
 
 from app.database import DetectionLogRepository, UserRepository
 
@@ -50,9 +50,7 @@ def users():
 @views_bp.route("/logs")
 def logs():
     """Detection logs page."""
-    detections, _total = DetectionLogRepository.get_paginated(
-        page=1, per_page=100
-    )
+    detections, _total = DetectionLogRepository.get_paginated(page=1, per_page=100)
     return render_template("logs.html", detections=detections)
 
 
@@ -62,20 +60,20 @@ def log_detail(log_id: int):
     log = DetectionLogRepository.get_by_id(log_id)
     if not log:
         abort(404)
-    
+
     log_data = log.to_dict()
-    
+
     image_url = None
     if log.image_path:
         image_url = url_for("api_v1.serve_image", image_path=log.image_path)
-    
+
     confidence_percent = None
     if log.confidence is not None:
         try:
             confidence_percent = float(log.confidence) * 100
         except (TypeError, ValueError):
             pass
-    
+
     return render_template(
         "log_detail.html",
         log=log_data,
@@ -88,7 +86,9 @@ def log_detail(log_id: int):
 def settings():
     """System settings page."""
     import os
+
     from core.config import get_config
+
     cfg = get_config()
     vllm_url = os.getenv("VLLM_URL", cfg.inference.vllm_url)
     return render_template("settings.html", vllm_url=vllm_url)

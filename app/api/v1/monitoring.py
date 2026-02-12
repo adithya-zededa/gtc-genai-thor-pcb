@@ -6,15 +6,17 @@ calls like ``start_monitoring_session`` / ``end_session``).  The legacy
 endpoints have been removed.
 """
 
-from flask import jsonify, request
 from typing import Any, Dict
 
-from . import api_bp
-from services.core.monitoring import get_monitoring_service
-from services.core.camera import check_camera_availability
-from services.core.inference import check_inference_backend_availability
+from flask import jsonify, request
+
 from core.config import get_config
 from core.logging import get_logger
+from services.core.camera import check_camera_availability
+from services.core.inference import check_inference_backend_availability
+from services.core.monitoring import get_monitoring_service
+
+from . import api_bp
 
 logger = get_logger(__name__)
 
@@ -56,13 +58,15 @@ def get_status():
     # Add circuit breaker status if agent is running
     if service and service.agent:
         agent = service.agent
-        if hasattr(agent, 'circuit_breaker'):
+        if hasattr(agent, "circuit_breaker"):
             status["circuit_breaker"] = agent.circuit_breaker.get_stats()
 
         # Add memory summary
-        if hasattr(agent, '_agent_memory'):
+        if hasattr(agent, "_agent_memory"):
             memory_snapshot = agent.get_memory_snapshot(limit=5)
-            status["recent_events_count"] = memory_snapshot.get("counts", {}).get("total", 0)
+            status["recent_events_count"] = memory_snapshot.get("counts", {}).get(
+                "total", 0
+            )
 
     return jsonify(status)
 
@@ -73,24 +77,23 @@ def reset_circuit_breaker():
     service = get_monitoring_service()
 
     if not service or not service.agent:
-        return jsonify({
-            "success": False,
-            "error": "No active monitoring agent"
-        }), 400
+        return jsonify({"success": False, "error": "No active monitoring agent"}), 400
 
     agent = service.agent
-    if not hasattr(agent, 'circuit_breaker'):
-        return jsonify({
-            "success": False,
-            "error": "Circuit breaker not available"
-        }), 400
+    if not hasattr(agent, "circuit_breaker"):
+        return (
+            jsonify({"success": False, "error": "Circuit breaker not available"}),
+            400,
+        )
 
     agent.circuit_breaker.reset()
-    return jsonify({
-        "success": True,
-        "message": "Circuit breaker reset to CLOSED state",
-        "stats": agent.circuit_breaker.get_stats()
-    })
+    return jsonify(
+        {
+            "success": True,
+            "message": "Circuit breaker reset to CLOSED state",
+            "stats": agent.circuit_breaker.get_stats(),
+        }
+    )
 
 
 @api_bp.route("/agent/memory", methods=["GET", "DELETE"])
@@ -100,7 +103,7 @@ def agent_memory():
     agent = getattr(service, "agent", None) if service else None
 
     if request.method == "DELETE":
-        if agent and hasattr(agent, 'clear_memory'):
+        if agent and hasattr(agent, "clear_memory"):
             agent.clear_memory()
             return jsonify({"success": True, "message": "Agent memory cleared"})
         return jsonify({"success": True, "message": "No memory to clear"})
@@ -118,15 +121,17 @@ def agent_memory():
             "reused": 0,
             "no_detections": 0,
         }
-        return jsonify({
-            "success": True,
-            "summary": "No agent memory available yet.",
-            "memory": {
-                "events": [],
-                "counts": empty_counts,
-                "last_event": None,
-            },
-        })
+        return jsonify(
+            {
+                "success": True,
+                "summary": "No agent memory available yet.",
+                "memory": {
+                    "events": [],
+                    "counts": empty_counts,
+                    "last_event": None,
+                },
+            }
+        )
 
     snapshot = agent.get_memory_snapshot(limit=limit)
     summary = agent.summarise_recent_events(limit=limit)
@@ -138,7 +143,10 @@ def proactive_status():
     """Return the latest snapshot from the proactive monitoring agent."""
     service = get_monitoring_service()
     if not service:
-        return jsonify({"success": False, "error": "Monitoring service unavailable"}), 500
+        return (
+            jsonify({"success": False, "error": "Monitoring service unavailable"}),
+            500,
+        )
     return jsonify({"success": True, "status": service.get_proactive_snapshot()})
 
 
@@ -154,15 +162,28 @@ def proactive_start():
 
     service = get_monitoring_service()
     if not service:
-        return jsonify({"success": False, "error": "Monitoring service unavailable"}), 500
+        return (
+            jsonify({"success": False, "error": "Monitoring service unavailable"}),
+            500,
+        )
 
     if not service.start_proactive_monitoring(instruction, config=config):
-        return jsonify({"success": False, "error": service.last_error or "Unable to start proactive mode"}), 400
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": service.last_error or "Unable to start proactive mode",
+                }
+            ),
+            400,
+        )
 
-    return jsonify({
-        "success": True,
-        "status": service.get_proactive_snapshot(),
-    })
+    return jsonify(
+        {
+            "success": True,
+            "status": service.get_proactive_snapshot(),
+        }
+    )
 
 
 @api_bp.route("/monitoring/proactive/stop", methods=["POST"])
@@ -170,6 +191,9 @@ def proactive_stop():
     """Stop the proactive monitoring loop and return its final snapshot."""
     service = get_monitoring_service()
     if not service:
-        return jsonify({"success": False, "error": "Monitoring service unavailable"}), 500
+        return (
+            jsonify({"success": False, "error": "Monitoring service unavailable"}),
+            500,
+        )
     service.stop_proactive_monitoring()
     return jsonify({"success": True, "status": service.get_proactive_snapshot()})

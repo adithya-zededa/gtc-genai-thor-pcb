@@ -12,8 +12,17 @@ import time
 from typing import Any, Dict, List, Optional
 
 from core.logging import get_logger
+
 from .connection import get_db_connection
-from .models import DetectionLog, User, ConfigHistory, LogSettings, RetailCatalogItem, Invoice, PCBDefect
+from .models import (
+    ConfigHistory,
+    DetectionLog,
+    Invoice,
+    LogSettings,
+    PCBDefect,
+    RetailCatalogItem,
+    User,
+)
 
 logger = get_logger(__name__)
 
@@ -30,20 +39,20 @@ DEFAULT_LOG_SETTINGS = {
 
 class UserRepository:
     """Repository for User data operations with caching for performance."""
-    
+
     # Cache for active emails (90% reduction in query overhead)
     _email_cache: Optional[List[str]] = None
     _email_cache_time: float = 0.0
     _email_cache_ttl: float = 60.0  # 1 minute TTL
     _cache_lock = threading.Lock()
-    
+
     @classmethod
     def _invalidate_email_cache(cls) -> None:
         """Invalidate the email cache (call after user modifications)."""
         with cls._cache_lock:
             cls._email_cache = None
             cls._email_cache_time = 0.0
-    
+
     @staticmethod
     def get_all(active_only: bool = True) -> List[User]:
         """Get all users, optionally filtering by active status."""
@@ -54,7 +63,7 @@ class UserRepository:
             query += " ORDER BY created_at DESC"
             rows = conn.execute(query).fetchall()
         return [User.from_row(row) for row in rows]
-    
+
     @staticmethod
     def get_by_id(user_id: int) -> Optional[User]:
         """Get a user by ID."""
@@ -63,7 +72,7 @@ class UserRepository:
                 "SELECT * FROM users WHERE id = ?", (user_id,)
             ).fetchone()
         return User.from_row(row)
-    
+
     @classmethod
     def create(cls, email: str, name: str, role: str = "user") -> int:
         """Create a new user and return the ID."""
@@ -76,7 +85,7 @@ class UserRepository:
             user_id = cursor.lastrowid
         cls._invalidate_email_cache()
         return user_id
-    
+
     @classmethod
     def update(cls, user_id: int, email: str, name: str, role: str = "user") -> bool:
         """Update an existing user."""
@@ -88,49 +97,50 @@ class UserRepository:
             conn.commit()
         cls._invalidate_email_cache()
         return True
-    
+
     @classmethod
     def deactivate(cls, user_id: int) -> bool:
         """Soft delete a user by setting active = 0."""
         with get_db_connection() as conn:
-            conn.execute(
-                "UPDATE users SET active = 0 WHERE id = ?", (user_id,)
-            )
+            conn.execute("UPDATE users SET active = 0 WHERE id = ?", (user_id,))
             conn.commit()
         cls._invalidate_email_cache()
         return True
-    
+
     @classmethod
     def get_active_emails(cls) -> List[str]:
         """Get email addresses of all active users with caching.
-        
+
         Performance: 90% reduction in query overhead (5ms → 0.5ms) for cached hits.
         """
         now = time.time()
-        
+
         # Check cache with lock
         with cls._cache_lock:
-            if cls._email_cache and (now - cls._email_cache_time) < cls._email_cache_ttl:
+            if (
+                cls._email_cache
+                and (now - cls._email_cache_time) < cls._email_cache_ttl
+            ):
                 return cls._email_cache.copy()
-        
+
         # Cache miss - fetch from database
         with get_db_connection() as conn:
             rows = conn.execute(
                 'SELECT email FROM users WHERE active = 1 AND email IS NOT NULL AND email != ""'
             ).fetchall()
         emails = [row["email"].strip() for row in rows if row["email"]]
-        
+
         # Update cache
         with cls._cache_lock:
             cls._email_cache = emails
             cls._email_cache_time = now
-        
+
         return emails.copy()
 
 
 class DetectionLogRepository:
     """Repository for DetectionLog data operations."""
-    
+
     @staticmethod
     def get_paginated(
         page: int = 1,
@@ -138,19 +148,19 @@ class DetectionLogRepository:
         detected_only: bool = False,
     ) -> tuple[List[DetectionLog], int]:
         """Get paginated detection logs.
-        
+
         Returns:
             Tuple of (logs list, total count).
         """
         offset = (page - 1) * per_page
-        
+
         with get_db_connection() as conn:
             # Get total count
             count_query = "SELECT COUNT(*) FROM detection_logs"
             if detected_only:
                 count_query += " WHERE confidence > 0"
             total_count = conn.execute(count_query).fetchone()[0]
-            
+
             # Get paginated results
             query = """
                 SELECT id, timestamp, confidence, response, image_path,
@@ -160,11 +170,11 @@ class DetectionLogRepository:
             if detected_only:
                 query += " WHERE confidence > 0"
             query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
-            
+
             rows = conn.execute(query, (per_page, offset)).fetchall()
-        
+
         return [DetectionLog.from_row(row) for row in rows], total_count
-    
+
     @staticmethod
     def get_by_id(log_id: int) -> Optional[DetectionLog]:
         """Get a detection log by ID."""
@@ -173,7 +183,7 @@ class DetectionLogRepository:
                 "SELECT * FROM detection_logs WHERE id = ?", (log_id,)
             ).fetchone()
         return DetectionLog.from_row(row)
-    
+
     @staticmethod
     def create(
         timestamp: str,
@@ -210,7 +220,7 @@ class DetectionLogRepository:
             )
             conn.commit()
             return cursor.lastrowid
-    
+
     @staticmethod
     def delete(log_id: int) -> bool:
         """Delete a specific log entry."""
@@ -218,7 +228,7 @@ class DetectionLogRepository:
             conn.execute("DELETE FROM detection_logs WHERE id = ?", (log_id,))
             conn.commit()
         return True
-    
+
     @staticmethod
     def delete_all() -> bool:
         """Delete all detection logs."""
@@ -226,7 +236,7 @@ class DetectionLogRepository:
             conn.execute("DELETE FROM detection_logs")
             conn.commit()
         return True
-    
+
     @staticmethod
     def get_all_for_export() -> List[DetectionLog]:
         """Get all logs for export."""
@@ -244,7 +254,7 @@ class DetectionLogRepository:
 
 class ConfigHistoryRepository:
     """Repository for ConfigHistory data operations."""
-    
+
     @staticmethod
     def create(config_type: str, changes: str, user_email: str = "") -> int:
         """Record a configuration change."""
@@ -262,7 +272,7 @@ class ConfigHistoryRepository:
 
 class LogSettingsRepository:
     """Repository for LogSettings data operations."""
-    
+
     @staticmethod
     def get() -> LogSettings:
         """Get current log settings."""
@@ -275,7 +285,7 @@ class LogSettingsRepository:
                 """
             ).fetchone()
         return LogSettings.from_row(row)
-    
+
     @staticmethod
     def update(settings: LogSettings) -> LogSettings:
         """Update log settings."""
@@ -340,37 +350,51 @@ class RetailCatalogRepository:
         """Search catalog items by name (case-insensitive fuzzy match with bidirectional keyword matching)."""
         with get_db_connection() as conn:
             # Normalize: remove hyphens, extra spaces, convert to lowercase
-            normalized_query = query.lower().replace("-", " ").replace("  ", " ").strip()
-            
+            normalized_query = (
+                query.lower().replace("-", " ").replace("  ", " ").strip()
+            )
+
             # First try: exact substring match (original behavior)
             rows = conn.execute(
                 "SELECT * FROM retail_catalog WHERE LOWER(item_name) LIKE ? ORDER BY item_name",
                 (f"%{query.lower()}%",),
             ).fetchall()
-            
+
             if rows:
                 return [RetailCatalogItem.from_row(row) for row in rows]
-            
+
             # Second try: bidirectional keyword match - check if catalog item keywords appear in query
             # This helps when VLM adds extra descriptive words
-            all_items = conn.execute("SELECT * FROM retail_catalog ORDER BY item_name").fetchall()
+            all_items = conn.execute(
+                "SELECT * FROM retail_catalog ORDER BY item_name"
+            ).fetchall()
             matches = []
-            
+
             for row in all_items:
                 catalog_name = row[1].lower().replace("-", " ")  # item_name is column 1
                 catalog_keywords = set(catalog_name.split())
                 query_keywords = set(normalized_query.split())
-                
+
                 # Match if most catalog keywords are in the query (allows extra words in query)
-                if catalog_keywords and len(catalog_keywords.intersection(query_keywords)) >= len(catalog_keywords) * 0.6:
+                if (
+                    catalog_keywords
+                    and len(catalog_keywords.intersection(query_keywords))
+                    >= len(catalog_keywords) * 0.6
+                ):
                     matches.append(RetailCatalogItem.from_row(row))
-            
+
             # Sort by best match (most keywords matched)
             if matches:
-                return sorted(matches, 
-                    key=lambda item: len(set(item.item_name.lower().replace("-", " ").split()).intersection(query_keywords)),
-                    reverse=True)
-            
+                return sorted(
+                    matches,
+                    key=lambda item: len(
+                        set(
+                            item.item_name.lower().replace("-", " ").split()
+                        ).intersection(query_keywords)
+                    ),
+                    reverse=True,
+                )
+
             return []
 
     @staticmethod
@@ -384,7 +408,9 @@ class RetailCatalogRepository:
         return [RetailCatalogItem.from_row(row) for row in rows]
 
     @staticmethod
-    def create(item_name: str, sku: str, price: float, category: str = "other") -> RetailCatalogItem:
+    def create(
+        item_name: str, sku: str, price: float, category: str = "other"
+    ) -> RetailCatalogItem:
         """Create a new catalog item and return it."""
         with get_db_connection() as conn:
             cursor = conn.execute(
@@ -572,7 +598,14 @@ class PCBDefectRepository:
                 )
                 VALUES (CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?)
                 """,
-                (board_type, defect_type, severity, confidence, image_path, description),
+                (
+                    board_type,
+                    defect_type,
+                    severity,
+                    confidence,
+                    image_path,
+                    description,
+                ),
             )
             conn.commit()
             return cursor.lastrowid

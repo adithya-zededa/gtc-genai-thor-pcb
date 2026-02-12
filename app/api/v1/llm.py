@@ -10,8 +10,9 @@ This module provides REST API endpoints for:
 
 from flask import jsonify, request
 
-from . import api_bp
 from core.logging import get_logger
+
+from . import api_bp
 
 logger = get_logger(__name__)
 
@@ -20,6 +21,7 @@ def _get_router():
     """Get the LLM router instance."""
     try:
         from router import get_router
+
         return get_router()
     except Exception as exc:
         logger.error("Failed to get LLM router: %s", exc)
@@ -30,34 +32,43 @@ def _get_router():
 # PROVIDER STATUS
 # =============================================================================
 
+
 @api_bp.route("/llm/providers", methods=["GET"])
 def list_llm_providers():
     """List the vLLM provider with status."""
     router = _get_router()
     if router is None:
-        return jsonify({
-            "success": True,
-            "enabled": False,
-            "providers": [],
-            "count": 0,
-        }), 200
+        return (
+            jsonify(
+                {
+                    "success": True,
+                    "enabled": False,
+                    "providers": [],
+                    "count": 0,
+                }
+            ),
+            200,
+        )
 
     providers = router.list_providers()
     active = router.get_active_provider()
 
-    return jsonify({
-        "success": True,
-        "enabled": True,
-        "provider": "vllm",
-        "providers": providers,
-        "active_provider": active,
-        "count": len(providers),
-    })
+    return jsonify(
+        {
+            "success": True,
+            "enabled": True,
+            "provider": "vllm",
+            "providers": providers,
+            "active_provider": active,
+            "count": len(providers),
+        }
+    )
 
 
 # =============================================================================
 # HEALTH & STATUS
 # =============================================================================
+
 
 @api_bp.route("/llm/health", methods=["GET"])
 def check_llm_health():
@@ -67,11 +78,13 @@ def check_llm_health():
         return jsonify({"success": False, "error": "LLM router not available"}), 200
 
     results = router.check_health()
-    return jsonify({
-        "success": True,
-        "health": results,
-        "all_healthy": all(results.values()) if results else False,
-    })
+    return jsonify(
+        {
+            "success": True,
+            "health": results,
+            "all_healthy": all(results.values()) if results else False,
+        }
+    )
 
 
 @api_bp.route("/llm/status", methods=["GET"])
@@ -80,28 +93,34 @@ def get_llm_status():
     router = _get_router()
 
     if router is None:
-        return jsonify({
-            "success": True,
-            "enabled": False,
-        })
+        return jsonify(
+            {
+                "success": True,
+                "enabled": False,
+            }
+        )
 
     try:
         from router import get_token_usage
+
         usage = get_token_usage()
     except Exception:
         usage = {}
 
-    return jsonify({
-        "success": True,
-        "enabled": True,
-        "router": router.to_dict(),
-        "token_usage": usage,
-    })
+    return jsonify(
+        {
+            "success": True,
+            "enabled": True,
+            "router": router.to_dict(),
+            "token_usage": usage,
+        }
+    )
 
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
+
 
 @api_bp.route("/llm/config", methods=["PUT"])
 def update_llm_config():
@@ -130,11 +149,15 @@ def update_llm_config():
             timeout=data.get("timeout"),
             temperature=data.get("temperature"),
         )
-        return jsonify({
-            "success": True,
-            "message": "vLLM configuration updated",
-            "config": router.get_config().to_dict() if router.get_config() else None,
-        })
+        return jsonify(
+            {
+                "success": True,
+                "message": "vLLM configuration updated",
+                "config": (
+                    router.get_config().to_dict() if router.get_config() else None
+                ),
+            }
+        )
     except Exception as exc:
         return jsonify({"success": False, "error": str(exc)}), 400
 
@@ -142,6 +165,7 @@ def update_llm_config():
 # =============================================================================
 # MODELS
 # =============================================================================
+
 
 @api_bp.route("/llm/models", methods=["GET"])
 def list_llm_models():
@@ -152,15 +176,19 @@ def list_llm_models():
 
     try:
         models = router.list_models()
-        return jsonify({
-            "success": True,
-            "models": {"vllm": models},
-        })
+        return jsonify(
+            {
+                "success": True,
+                "models": {"vllm": models},
+            }
+        )
     except Exception as exc:
-        return jsonify({
-            "success": True,
-            "models": {"vllm": {"error": str(exc)}},
-        })
+        return jsonify(
+            {
+                "success": True,
+                "models": {"vllm": {"error": str(exc)}},
+            }
+        )
 
 
 @api_bp.route("/llm/models/fetch", methods=["POST"])
@@ -178,8 +206,8 @@ def fetch_models_for_provider():
     url = data.get("url")
 
     try:
-        from router.config import LLMProviderConfig
         from router.adapters import VLLMAdapter
+        from router.config import LLMProviderConfig
 
         temp_config = LLMProviderConfig(
             name="_temp_fetch",
@@ -191,7 +219,9 @@ def fetch_models_for_provider():
         adapter = VLLMAdapter()
         available, _latency, error = adapter.check_availability(temp_config)
         if not available:
-            return jsonify({"success": True, "models": [], "error": error or "vLLM not reachable"})
+            return jsonify(
+                {"success": True, "models": [], "error": error or "vLLM not reachable"}
+            )
 
         models = adapter.list_models(temp_config)
         return jsonify({"success": True, "models": models})
@@ -204,11 +234,13 @@ def fetch_models_for_provider():
 # TOKEN USAGE
 # =============================================================================
 
+
 @api_bp.route("/llm/usage", methods=["GET"])
 def get_llm_token_usage():
     """Get token usage statistics."""
     try:
         from router import get_token_usage
+
         usage = get_token_usage()
         return jsonify({"success": True, "usage": usage})
     except Exception as exc:
@@ -220,6 +252,7 @@ def reset_llm_token_usage():
     """Reset token usage statistics."""
     try:
         from router import reset_token_usage
+
         reset_token_usage()
         return jsonify({"success": True, "message": "Token usage reset"})
     except Exception as exc:
@@ -229,6 +262,7 @@ def reset_llm_token_usage():
 # =============================================================================
 # TEST CHAT
 # =============================================================================
+
 
 @api_bp.route("/llm/chat", methods=["POST"])
 def llm_test_chat():
@@ -253,12 +287,19 @@ def llm_test_chat():
         response = router.chat(
             messages=[{"role": "user", "content": message}],
         )
-        return jsonify({
-            "success": True,
-            "response": response.to_dict(),
-        })
+        return jsonify(
+            {
+                "success": True,
+                "response": response.to_dict(),
+            }
+        )
     except Exception as exc:
-        return jsonify({
-            "success": False,
-            "error": str(exc),
-        }), 500
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": str(exc),
+                }
+            ),
+            500,
+        )

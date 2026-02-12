@@ -9,7 +9,7 @@ import os
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import yaml
 
@@ -94,28 +94,28 @@ class FlaskConfig:
 
 
 @dataclass
-class Config:
+class Config:  # pylint: disable=too-many-instance-attributes
     """Main application configuration container."""
-    
+
     data_dir: Path = field(default_factory=lambda: Path("."))
     config_path: Path = field(default_factory=lambda: Path(DEFAULT_CONFIG_PATH))
     http_timeout: float = DEFAULT_HTTP_TIMEOUT
-    
+
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
     inference: InferenceConfig = field(default_factory=InferenceConfig)
     flask: FlaskConfig = field(default_factory=FlaskConfig)
     router: RouterConfig = field(default_factory=RouterConfig)
-    
+
     # Raw YAML config for backward compatibility
     _yaml_config: Dict[str, Any] = field(default_factory=dict)
     _lock: threading.RLock = field(default_factory=threading.RLock)
-    
+
     @classmethod
     def from_environment(cls) -> "Config":
         """Create configuration from environment variables."""
         data_dir = Path(os.getenv(ENV_DATA_DIR, ".")).expanduser()
-        
+
         config = cls(
             data_dir=data_dir,
             config_path=Path(os.getenv(ENV_CONFIG_PATH, DEFAULT_CONFIG_PATH)).expanduser(),
@@ -148,17 +148,23 @@ class Config:
             ),
             router=RouterConfig(
                 enabled=True,
-                use_for_classification=os.getenv("LLM_ROUTER_FOR_CLASSIFICATION", "true").lower() in {"1", "true", "yes"},
-                use_for_chat=os.getenv("LLM_ROUTER_FOR_CHAT", "true").lower() in {"1", "true", "yes"},
+                use_for_classification=(
+                    os.getenv("LLM_ROUTER_FOR_CLASSIFICATION", "true").lower()
+                    in {"1", "true", "yes"}
+                ),
+                use_for_chat=(
+                    os.getenv("LLM_ROUTER_FOR_CHAT", "true").lower()
+                    in {"1", "true", "yes"}
+                ),
             ),
         )
-        
+
         # Generate secret key if not provided
         if not config.flask.secret_key:
             config.flask.secret_key = os.urandom(DEFAULT_SECRET_KEY_BYTES).hex()
-        
+
         return config
-    
+
     def load_yaml_config(self) -> Dict[str, Any]:
         """Load and cache the YAML configuration file."""
         with self._lock:
@@ -166,7 +172,7 @@ class Config:
                 with self.config_path.open("r", encoding="utf-8") as f:
                     self._yaml_config = yaml.safe_load(f) or {}
             return self._yaml_config.copy()
-    
+
     def save_yaml_config(self, config: Dict[str, Any]) -> None:
         """Save configuration to YAML file."""
         with self._lock:
@@ -180,41 +186,45 @@ class Config:
                     allow_unicode=True,
                 )
             self._yaml_config = config.copy()
-    
+
     def reload_yaml_config(self) -> Dict[str, Any]:
         """Force reload of YAML configuration."""
         with self._lock:
             self._yaml_config = {}
             return self.load_yaml_config()
-    
+
     @property
     def detected_images_dir(self) -> Path:
         """Get the detected images directory path."""
         return self.camera.detection_image_dir
-    
+
     @property
     def processed_frames_dir(self) -> Path:
         """Get the processed frames directory path."""
-        return Path(os.getenv(ENV_PROCESSED_DIR, str(self.data_dir / "processed_frames"))).expanduser()
+        return Path(
+            os.getenv(ENV_PROCESSED_DIR, str(self.data_dir / "processed_frames"))
+        ).expanduser()
 
 
 # Global singleton instance
-_config: Optional[Config] = None
+_config_state: dict[str, Optional[Config]] = {"config": None}
 _config_lock = threading.Lock()
 
 
 def get_config() -> Config:
     """Get the global configuration singleton."""
-    global _config
-    if _config is None:
+    if _config_state["config"] is None:
         with _config_lock:
-            if _config is None:
-                _config = Config.from_environment()
-    return _config
+            if _config_state["config"] is None:
+                _config_state["config"] = Config.from_environment()
+    config = _config_state["config"]
+    if config is None:
+        config = Config.from_environment()
+        _config_state["config"] = config
+    return config
 
 
 def reset_config() -> None:
     """Reset the configuration singleton (for testing)."""
-    global _config
     with _config_lock:
-        _config = None
+        _config_state["config"] = None

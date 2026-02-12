@@ -567,7 +567,8 @@ def tool_generate_invoice(
         status_parts.append(f"**Total: {currency} {total:.2f}**")
         
         if pdf_path:
-            status_parts.append(f"📄 PDF saved to: `{pdf_path}`")
+            download_url = f"/api/retail/invoices/{invoice_id}/download"
+            status_parts.append(f"📄 [Download Invoice PDF]({download_url})")
         else:
             status_parts.append("⚠️ PDF generation failed")
         
@@ -581,7 +582,7 @@ def tool_generate_invoice(
 
         return {
             "success": True,
-            "message": "\\n\\n".join(status_parts),
+            "message": "\n\n".join(status_parts),
             "data": {
                 "invoice_id": invoice_id,
                 "html": html,

@@ -14,12 +14,12 @@ T = TypeVar("T")
 
 class BaseRepository(ABC, Generic[T]):
     """Abstract base repository with standard CRUD interface.
-    
+
     Subclasses should implement:
     - ``_table_name`` class attribute
     - ``_from_row(row)`` to convert DB rows to model objects
     - Any domain-specific query methods
-    
+
     Common operations (create, get_by_id, list, delete) are provided
     as abstract methods for consistent interfaces.
     """
@@ -53,13 +53,9 @@ class BaseRepository(ABC, Generic[T]):
     @staticmethod
     def delete(entity_id: int) -> bool:
         """Delete an entity by ID. Override in subclasses that support deletion."""
-        raise NotImplementedError(
-            f"delete() not implemented for this repository"
-        )
+        raise NotImplementedError(f"delete() not implemented for this repository")
 
     @staticmethod
     def update(entity_id: int, **kwargs) -> bool:
         """Update an entity by ID. Override in subclasses that support updates."""
-        raise NotImplementedError(
-            f"update() not implemented for this repository"
-        )
+        raise NotImplementedError(f"update() not implemented for this repository")

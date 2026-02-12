@@ -10,13 +10,14 @@ from typing import Any, Dict, List, Optional
 @dataclass
 class User:
     """User model representing a system user."""
+
     id: Optional[int] = None
     email: str = ""
     name: str = ""
     role: str = "user"
     active: bool = True
     created_at: Optional[str] = None
-    
+
     @classmethod
     def from_row(cls, row) -> "User":
         """Create User from database row."""
@@ -30,7 +31,7 @@ class User:
             active=bool(row["active"]),
             created_at=row["created_at"],
         )
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -46,6 +47,7 @@ class User:
 @dataclass
 class DetectionLog:
     """Detection log model representing a detection event."""
+
     id: Optional[int] = None
     timestamp: Optional[str] = None
     confidence: Optional[float] = None
@@ -56,22 +58,22 @@ class DetectionLog:
     vision_description: str = ""
     decision_details: Dict[str, Any] = field(default_factory=dict)
     tool_trace: List[Dict[str, Any]] = field(default_factory=list)
-    
+
     @classmethod
     def from_row(cls, row) -> "DetectionLog":
         """Create DetectionLog from database row."""
         if row is None:
             return None
-        
+
         import json
-        
+
         decision_details = {}
         if row["decision_details"]:
             try:
                 decision_details = json.loads(row["decision_details"])
             except json.JSONDecodeError:
                 decision_details = {"raw": row["decision_details"]}
-        
+
         tool_trace = []
         try:
             tool_trace_raw = row["tool_trace"] if "tool_trace" in row.keys() else None
@@ -79,7 +81,7 @@ class DetectionLog:
                 tool_trace = json.loads(tool_trace_raw)
         except (json.JSONDecodeError, KeyError):
             tool_trace = []
-        
+
         return cls(
             id=row["id"],
             timestamp=row["timestamp"],
@@ -92,17 +94,17 @@ class DetectionLog:
             decision_details=decision_details,
             tool_trace=tool_trace,
         )
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         is_agentic = self.decision_details.get("classification") == "AGENTIC_ANALYSIS"
-        
+
         # Determine detected status
         if "detected" in self.decision_details:
             detected = self.decision_details.get("detected", False)
         else:
             detected = self.confidence is not None and self.confidence > 0
-        
+
         return {
             "id": self.id,
             "timestamp": self.timestamp,
@@ -122,12 +124,13 @@ class DetectionLog:
 @dataclass
 class ConfigHistory:
     """Configuration history model for tracking config changes."""
+
     id: Optional[int] = None
     timestamp: Optional[str] = None
     config_type: str = ""
     changes: str = ""
     user_email: str = ""
-    
+
     @classmethod
     def from_row(cls, row) -> "ConfigHistory":
         """Create ConfigHistory from database row."""
@@ -145,13 +148,14 @@ class ConfigHistory:
 @dataclass
 class LogSettings:
     """Log settings model for logging configuration."""
+
     log_level: str = "INFO"
     log_retention: int = 30
     max_log_size: int = 100
     log_to_file: bool = True
     log_to_console: bool = True
     log_database: bool = False
-    
+
     @classmethod
     def from_row(cls, row) -> "LogSettings":
         """Create LogSettings from database row."""
@@ -159,13 +163,17 @@ class LogSettings:
             return cls()  # Return defaults
         return cls(
             log_level=(row["log_level"] or "INFO").upper(),
-            log_retention=int(row["log_retention"]) if row["log_retention"] is not None else 30,
-            max_log_size=int(row["max_log_size"]) if row["max_log_size"] is not None else 100,
+            log_retention=(
+                int(row["log_retention"]) if row["log_retention"] is not None else 30
+            ),
+            max_log_size=(
+                int(row["max_log_size"]) if row["max_log_size"] is not None else 100
+            ),
             log_to_file=bool(row["log_to_file"]),
             log_to_console=bool(row["log_to_console"]),
             log_database=bool(row["log_database"]),
         )
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -181,6 +189,7 @@ class LogSettings:
 @dataclass
 class RetailCatalogItem:
     """Retail catalog item representing a product in the store catalog."""
+
     id: Optional[int] = None
     item_name: str = ""
     sku: str = ""
@@ -217,6 +226,7 @@ class RetailCatalogItem:
 @dataclass
 class Invoice:
     """Invoice model representing a generated retail invoice."""
+
     id: Optional[int] = None
     timestamp: Optional[str] = None
     recipient_email: str = ""
@@ -250,6 +260,7 @@ class Invoice:
     def items(self) -> List[Dict[str, Any]]:
         """Parse items from JSON string."""
         import json
+
         try:
             return json.loads(self.items_json)
         except (json.JSONDecodeError, TypeError):
@@ -274,6 +285,7 @@ class Invoice:
 @dataclass
 class PCBDefect:
     """PCB defect record from inspection analysis."""
+
     id: Optional[int] = None
     timestamp: Optional[str] = None
     board_type: str = "unknown"

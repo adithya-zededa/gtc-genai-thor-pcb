@@ -19,12 +19,12 @@ logger = get_logger(__name__)
 
 def register_handlers(socketio: "SocketIO") -> None:
     """Register all WebSocket event handlers."""
-    
+
     # Register chat handlers
-    from app.websocket.chat import register_chat_handlers, initialize_chat_for_client
-    
+    from app.websocket.chat import initialize_chat_for_client, register_chat_handlers
+
     register_chat_handlers(socketio)
-    
+
     @socketio.on("connect")
     def handle_connect():
         """Handle client connection."""
@@ -35,7 +35,7 @@ def register_handlers(socketio: "SocketIO") -> None:
         except Exception as e:
             logger.error("Failed to initialize chat for client: %s", e, exc_info=True)
             emit("chat_error", {"error": str(e)})
-    
+
     @socketio.on("test_event")
     def handle_test(data=None):
         """Test event handler."""
@@ -68,21 +68,26 @@ def register_handlers(socketio: "SocketIO") -> None:
 def emit_detection_event(socketio: "SocketIO", event_data: dict) -> None:
     """Emit a detection event to all connected clients."""
     socketio.emit("detection_event", event_data)
-    
+
     # Emit to chat interface
     from app.websocket.chat import emit_detection_to_chat
-    
+
     emit_detection_to_chat(socketio, event_data)
 
 
-def emit_frame_update(socketio: "SocketIO", frame_bytes: bytes, metadata: dict = None) -> None:
+def emit_frame_update(
+    socketio: "SocketIO", frame_bytes: bytes, metadata: dict = None
+) -> None:
     """Emit a frame update to connected clients."""
     encoded = base64.b64encode(frame_bytes).decode("utf-8")
-    socketio.emit("frame_update", {
-        "image": encoded,
-        "timestamp": time.time(),
-        "metadata": metadata or {},
-    })
+    socketio.emit(
+        "frame_update",
+        {
+            "image": encoded,
+            "timestamp": time.time(),
+            "metadata": metadata or {},
+        },
+    )
 
 
 def emit_monitoring_status(socketio: "SocketIO", status: dict) -> None:

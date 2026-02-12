@@ -1,22 +1,24 @@
 """System status and environment API endpoints."""
 
 import os
-import time
 import subprocess
+import time
 from datetime import datetime
 from pathlib import Path
+
 from flask import jsonify, request
 
-from . import api_bp
+from app.database import LogSettingsRepository
+from core.config import get_config
+from core.logging import apply_log_preferences, get_logger
 from services.core.camera import check_camera_availability
 from services.core.inference import (
     check_inference_backend_availability,
-    check_vllm_availability,
     check_ollama_availability,
+    check_vllm_availability,
 )
-from app.database import LogSettingsRepository
-from core.config import get_config
-from core.logging import get_logger, apply_log_preferences
+
+from . import api_bp
 
 logger = get_logger(__name__)
 
@@ -29,7 +31,7 @@ def _get_jetson_gpu_stats():
     try:
         gpu_devfreq_path = Path("/sys/class/devfreq/17000000.gpu")
         gpu_thermal_path = None
-        
+
         thermal_base = Path("/sys/class/thermal")
         if thermal_base.exists():
             for zone in thermal_base.iterdir():
@@ -37,40 +39,41 @@ def _get_jetson_gpu_stats():
                     continue
                 type_path = zone / "type"
                 if type_path.exists():
-                    with open(type_path, 'r') as f:
+                    with open(type_path, "r") as f:
                         if f.read().strip() == "gpu-thermal":
                             gpu_thermal_path = zone / "temp"
                             break
-        
+
         if not gpu_devfreq_path.exists():
             return None
-        
+
         cur_freq_path = gpu_devfreq_path / "cur_freq"
         max_freq_path = gpu_devfreq_path / "max_freq"
-        
+
         if not cur_freq_path.exists() or not max_freq_path.exists():
             return None
-        
-        with open(cur_freq_path, 'r') as f:
+
+        with open(cur_freq_path, "r") as f:
             cur_freq = int(f.read().strip())
-        with open(max_freq_path, 'r') as f:
+        with open(max_freq_path, "r") as f:
             max_freq = int(f.read().strip())
-        
+
         gpu_util = round((cur_freq / max_freq) * 100, 1) if max_freq > 0 else 0
-        
+
         gpu_temp = None
         if gpu_thermal_path and gpu_thermal_path.exists():
             try:
-                with open(gpu_thermal_path, 'r') as f:
+                with open(gpu_thermal_path, "r") as f:
                     gpu_temp = round(int(f.read().strip()) / 1000, 1)
             except (IOError, ValueError):
                 pass
-        
+
         import psutil
+
         mem = psutil.virtual_memory()
         mem_used_mb = round((mem.total - mem.available) / (1024 * 1024), 0)
         mem_total_mb = round(mem.total / (1024 * 1024), 0)
-        
+
         return {
             "name": "NVIDIA Jetson GPU",
             "utilization": gpu_util,
@@ -106,7 +109,7 @@ def system_status():
             "inference_backend": "vllm",
             "uptime_seconds": uptime_seconds,
         }
-        
+
         try:
             gpu_info = _get_jetson_gpu_stats()
             if gpu_info:
@@ -116,11 +119,11 @@ def system_status():
                     [
                         "nvidia-smi",
                         "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,name",
-                        "--format=csv,noheader,nounits"
+                        "--format=csv,noheader,nounits",
                     ],
                     capture_output=True,
                     text=True,
-                    timeout=5
+                    timeout=5,
                 )
                 if result.returncode == 0 and result.stdout.strip():
                     parts = result.stdout.strip().split(", ")
@@ -130,16 +133,22 @@ def system_status():
                             "utilization": float(parts[0]),
                             "memory_used_mb": float(parts[1]),
                             "memory_total_mb": float(parts[2]),
-                            "memory_percent": round((float(parts[1]) / float(parts[2])) * 100, 1) if float(parts[2]) > 0 else 0,
+                            "memory_percent": (
+                                round((float(parts[1]) / float(parts[2])) * 100, 1)
+                                if float(parts[2]) > 0
+                                else 0
+                            ),
                             "temperature": float(parts[3]),
-                            "power_watts": float(parts[4]) if parts[4] != "[N/A]" else None,
+                            "power_watts": (
+                                float(parts[4]) if parts[4] != "[N/A]" else None
+                            ),
                         }
                 else:
                     status["gpu"] = None
         except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
             status["gpu"] = None
             logger.debug(f"GPU stats unavailable: {e}")
-        
+
         return jsonify({"success": True, "status": status})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
@@ -149,7 +158,7 @@ def system_status():
 def system_environment():
     """Get or update system environment variables."""
     config = get_config()
-    
+
     if request.method == "POST":
         try:
             data = request.get_json()
@@ -157,10 +166,12 @@ def system_environment():
                 return jsonify({"success": False, "error": "Invalid payload"}), 400
             for key, value in data.items():
                 os.environ[key] = str(value)
-            return jsonify({
-                "success": True,
-                "message": "Environment variables updated (in-memory only)",
-            })
+            return jsonify(
+                {
+                    "success": True,
+                    "message": "Environment variables updated (in-memory only)",
+                }
+            )
         except Exception as e:
             return jsonify({"success": False, "error": str(e)})
 
@@ -188,23 +199,23 @@ def system_logging():
             return jsonify({"success": True, "settings": settings.to_dict()})
         except Exception as exc:
             logger.error("Failed to fetch log settings: %s", exc, exc_info=True)
-            return jsonify({
-                "success": False,
-                "error": "Unable to load log settings"
-            }), 500
+            return (
+                jsonify({"success": False, "error": "Unable to load log settings"}),
+                500,
+            )
 
     # POST method
     data = request.get_json(silent=True) or {}
     try:
         from app.database import LogSettings
-        
+
         current = LogSettingsRepository.get()
-        
+
         # Update with provided values
         level_candidate = str(data.get("log_level", current.log_level)).upper()
         if level_candidate in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             current.log_level = level_candidate
-        
+
         if "log_retention" in data:
             try:
                 retention = int(data["log_retention"])
@@ -212,7 +223,7 @@ def system_logging():
                     current.log_retention = retention
             except (ValueError, TypeError):
                 pass
-        
+
         if "max_log_size" in data:
             try:
                 max_size = int(data["max_log_size"])
@@ -220,37 +231,34 @@ def system_logging():
                     current.max_log_size = max_size
             except (ValueError, TypeError):
                 pass
-        
+
         if "log_to_file" in data:
             current.log_to_file = bool(data["log_to_file"])
         if "log_to_console" in data:
             current.log_to_console = bool(data["log_to_console"])
         if "log_database" in data:
             current.log_database = bool(data["log_database"])
-        
+
         updated = LogSettingsRepository.update(current)
-        
+
         # Apply preferences at runtime
         apply_log_preferences(
             updated.log_level,
             updated.log_to_console,
             updated.log_to_file,
         )
-        
+
         return jsonify({"success": True, "settings": updated.to_dict()})
     except Exception as exc:
         logger.error("Failed to update log settings: %s", exc, exc_info=True)
-        return jsonify({
-            "success": False,
-            "error": "Failed to save log settings"
-        }), 500
+        return jsonify({"success": False, "error": "Failed to save log settings"}), 500
 
 
 @api_bp.route("/test_camera")
 def test_camera():
     """Test camera functionality."""
     import cv2
-    
+
     try:
         config = get_config()
         cap = cv2.VideoCapture(config.camera.index)
@@ -258,15 +266,9 @@ def test_camera():
             ret, frame = cap.read()
             cap.release()
             if ret:
-                return jsonify({
-                    "success": True,
-                    "message": "Camera test successful"
-                })
+                return jsonify({"success": True, "message": "Camera test successful"})
             else:
-                return jsonify({
-                    "success": False,
-                    "error": "Failed to capture frame"
-                })
+                return jsonify({"success": False, "error": "Failed to capture frame"})
         else:
             return jsonify({"success": False, "error": "Cannot open camera"})
     except Exception as e:
@@ -277,60 +279,65 @@ def test_camera():
 def test_inference():
     """Test the configured inference backend."""
     available = check_vllm_availability()
-    return jsonify({
-        "success": available,
-        "backend": "vllm",
-        "message": "vLLM connection successful" if available else "vLLM not available",
-    })
+    return jsonify(
+        {
+            "success": available,
+            "backend": "vllm",
+            "message": (
+                "vLLM connection successful" if available else "vLLM not available"
+            ),
+        }
+    )
 
 
 @api_bp.route("/test_vllm")
 def test_vllm():
     """Test vLLM connection."""
     import requests
-    
+
     config = get_config()
     try:
         response = requests.get(
-            f"{config.inference.vllm_url}/v1/models",
-            timeout=config.http_timeout
+            f"{config.inference.vllm_url}/v1/models", timeout=config.http_timeout
         )
         response.raise_for_status()
         data = response.json()
         models = [m.get("id", "") for m in data.get("data", [])]
-        return jsonify({
-            "success": True,
-            "message": "vLLM connection successful",
-            "models": models,
-            "url": config.inference.vllm_url
-        })
+        return jsonify(
+            {
+                "success": True,
+                "message": "vLLM connection successful",
+                "models": models,
+                "url": config.inference.vllm_url,
+            }
+        )
     except requests.RequestException as exc:
-        return jsonify({
-            "success": False,
-            "error": f"vLLM connectivity failed: {exc}"
-        })
+        return jsonify({"success": False, "error": f"vLLM connectivity failed: {exc}"})
 
 
 @api_bp.route("/test_ollama")
 def test_ollama():
     """Test Ollama connection (redirects to vLLM check)."""
     available = check_vllm_availability()
-    return jsonify({
-        "success": available,
-        "message": "vLLM connection successful" if available else "vLLM not available",
-    })
+    return jsonify(
+        {
+            "success": available,
+            "message": (
+                "vLLM connection successful" if available else "vLLM not available"
+            ),
+        }
+    )
 
 
 @api_bp.route("/ollama_models")
 def ollama_models():
     """List available models (redirects to vLLM models)."""
     import requests
-    
+
     config = get_config()
     try:
         response = requests.get(
-            f"{config.inference.vllm_url}/v1/models",
-            timeout=config.http_timeout
+            f"{config.inference.vllm_url}/v1/models", timeout=config.http_timeout
         )
         response.raise_for_status()
         data = response.json()

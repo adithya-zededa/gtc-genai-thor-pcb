@@ -4,25 +4,25 @@ Provides SQLite database setup, migrations, connection pooling,
 and base repository pattern for data access.
 """
 
-from .connection import get_db_connection, init_db, ensure_database_directory
 from .base_repository import BaseRepository
+from .connection import ensure_database_directory, get_db_connection, init_db
 from .models import (
-    DetectionLog,
-    User,
     ConfigHistory,
-    LogSettings,
-    RetailCatalogItem,
+    DetectionLog,
     Invoice,
+    LogSettings,
     PCBDefect,
+    RetailCatalogItem,
+    User,
 )
 from .repositories import (
-    DetectionLogRepository,
-    UserRepository,
     ConfigHistoryRepository,
-    LogSettingsRepository,
-    RetailCatalogRepository,
+    DetectionLogRepository,
     InvoiceRepository,
+    LogSettingsRepository,
     PCBDefectRepository,
+    RetailCatalogRepository,
+    UserRepository,
 )
 
 __all__ = [

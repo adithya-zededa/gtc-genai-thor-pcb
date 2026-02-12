@@ -1,22 +1,24 @@
 """Configuration management API endpoints."""
 
 import json
+
 from flask import jsonify, request
 
-from . import api_bp
+from app.database import ConfigHistoryRepository
+from core.logging import get_logger
+from core.utils import coerce_bool
+from services.core.monitoring import get_monitoring_service
 from services.infrastructure.config import (
-    load_camera_config,
-    save_camera_config,
-    reset_camera_config,
-    extract_recipients,
     apply_recipients,
+    extract_recipients,
+    load_camera_config,
+    reset_camera_config,
     sanitize_config_payload,
+    save_camera_config,
     update_email_recipients,
 )
-from services.core.monitoring import get_monitoring_service
-from app.database import ConfigHistoryRepository
-from core.utils import coerce_bool
-from core.logging import get_logger
+
+from . import api_bp
 
 logger = get_logger(__name__)
 
@@ -38,11 +40,16 @@ def config():
     if request.method == "POST":
         data = request.get_json(silent=True) or {}
         if not isinstance(data, dict):
-            return jsonify({
-                "success": False,
-                "error": "Invalid configuration payload",
-            }), 400
-        
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "Invalid configuration payload",
+                    }
+                ),
+                400,
+            )
+
         try:
             persisted = save_camera_config(data)
 
@@ -67,11 +74,13 @@ def config():
             if coerce_bool((email_cfg or {}).get("auto_sync_users"), True):
                 update_email_recipients()
 
-            return jsonify({
-                "success": True,
-                "message": "Configuration updated",
-                "config": persisted,
-            })
+            return jsonify(
+                {
+                    "success": True,
+                    "message": "Configuration updated",
+                    "config": persisted,
+                }
+            )
         except Exception as e:
             return jsonify({"success": False, "error": str(e)})
 
@@ -79,10 +88,15 @@ def config():
     try:
         config = load_camera_config()
     except Exception as exc:
-        return jsonify({
-            "success": False,
-            "error": f"Failed to load configuration: {exc}",
-        }), 500
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": f"Failed to load configuration: {exc}",
+                }
+            ),
+            500,
+        )
 
     sanitized = sanitize_config_payload(config)
     return jsonify(sanitized)
@@ -92,7 +106,7 @@ def config():
 def config_defaults():
     """Return the default configuration without persisting it."""
     from agents.core.camera_agent import StreamlinedAgent
-    
+
     defaults = StreamlinedAgent.default_config()
     sanitized = sanitize_config_payload(defaults)
     return jsonify({"success": True, "config": sanitized})
@@ -104,11 +118,13 @@ def config_reset():
     defaults = reset_camera_config()
     _apply_config_to_agent(defaults)
 
-    return jsonify({
-        "success": True,
-        "message": "Configuration reset to defaults",
-        "config": defaults,
-    })
+    return jsonify(
+        {
+            "success": True,
+            "message": "Configuration reset to defaults",
+            "config": defaults,
+        }
+    )
 
 
 @api_bp.route("/notifications/recipients", methods=["GET", "PUT"])
@@ -118,10 +134,15 @@ def notification_recipients():
         try:
             config = load_camera_config()
         except Exception as exc:
-            return jsonify({
-                "success": False,
-                "error": f"Failed to load configuration: {exc}",
-            }), 500
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": f"Failed to load configuration: {exc}",
+                    }
+                ),
+                500,
+            )
 
         recipients = extract_recipients(config)
         return jsonify({"success": True, "recipients": recipients})
@@ -130,10 +151,15 @@ def notification_recipients():
     payload = request.get_json(silent=True) or {}
     recipients = payload.get("recipients", [])
     if not isinstance(recipients, list):
-        return jsonify({
-            "success": False,
-            "error": "Recipients must be provided as a list",
-        }), 400
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": "Recipients must be provided as a list",
+                }
+            ),
+            400,
+        )
 
     sanitized = []
     for email in recipients:
@@ -147,16 +173,18 @@ def notification_recipients():
     try:
         config = load_camera_config()
     except Exception as exc:
-        return jsonify({
-            "success": False,
-            "error": f"Failed to load configuration: {exc}",
-        }), 500
-    
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": f"Failed to load configuration: {exc}",
+                }
+            ),
+            500,
+        )
+
     apply_recipients(config, sanitized)
     persisted = save_camera_config(config)
     _apply_config_to_agent(persisted)
 
-    return jsonify({
-        "success": True,
-        "recipients": extract_recipients(persisted)
-    })
+    return jsonify({"success": True, "recipients": extract_recipients(persisted)})

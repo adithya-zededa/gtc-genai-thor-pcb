@@ -10,12 +10,10 @@ All routes are registered under the ``/api`` blueprint prefix.
 
 from flask import jsonify, request
 
-from . import api_bp
-from app.database.repositories import (
-    RetailCatalogRepository,
-    InvoiceRepository,
-)
+from app.database.repositories import InvoiceRepository, RetailCatalogRepository
 from core.logging import get_logger
+
+from . import api_bp
 
 logger = get_logger(__name__)
 
@@ -23,6 +21,7 @@ logger = get_logger(__name__)
 # =============================================================================
 # CATALOG ENDPOINTS
 # =============================================================================
+
 
 @api_bp.route("/retail/catalog", methods=["GET"])
 def list_catalog():
@@ -42,11 +41,13 @@ def list_catalog():
     else:
         items = RetailCatalogRepository.get_all()
 
-    return jsonify({
-        "success": True,
-        "items": [i.to_dict() for i in items],
-        "count": len(items),
-    })
+    return jsonify(
+        {
+            "success": True,
+            "items": [i.to_dict() for i in items],
+            "count": len(items),
+        }
+    )
 
 
 @api_bp.route("/retail/catalog/<int:item_id>", methods=["GET"])
@@ -75,10 +76,15 @@ def create_catalog_item():
     required = ["item_name", "price"]
     missing = [f for f in required if f not in data]
     if missing:
-        return jsonify({
-            "success": False,
-            "error": f"Missing required fields: {', '.join(missing)}",
-        }), 400
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": f"Missing required fields: {', '.join(missing)}",
+                }
+            ),
+            400,
+        )
 
     try:
         item = RetailCatalogRepository.create(
@@ -153,18 +159,28 @@ def bulk_import_catalog():
     # Validate each item has minimum required fields
     for i, item in enumerate(items):
         if "item_name" not in item or "price" not in item:
-            return jsonify({
-                "success": False,
-                "error": f"Item at index {i} missing 'item_name' or 'price'",
-            }), 400
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": f"Item at index {i} missing 'item_name' or 'price'",
+                    }
+                ),
+                400,
+            )
 
     try:
         created = RetailCatalogRepository.bulk_create(items)
-        return jsonify({
-            "success": True,
-            "created": len(created),
-            "items": [c.to_dict() for c in created],
-        }), 201
+        return (
+            jsonify(
+                {
+                    "success": True,
+                    "created": len(created),
+                    "items": [c.to_dict() for c in created],
+                }
+            ),
+            201,
+        )
     except Exception as e:
         logger.error("Bulk import failed: %s", e)
         return jsonify({"success": False, "error": str(e)}), 500
@@ -173,6 +189,7 @@ def bulk_import_catalog():
 # =============================================================================
 # INVOICE ENDPOINTS
 # =============================================================================
+
 
 @api_bp.route("/retail/invoices", methods=["GET"])
 def list_invoices():
@@ -193,14 +210,16 @@ def list_invoices():
         status=status,
     )
 
-    return jsonify({
-        "success": True,
-        "invoices": [inv.to_dict() for inv in invoices],
-        "total": total,
-        "page": page,
-        "per_page": per_page,
-        "pages": (total + per_page - 1) // per_page if per_page else 1,
-    })
+    return jsonify(
+        {
+            "success": True,
+            "invoices": [inv.to_dict() for inv in invoices],
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "pages": (total + per_page - 1) // per_page if per_page else 1,
+        }
+    )
 
 
 @api_bp.route("/retail/invoices/<int:invoice_id>", methods=["GET"])
@@ -215,22 +234,23 @@ def get_invoice(invoice_id: int):
 @api_bp.route("/retail/invoices/<int:invoice_id>/download", methods=["GET"])
 def download_invoice_pdf(invoice_id: int):
     """Download the PDF for a specific invoice."""
-    from flask import send_file
     import os
-    
+
+    from flask import send_file
+
     invoice = InvoiceRepository.get_by_id(invoice_id)
     if not invoice:
         return jsonify({"success": False, "error": "Invoice not found"}), 404
-    
+
     if not invoice.pdf_path or not os.path.exists(invoice.pdf_path):
         return jsonify({"success": False, "error": "PDF not available"}), 404
-    
+
     try:
         return send_file(
             invoice.pdf_path,
             mimetype="application/pdf",
             as_attachment=True,
-            download_name=f"invoice_{invoice_id}.pdf"
+            download_name=f"invoice_{invoice_id}.pdf",
         )
     except Exception as e:
         logger.error("Failed to send PDF file: %s", e)

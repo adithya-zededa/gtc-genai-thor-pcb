@@ -20,13 +20,14 @@ import time
 from typing import Optional
 
 import requests
+from requests import RequestException
 
 from core.logging import get_logger
 
 logger = get_logger(__name__)
 
 # Module-level cache
-_detected_model: Optional[str] = None
+_state: dict[str, Optional[str]] = {"detected_model": None}
 _detect_lock = threading.Lock()
 
 # How long to wait for server to become available (seconds)
@@ -44,7 +45,7 @@ def _fetch_vllm_model(base_url: str, timeout: int = 10) -> Optional[str]:
             model_id = data[0].get("id")
             if model_id:
                 return model_id
-    except Exception as exc:
+    except (RequestException, ValueError, TypeError, KeyError, IndexError) as exc:
         logger.debug("vLLM /v1/models probe failed: %s", exc)
     return None
 
@@ -75,7 +76,11 @@ def detect_model(
     force : bool
         Bypass the cache and re-query the server.
     """
-    global _detected_model
+    if backend and backend.lower() != "vllm":
+        logger.debug(
+            "Ignoring unsupported backend=%s; using vLLM autodetection for compatibility.",
+            backend,
+        )
 
     # 1. Explicit env override — never auto-detect
     env_model = os.getenv("VISION_MODEL")
@@ -83,8 +88,8 @@ def detect_model(
         return env_model.strip()
 
     # 2. Cached
-    if _detected_model and not force:
-        return _detected_model
+    if _state["detected_model"] and not force:
+        return _state["detected_model"]
 
     # 3. Live detection
     url = (base_url or os.getenv("VLLM_URL", "http://localhost:8000")).rstrip("/")
@@ -106,7 +111,7 @@ def detect_model(
 
     if model:
         with _detect_lock:
-            _detected_model = model
+            _state["detected_model"] = model
         logger.info("Auto-detected model from vLLM: %s", model)
         return model
 
@@ -122,6 +127,5 @@ def detect_model(
 
 def reset_cache() -> None:
     """Clear the cached model (for testing)."""
-    global _detected_model
     with _detect_lock:
-        _detected_model = None
+        _state["detected_model"] = None
