@@ -14,8 +14,9 @@ from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 from uuid import uuid4
 
-from agents.core.camera_agent import StreamlinedAgent, CircuitBreaker
-from agents.core.proactive_agent import ProactiveMonitoringAgent
+from agents.core.detection_agent import StreamlinedAgent
+from agents.core.proactive_monitoring import ProactiveMonitoringAgent
+from agents.core.resilience import CircuitBreaker
 from agents.vlm.task_types import TaskType
 from agents.core.state import DetectionEvent
 from services.core.camera import get_camera_publisher

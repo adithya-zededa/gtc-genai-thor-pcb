@@ -1,11 +1,10 @@
 """System status and environment API endpoints."""
 
-# pylint: disable=broad-exception-caught,import-outside-toplevel,logging-fstring-interpolation,unspecified-encoding,subprocess-run-check,unused-variable,too-many-locals,too-many-branches,no-else-return,unused-import,c-extension-no-member,line-too-long
+# pylint: disable=broad-exception-caught,import-outside-toplevel,logging-fstring-interpolation,unspecified-encoding,subprocess-run-check,unused-variable,too-many-locals,too-many-branches,no-else-return,unused-import,line-too-long
 
 import os
 import subprocess
 import time
-from datetime import datetime
 from pathlib import Path
 
 from flask import jsonify, request
@@ -16,7 +15,6 @@ from core.logging import apply_log_preferences, get_logger
 from services.core.camera import check_camera_availability
 from services.core.inference import (
     check_inference_backend_availability,
-    check_ollama_availability,
     check_vllm_availability,
 )
 
@@ -127,7 +125,7 @@ def system_status():
                     text=True,
                     timeout=5,
                 )
-                if result.returncode == 0 and result.stdout.strip():
+                if not result.returncode and result.stdout.strip():
                     parts = result.stdout.strip().split(", ")
                     if len(parts) >= 6:
                         status["gpu"] = {
@@ -263,7 +261,7 @@ def test_camera():
 
     try:
         config = get_config()
-        cap = cv2.VideoCapture(config.camera.index)
+        cap = cv2.VideoCapture(config.camera.index)  # pylint: disable=no-member
         if cap.isOpened():
             ret, frame = cap.read()
             cap.release()

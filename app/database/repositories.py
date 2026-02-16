@@ -178,6 +178,7 @@ class DetectionLogRepository:
         timestamp: str,
         confidence: float,
         response: str,
+        *,
         image_path: str = "",
         frame_number: Optional[int] = None,
         reason: str = "",
@@ -315,6 +316,7 @@ class InvoiceRepository:
         subtotal: float,
         tax: float,
         total: float,
+        *,
         status: str = "draft",
         pdf_path: Optional[str] = None,
     ) -> int:
@@ -401,6 +403,7 @@ class PCBDefectRepository:
     def create(
         board_type: str,
         defect_type: str,
+        *,
         severity: str = "low",
         confidence: float = 0.0,
         image_path: str = "",

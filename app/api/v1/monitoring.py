@@ -6,7 +6,7 @@ calls like ``start_monitoring_session`` / ``end_session``).  The legacy
 endpoints have been removed.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Tuple
 
 from flask import jsonify, request
 
@@ -19,25 +19,45 @@ from . import api_bp
 
 logger = get_logger(__name__)
 
+PROACTIVE_CONFIG_KEY_MAP = {
+    "frame_interval": "frame_interval_seconds",
+    "frame_interval_seconds": "frame_interval_seconds",
+    "stability_frames": "stability_frame_count",
+    "stability_frame_count": "stability_frame_count",
+    "observation_temperature": "observation_temperature",
+    "fast_observation_mode": "fast_observation_mode",
+    "stationary_motion_threshold": "stationary_motion_threshold",
+    "zone_crop_top_ratio": "zone_crop_top_ratio",
+    "zone_crop_bottom_ratio": "zone_crop_bottom_ratio",
+    "zone_presence_threshold": "zone_presence_threshold",
+    "selector_min_stable_frames": "selector_min_stable_frames",
+    "selector_min_quality_score": "selector_min_quality_score",
+    "selector_attempt_cooldown_seconds": "selector_attempt_cooldown_seconds",
+    "selector_quality_improvement_delta": "selector_quality_improvement_delta",
+    "selector_max_attempts_per_board": "selector_max_attempts_per_board",
+    "selector_near_deadline_seconds": "selector_near_deadline_seconds",
+    "decision_temperature": "decision_temperature",
+    "quick_check_temperature": "quick_check_temperature",
+    "inspection_ttl_seconds": "inspection_ttl_seconds",
+    "max_idle_seconds": "max_idle_seconds",
+}
+
+
+def _monitoring_service_or_error() -> Tuple[Optional[Any], Optional[Tuple[Any, int]]]:
+    """Return monitoring service or a standard API error response tuple."""
+    service = get_monitoring_service()
+    if service:
+        return service, None
+    return None, (jsonify({"success": False, "error": "Monitoring service unavailable"}), 500)
+
 
 def _extract_proactive_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Map API payload keys onto proactive agent config keys."""
-    config_map = {
-        "frame_interval": "frame_interval_seconds",
-        "frame_interval_seconds": "frame_interval_seconds",
-        "stability_frames": "stability_frame_count",
-        "stability_frame_count": "stability_frame_count",
-        "observation_temperature": "observation_temperature",
-        "decision_temperature": "decision_temperature",
-        "quick_check_temperature": "quick_check_temperature",
-        "inspection_ttl_seconds": "inspection_ttl_seconds",
-        "max_idle_seconds": "max_idle_seconds",
+    return {
+        target_key: payload[source_key]
+        for source_key, target_key in PROACTIVE_CONFIG_KEY_MAP.items()
+        if source_key in payload
     }
-    config: Dict[str, Any] = {}
-    for key, target in config_map.items():
-        if key in payload:
-            config[target] = payload[key]
-    return config
 
 
 @api_bp.route("/status")
@@ -142,12 +162,9 @@ def agent_memory():
 @api_bp.route("/monitoring/proactive/status", methods=["GET"])
 def proactive_status():
     """Return the latest snapshot from the proactive monitoring agent."""
-    service = get_monitoring_service()
-    if not service:
-        return (
-            jsonify({"success": False, "error": "Monitoring service unavailable"}),
-            500,
-        )
+    service, error = _monitoring_service_or_error()
+    if error:
+        return error
     return jsonify({"success": True, "status": service.get_proactive_snapshot()})
 
 
@@ -161,12 +178,9 @@ def proactive_start():
     if not instruction:
         return jsonify({"success": False, "error": "Instruction is required"}), 400
 
-    service = get_monitoring_service()
-    if not service:
-        return (
-            jsonify({"success": False, "error": "Monitoring service unavailable"}),
-            500,
-        )
+    service, error = _monitoring_service_or_error()
+    if error:
+        return error
 
     if not service.start_proactive_monitoring(instruction, config=config):
         return (
@@ -190,11 +204,8 @@ def proactive_start():
 @api_bp.route("/monitoring/proactive/stop", methods=["POST"])
 def proactive_stop():
     """Stop the proactive monitoring loop and return its final snapshot."""
-    service = get_monitoring_service()
-    if not service:
-        return (
-            jsonify({"success": False, "error": "Monitoring service unavailable"}),
-            500,
-        )
+    service, error = _monitoring_service_or_error()
+    if error:
+        return error
     service.stop_proactive_monitoring()
     return jsonify({"success": True, "status": service.get_proactive_snapshot()})

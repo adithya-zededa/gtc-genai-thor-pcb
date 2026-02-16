@@ -11,7 +11,7 @@ from collections import deque
 
 @dataclass(slots=True)
 class DetectionEvent:
-    """Represents a PCB inspection event."""
+    """Represents a PCB inspection event."""  # pylint: disable=too-many-instance-attributes
 
     timestamp: str
     confidence: float
@@ -25,7 +25,7 @@ class DetectionEvent:
     should_alert: bool = True
     tools_used: List[str] = field(default_factory=list)
     tool_trace: List[Dict[str, Any]] = field(default_factory=list)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
@@ -94,14 +94,19 @@ class AgentMemory:
         return events
 
     def snapshot(self, limit: Optional[int] = None) -> AgentSnapshot:
-        """Get a state snapshot."""
-        actual_limit = limit if isinstance(limit, int) and limit > 0 else self._summary_window
+        """Get a state snapshot."""  # pylint: disable=too-many-locals
+        actual_limit = (
+            limit if isinstance(limit, int) and limit > 0
+            else self._summary_window
+        )
         events = self.list_events(actual_limit)
         counts = self._calc_counts(events)
         last_event = events[-1] if events else None
         return AgentSnapshot(last_event=last_event, counts=counts)
 
-    def summarise(self, limit: Optional[int] = None) -> str:
+    def summarise(  # pylint: disable=too-many-locals
+        self, limit: Optional[int] = None
+    ) -> str:
         """Get a text summary of recent activity."""
         snapshot = self.snapshot(limit)
         counts = snapshot.counts
@@ -145,8 +150,14 @@ class AgentMemory:
     def _calc_counts(events: List[Dict[str, Any]]) -> Dict[str, int]:
         """Calculate event counts."""
         detections = sum(1 for event in events if event.get("detected"))
-        stable = sum(1 for event in events if event.get("detected") and event.get("pcb_stable") is True)
-        unstable = sum(1 for event in events if event.get("detected") and event.get("pcb_stable") is False)
+        stable = sum(
+            1 for event in events
+            if event.get("detected") and event.get("pcb_stable") is True
+        )
+        unstable = sum(
+            1 for event in events
+            if event.get("detected") and event.get("pcb_stable") is False
+        )
         alerts = sum(1 for event in events if event.get("should_alert"))
         reused = sum(1 for event in events if event.get("source") == "agent_ssim_guard")
         no_detections = sum(1 for event in events if not event.get("detected"))

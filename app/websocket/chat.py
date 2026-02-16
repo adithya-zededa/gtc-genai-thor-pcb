@@ -11,7 +11,7 @@ Key principles:
 4. UI suggests but never directly executes
 """
 
-# pylint: disable=too-many-lines,too-many-arguments,redefined-builtin,import-outside-toplevel,missing-function-docstring,too-many-locals,broad-exception-caught,unused-argument,too-many-statements,too-many-return-statements,too-many-branches,no-else-return,line-too-long,unused-import
+# pylint: disable=too-many-arguments,redefined-builtin,import-outside-toplevel,missing-function-docstring,too-many-locals,broad-exception-caught,unused-argument,too-many-statements,too-many-return-statements,too-many-branches,no-else-return,line-too-long,unused-import
 
 from __future__ import annotations
 
@@ -59,6 +59,7 @@ class ChatMessage:
         self,
         role: str,  # "user", "assistant", "system", "tool"
         content: str,
+        *,
         metadata: Optional[Dict[str, Any]] = None,
         timestamp: Optional[str] = None,
         id: Optional[str] = None,

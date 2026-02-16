@@ -33,7 +33,18 @@ proactive:
   # All config values are GUIDELINES for the LLM, not hard thresholds.
   # ═══════════════════════════════════════════════════════════════════════
   enabled: false  # Set to true to enable proactive mode
-  frame_interval_seconds: 1.5  # Frame check frequency (guideline)
+  frame_interval_seconds: 0.1  # Fast conveyor gating cadence
+  fast_observation_mode: true  # Use CV-only fast path for motion/zone gating
+  stationary_motion_threshold: 1.8  # Lower = more sensitive to movement
+  zone_crop_top_ratio: 0.2  # ROI crop top (fraction of frame height)
+  zone_crop_bottom_ratio: 0.85  # ROI crop bottom (fraction of frame height)
+  zone_presence_threshold: 12.0  # Edge-density threshold for board presence in ROI
+  selector_min_stable_frames: 2  # Require stable streak before VLM inspection
+  selector_min_quality_score: 0.45  # Minimum deterministic frame-quality gate
+  selector_attempt_cooldown_seconds: 0.35  # Cooldown between VLM inspections
+  selector_quality_improvement_delta: 0.08  # Require quality gain for re-attempt
+  selector_max_attempts_per_board: 3  # Hard cap VLM attempts per stopped board
+  selector_near_deadline_seconds: 0.7  # Use best cached frame near timeout
   stability_frame_count: 6  # Stability hint for LLM (not a rule)
   observation_temperature: 0.1  # Lower = consistent observations
   decision_temperature: 0.2  # Balanced for intelligent decisions

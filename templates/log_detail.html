@@ -4,6 +4,18 @@
 {% block page_title %}Detection Event #{{ log.id }}{% endblock %}
 
 {% block content %}
+<div class="glass-chrome rounded-2xl px-5 py-3 mb-4 animate-slide-up" style="--animation-order: 0;">
+    <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full" style="background: var(--system-red);"></span>
+            <span class="w-3 h-3 rounded-full" style="background: var(--system-orange);"></span>
+            <span class="w-3 h-3 rounded-full" style="background: var(--system-green);"></span>
+        </div>
+        <p class="text-xs font-semibold tracking-wide text-secondary uppercase">PCB Detection Event</p>
+        <span class="text-xs text-tertiary">ID {{ log.id }}</span>
+    </div>
+</div>
+
 <div class="mb-5 animate-slide-up" style="--animation-order: 1;">
     <a href="{{ url_for('views.logs') }}" class="btn btn-secondary">
         <i class="fas fa-arrow-left mr-2"></i>Back to Logs
@@ -75,7 +87,7 @@
                     <div class="w-7 h-7 rounded-lg flex items-center justify-center mr-2.5" style="background: var(--system-blue-glass);">
                         <i class="fas fa-project-diagram text-sm" style="color: var(--system-blue);"></i>
                     </div>
-                    Analysis Pipeline Trace
+                    PCB Analysis Trace
                 </h3>
             </div>
             {% set decision = log.decision_details %}
@@ -88,6 +100,28 @@
                             <div>
                                 <p class="text-xs font-medium uppercase tracking-wide text-secondary">Classification</p>
                                 <p class="mt-1 text-base font-semibold text-primary">{{ decision.classification }}</p>
+                            </div>
+                            {% endif %}
+
+                            {% if decision.detected is defined %}
+                            <div>
+                                <p class="text-xs font-medium uppercase tracking-wide text-secondary">PCB Detected</p>
+                                <p class="mt-1 text-base font-semibold text-primary">
+                                    {% if decision.detected is sameas(true) %}
+                                        <i class="fas fa-check-circle mr-1" style="color: var(--system-green);"></i>Yes
+                                    {% elif decision.detected is sameas(false) %}
+                                        <i class="fas fa-times-circle mr-1" style="color: var(--system-red);"></i>No
+                                    {% else %}
+                                        {{ decision.detected }}
+                                    {% endif %}
+                                </p>
+                            </div>
+                            {% endif %}
+
+                            {% if decision.pcb_count is defined %}
+                            <div>
+                                <p class="text-xs font-medium uppercase tracking-wide text-secondary">PCB Count</p>
+                                <p class="mt-1 text-base font-semibold text-primary">{{ decision.pcb_count }}</p>
                             </div>
                             {% endif %}
 
@@ -128,6 +162,21 @@
                             <div>
                                 <p class="text-xs font-medium uppercase tracking-wide text-secondary">Confidence</p>
                                 <p class="mt-1 text-base font-semibold" style="color: var(--system-blue);">{{ conf_display }}</p>
+                            </div>
+                            {% endif %}
+
+                            {% if decision.should_alert is defined %}
+                            <div>
+                                <p class="text-xs font-medium uppercase tracking-wide text-secondary">Alert Trigger</p>
+                                <p class="mt-1 text-base font-semibold">
+                                    {% if decision.should_alert is sameas(true) %}
+                                        <span style="color: var(--system-orange);"><i class="fas fa-bell mr-1"></i>Yes</span>
+                                    {% elif decision.should_alert is sameas(false) %}
+                                        <span class="text-primary"><i class="fas fa-bell-slash mr-1 text-tertiary"></i>No</span>
+                                    {% else %}
+                                        <span class="text-primary">{{ decision.should_alert }}</span>
+                                    {% endif %}
+                                </p>
                             </div>
                             {% endif %}
                         </div>
@@ -194,7 +243,7 @@
                                         <summary class="cursor-pointer text-xs font-medium" style="color: var(--system-blue);">
                                             <i class="fas fa-code mr-1"></i>View Arguments
                                         </summary>
-                                        <pre class="mt-2 text-xs p-3 rounded-lg overflow-x-auto" style="background: #1e1e1e; color: #d4d4d4;">{{ tool.arguments | tojson(indent=2) }}</pre>
+                                        <pre class="mt-2 text-xs p-3 rounded-lg overflow-x-auto" style="background: var(--glass-dark-subtle); color: var(--text-on-glass); border: 0.5px solid var(--border-glass);">{{ tool.arguments | tojson(indent=2) }}</pre>
                                     </details>
                                     {% endif %}
                                 </div>
@@ -229,33 +278,18 @@
                     <details class="rounded-xl glass-ultra-thin">
                         <summary class="cursor-pointer px-4 py-3 font-semibold text-sm flex items-center text-primary">
                             <i class="fas fa-cog mr-2 text-tertiary"></i>
-                            Advanced Analysis Details
+                            PCB Runtime Details
                             <i class="fas fa-chevron-down ml-auto text-xs text-tertiary"></i>
                         </summary>
                         <div class="p-4 space-y-4" style="border-top: 0.5px solid var(--border-separator);">
-                            {% if decision.packaging_analysis %}
-                                {% set packaging = decision.packaging_analysis %}
+                            {% if decision.detected is defined or decision.pcb_count is defined or decision.should_alert is defined %}
                                 <div>
-                                    <p class="text-xs font-semibold uppercase tracking-wide mb-2 text-secondary">Classical Packaging Analysis</p>
+                                    <p class="text-xs font-semibold uppercase tracking-wide mb-2 text-secondary">PCB Decision Snapshot</p>
                                     <div class="p-3 rounded-lg text-sm glass-ultra-thin">
-                                        <p class="mb-2 text-primary">{{ packaging.summary if packaging.summary else packaging }}</p>
-                                        <div class="flex gap-4 text-xs text-tertiary">
-                                            <span>Confidence: {% if packaging.confidence is defined %}{{ '%.0f'|format((packaging.confidence or 0) * 100) }}%{% else %}n/a{% endif %}</span>
-                                            <span>Candidates: {{ packaging.candidate_count if packaging.candidate_count is defined else 'n/a' }}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            {% endif %}
-
-                            {% if decision.shipping_label_analysis %}
-                                {% set analysis = decision.shipping_label_analysis %}
-                                <div>
-                                    <p class="text-xs font-semibold uppercase tracking-wide mb-2 text-secondary">Local Label Analysis</p>
-                                    <div class="p-3 rounded-lg text-sm glass-ultra-thin">
-                                        <p class="mb-2 text-primary">{{ analysis.summary if analysis.summary else analysis }}</p>
-                                        <div class="flex gap-4 text-xs text-tertiary">
-                                            <span>Confidence: {% if analysis.presence_confidence is defined %}{{ '%.0f'|format((analysis.presence_confidence or 0) * 100) }}%{% else %}n/a{% endif %}</span>
-                                            <span>Candidates: {{ analysis.candidate_count if analysis.candidate_count is defined else 'n/a' }}</span>
+                                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-primary">
+                                            {% if decision.detected is defined %}<span>Detected: <strong>{{ decision.detected }}</strong></span>{% endif %}
+                                            {% if decision.pcb_count is defined %}<span>Count: <strong>{{ decision.pcb_count }}</strong></span>{% endif %}
+                                            {% if decision.should_alert is defined %}<span>Alert: <strong>{{ decision.should_alert }}</strong></span>{% endif %}
                                         </div>
                                     </div>
                                 </div>
@@ -264,11 +298,23 @@
                             {% if decision.tool_arguments %}
                                 <div>
                                     <p class="text-xs font-semibold uppercase tracking-wide mb-2 text-secondary">Tool Arguments</p>
-                                    <pre class="text-xs p-3 rounded-lg overflow-x-auto" style="background: #1e1e1e; color: #d4d4d4;">{{ decision.tool_arguments | tojson(indent=2) }}</pre>
+                                    <pre class="text-xs p-3 rounded-lg overflow-x-auto" style="background: var(--glass-dark-subtle); color: var(--text-on-glass); border: 0.5px solid var(--border-glass);">{{ decision.tool_arguments | tojson(indent=2) }}</pre>
                                 </div>
                             {% endif %}
 
-                            {% if decision.agent_similarity_snapshot %}
+                            {% if decision.ssim_skip %}
+                                {% set sim = decision.ssim_skip %}
+                                <div>
+                                    <p class="text-xs font-semibold uppercase tracking-wide mb-2 text-secondary">Frame Similarity (SSIM Skip)</p>
+                                    <div class="p-3 rounded-lg text-xs glass-ultra-thin">
+                                        <div class="flex gap-4 text-primary">
+                                            {% if sim.score is defined %}<span>Score: {{ sim.score }}</span>{% endif %}
+                                            {% if sim.threshold is defined %}<span>Threshold: {{ sim.threshold }}</span>{% endif %}
+                                            {% if sim.window_seconds is defined %}<span>Window: {{ sim.window_seconds }}s</span>{% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            {% elif decision.agent_similarity_snapshot %}
                                 {% set sim = decision.agent_similarity_snapshot %}
                                 <div>
                                     <p class="text-xs font-semibold uppercase tracking-wide mb-2 text-secondary">Frame Similarity</p>
@@ -287,7 +333,7 @@
                             {% if decision.raw %}
                                 <div>
                                     <p class="text-xs font-semibold uppercase tracking-wide mb-2 text-secondary">Raw Decision Data</p>
-                                    <pre class="text-xs p-3 rounded-lg overflow-x-auto" style="background: #1e1e1e; color: #d4d4d4;">{{ decision.raw }}</pre>
+                                    <pre class="text-xs p-3 rounded-lg overflow-x-auto" style="background: var(--glass-dark-subtle); color: var(--text-on-glass); border: 0.5px solid var(--border-glass);">{{ decision.raw }}</pre>
                                 </div>
                             {% endif %}
                         </div>

@@ -1,6 +1,6 @@
 """Camera feed API endpoints."""
 
-# pylint: disable=broad-exception-caught,logging-fstring-interpolation,R0401
+# pylint: disable=broad-exception-caught,logging-fstring-interpolation,cyclic-import
 
 import threading
 import time

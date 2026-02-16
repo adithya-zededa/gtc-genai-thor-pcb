@@ -9,11 +9,9 @@ from __future__ import annotations
 import copy
 import logging
 import os
-import threading
 import time
 from dataclasses import asdict
 from datetime import datetime
-from enum import Enum, auto
 from pathlib import Path
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
@@ -25,9 +23,13 @@ from core.logging import get_logger
 from core.utils import coerce_bool
 from agents.core.state import AgentMemory, DetectionEvent
 from agents.core.alerting import AlertManager
+from agents.core.resilience import CircuitBreaker, CircuitState
 
 if TYPE_CHECKING:
     from agents.vlm import UnifiedVLMClient, DetectionResult, TaskType  # noqa: F401
+
+# pylint: disable=no-member
+# cv2 attributes are dynamically generated and not visible to pylint
 
 try:
     from skimage.metrics import structural_similarity
@@ -46,98 +48,14 @@ __all__ = [
 ]
 
 
-class CircuitState(Enum):
-    """States for the circuit breaker."""
-    CLOSED = auto()
-    OPEN = auto()
-    HALF_OPEN = auto()
-
-
-class CircuitBreaker:
-    """Circuit breaker pattern for resilience.
-    
-    Protects against cascading failures by temporarily blocking calls
-    to a failing service.
-    """
-    
-    def __init__(self, failure_threshold: int = 5, recovery_timeout: float = 120.0):
-        self.state = CircuitState.CLOSED
-        self.failure_count = 0
-        self.failure_threshold = failure_threshold
-        self.recovery_timeout = recovery_timeout
-        self.last_failure_time = 0.0
-        self.total_calls = 0
-        self.successful_calls = 0
-        self._lock = threading.Lock()
-
-    @property
-    def is_open(self) -> bool:
-        """Check if circuit is currently open."""
-        with self._lock:
-            return self.state == CircuitState.OPEN
-
-    def get_stats(self) -> Dict[str, Any]:
-        """Get circuit breaker statistics."""
-        with self._lock:
-            return {
-                "state": self.state.name,
-                "failure_count": self.failure_count,
-                "failure_threshold": self.failure_threshold,
-                "total_calls": self.total_calls,
-                "successful_calls": self.successful_calls,
-                "success_rate": (
-                    round(self.successful_calls / self.total_calls * 100, 2)
-                    if self.total_calls > 0 else 0.0
-                ),
-            }
-
-    def reset(self) -> None:
-        """Manually reset the circuit breaker to closed state."""
-        with self._lock:
-            self.state = CircuitState.CLOSED
-            self.failure_count = 0
-            logger.info("Circuit breaker manually reset to CLOSED")
-
-    def call(self, func, *args, **kwargs):
-        """Execute a function with circuit breaker protection."""
-        with self._lock:
-            self.total_calls += 1
-            if self.state == CircuitState.OPEN:
-                if time.time() - self.last_failure_time > self.recovery_timeout:
-                    self.state = CircuitState.HALF_OPEN
-                    logger.info("Circuit breaker entering HALF-OPEN state")
-                else:
-                    raise RuntimeError("Circuit is OPEN")
-
-        try:
-            result = func(*args, **kwargs)
-            with self._lock:
-                self.successful_calls += 1
-                if self.state != CircuitState.CLOSED:
-                    logger.info("Circuit breaker recovering to CLOSED state")
-                    self.state = CircuitState.CLOSED
-                    self.failure_count = 0
-            return result
-        except Exception as e:
-            with self._lock:
-                self.failure_count += 1
-                self.last_failure_time = time.time()
-                if self.state == CircuitState.HALF_OPEN or self.failure_count >= self.failure_threshold:
-                    self.state = CircuitState.OPEN
-                    logger.warning(
-                        f"Circuit breaker tripped to OPEN (failures: {self.failure_count}). Error: {e}"
-                    )
-            raise
-
-
-class StreamlinedAgent:
+class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
     """
     Streamlined PCB inspection agent using a single Vision Language Model.
-    
+
     This agent uses a VLM for all scene understanding and decision-making,
     providing flexible multi-purpose analysis without specialized object detectors.
     """
-    
+
     def __init__(
         self,
         config: Dict[str, Any],
@@ -148,7 +66,7 @@ class StreamlinedAgent:
         self.vlm_client = vlm_client
         self.circuit_breaker = circuit_breaker or CircuitBreaker()
         self.last_error: Optional[str] = None
-        
+
         # Initialize memory
         memory_cfg = config.get("memory", {})
         self._memory_max_events = max(1, int(memory_cfg.get("max_events", 50)))
@@ -157,10 +75,10 @@ class StreamlinedAgent:
             max_events=self._memory_max_events,
             summary_window=self._memory_summary_window,
         )
-        
+
         # Initialize alert manager
         self.alert_manager = AlertManager(config)
-        
+
         # SSIM caching for efficiency
         self._ssim_threshold = 0.95
         self._ssim_recheck_seconds = 30.0
@@ -168,11 +86,11 @@ class StreamlinedAgent:
         self._last_similarity_frame: Optional[np.ndarray] = None
         self._last_analysis_time = 0.0
         self._ssim_reference_size = (320, 240)
-        
+
         # Image saving config
         camera_cfg = config.get("camera", {})
         self.save_images = coerce_bool(camera_cfg.get("save_detection_images"), False)
-        
+
         # Resolve images directory: prefer DETECTED_IMAGES_DIR env var, fall back to config
         env_images_dir = os.getenv("DETECTED_IMAGES_DIR")
         if env_images_dir:
@@ -186,10 +104,10 @@ class StreamlinedAgent:
                 self.images_dir = data_dir / images_path
             else:
                 self.images_dir = images_path
-        
+
         if self.save_images:
             self.images_dir.mkdir(parents=True, exist_ok=True)
-        
+
         logger.info("StreamlinedAgent initialized with unified VLM")
 
     def _save_detection_image(self, frame: np.ndarray, result) -> str:
@@ -199,13 +117,13 @@ class StreamlinedAgent:
             readiness_status = "ready" if getattr(result, 'pcb_stable', False) else "not_ready"
             filename = f"detection_{timestamp}_{readiness_status}.jpg"
             filepath = self.images_dir / filename
-            
+
             cv2.imwrite(str(filepath), frame)
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Saved detection image: %s", filepath)
             return str(filepath)
-        except Exception as e:
-            logger.error(f"Failed to save detection image: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Failed to save detection image: %s", e)
             return ""
 
     @classmethod
@@ -230,25 +148,25 @@ class StreamlinedAgent:
 
     def _make_similarity_reference(self, frame: np.ndarray) -> Optional[np.ndarray]:
         """Create a grayscale reference for similarity comparison.
-        
+
         Performance: Downscaled to 320x240 for faster comparison.
         """
         try:
             resized = cv2.resize(frame, self._ssim_reference_size)
             return cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
             return None
-    
+
     def _fast_similarity(self, ref: np.ndarray, current: np.ndarray) -> float:
         """Fast similarity calculation using template matching.
-        
+
         Alternative to SSIM that's 20% faster and doesn't require scikit-image.
         Returns normalized correlation coefficient [0.0, 1.0].
         """
         try:
             result = cv2.matchTemplate(ref, current, cv2.TM_CCOEFF_NORMED)
             return float(result[0][0])
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
             return 0.0
 
     def _check_ssim_skip(
@@ -257,23 +175,23 @@ class StreamlinedAgent:
         current_time: float,
     ) -> tuple[bool, Optional[DetectionEvent]]:
         """Check if we can skip analysis due to scene similarity.
-        
+
         Uses either SSIM (if scikit-image available) or fast template matching.
         Performance: 20% faster with template matching, no external dependency.
         """
         if self._last_similarity_frame is None or self._last_processed_event is None:
             return False, None
-        
+
         # Check time since last analysis
         time_since_last = current_time - self._last_analysis_time
         if time_since_last > self._ssim_recheck_seconds:
             return False, None
-        
+
         # Compare frames
         current_ref = self._make_similarity_reference(frame)
         if current_ref is None:
             return False, None
-        
+
         try:
             # Try SSIM first if available, otherwise use fast template matching
             if structural_similarity is not None:
@@ -287,7 +205,7 @@ class StreamlinedAgent:
             else:
                 # Fallback to fast template matching (20% faster)
                 similarity = self._fast_similarity(self._last_similarity_frame, current_ref)
-            
+
             if similarity >= self._ssim_threshold:
                 # Reuse previous event
                 reused = copy.deepcopy(self._last_processed_event)
@@ -301,10 +219,10 @@ class StreamlinedAgent:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug("♻️ SSIM skip: similarity=%.3f", similarity)
                 return True, reused
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("SSIM comparison failed: %s", e)
-        
+
         return False, None
 
     def _run_vlm_analysis(
@@ -315,7 +233,7 @@ class StreamlinedAgent:
     ) -> Optional["DetectionResult"]:
         """Run the unified VLM for detection and decision with retry logic."""
         last_error = None
-        
+
         for attempt in range(max_retries + 1):
             try:
                 result = self.circuit_breaker.call(
@@ -332,7 +250,7 @@ class StreamlinedAgent:
                     )
                     return None  # Don't retry if circuit is open
                 last_error = e
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-exception-caught
                 last_error = e
                 if attempt < max_retries:
                     logger.warning(
@@ -340,48 +258,50 @@ class StreamlinedAgent:
                         attempt + 1, max_retries + 1, e
                     )
                     time.sleep(0.5 * (attempt + 1))  # Exponential backoff
-        
+
         if last_error:
-            logger.error(f"VLM analysis failed after {max_retries + 1} attempts: {last_error}")
+            logger.error(
+                "VLM analysis failed after %d attempts: %s",
+                max_retries + 1, last_error
+            )
             self.last_error = str(last_error)
         return None
 
-    def analyze_frame(
+    def analyze_frame(  # pylint: disable=broad-exception-caught
         self,
         frame: np.ndarray,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Optional[DetectionEvent]:
         """
         Analyze a frame using VLM-only pipeline.
-        
+
         Pipeline:
         1. SSIM check - skip if scene hasn't changed
         2. VLM analysis - vision + decision
         3. Create detection event
         """
         metadata = metadata or {}
-        analysis_start = time.time()
-        
+
         # 1. SSIM skip check
-        should_skip, cached_event = self._check_ssim_skip(frame, analysis_start)
+        should_skip, cached_event = self._check_ssim_skip(frame, time.time())
         if should_skip and cached_event:
             self._remember_event(cached_event, source="ssim_skip")
             return cached_event
-        
+
         # 2. VLM Analysis (no RF-DETR pre-filtering)
         cv_context = {}  # No pre-detection context needed
-        
+
         vlm_result = self._run_vlm_analysis(frame, cv_context)
-        
+
         if vlm_result is None:
             logger.warning("VLM analysis returned None")
             return None
-        
+
         # 3. Create detection event
         image_path = ""
         if self.save_images:
             image_path = self._save_detection_image(frame, vlm_result)
-        
+
         # Derive the event label from VLM reasoning instead of hardcoding.
         primary_label = "no_detection"
         if vlm_result.detected:
@@ -408,13 +328,13 @@ class StreamlinedAgent:
                 "should_alert": vlm_result.should_alert,
             },
         )
-        
+
         # Update cache
         self._last_similarity_frame = self._make_similarity_reference(frame)
         self._last_processed_event = event
-        self._last_analysis_time = analysis_start
+        self._last_analysis_time = time.time()
         self._remember_event(event, source="unified_vlm")
-        
+
         # Log result
         if vlm_result.should_alert:
             logger.info(
@@ -426,7 +346,7 @@ class StreamlinedAgent:
                 "🟢 PCB detected without defect trigger (confidence: %.2f)",
                 vlm_result.confidence
             )
-        
+
         return event
 
     def analyze_with_prompt(
@@ -438,8 +358,7 @@ class StreamlinedAgent:
     ) -> Optional[DetectionEvent]:
         """Analyze a frame with a specific task type and custom prompt."""
         metadata = metadata or {}
-        analysis_start = time.time()
-        
+
         try:
             result = self.circuit_breaker.call(
                 self.vlm_client.analyze,
@@ -448,18 +367,18 @@ class StreamlinedAgent:
                 user_query=custom_prompt or None,
                 cv_context=None,
             )
-            
+
             if result is None:
                 return None
-            
+
             # Use task_type value directly as the label
             primary_label = task_type.value if result.detected else "no_detection"
-            
+
             # Save detection image if enabled
             image_path = ""
             if self.save_images:
                 image_path = self._save_detection_image(frame, result)
-            
+
             event = DetectionEvent(
                 timestamp=datetime.now().isoformat(),
                 detected=result.detected,
@@ -482,9 +401,9 @@ class StreamlinedAgent:
                     "details": result.details if hasattr(result, 'details') else {},
                 },
             )
-            
+
             self._remember_event(event, source=f"{task_type.value}_vlm")
-            
+
             if result.should_alert:
                 logger.info(
                     "🔔 %s ALERT: %s (Confidence: %.2f)",
@@ -492,14 +411,14 @@ class StreamlinedAgent:
                     result.reasoning[:50] if result.reasoning else "Alert triggered",
                     result.confidence
                 )
-            
+
             return event
-            
-        except Exception as e:
-            logger.error(f"Analysis failed for {task_type.value}: {e}")
+
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Analysis failed for %s: %s", task_type.value, e)
             return None
 
-    def analyze_agentic(
+    def analyze_agentic(  # pylint: disable=too-many-locals
         self,
         frame: np.ndarray,
         task_type: Optional["TaskType"] = None,
@@ -507,28 +426,28 @@ class StreamlinedAgent:
         recipients: Optional[list] = None,
     ) -> Optional[DetectionEvent]:
         """Analyze frame with agentic tool calling."""
-        from agents.vlm import TaskType as TT
-        from agents.tools import ToolExecutor
-        
+        from agents.vlm import TaskType as TT  # pylint: disable=import-outside-toplevel
+        from agents.tools import ToolExecutor  # pylint: disable=import-outside-toplevel
+
         if self.circuit_breaker.is_open:
             logger.warning("Circuit breaker is open - skipping agentic analysis")
             return None
-        
+
         effective_task_type = task_type or TT.CUSTOM
-        
+
         # Get recipients from config if not provided
         if recipients is None:
             email_cfg = self.config.get("notifications", {}).get("email", {})
             recipients = email_cfg.get("recipients", [])
-        
+
         # Create tool executor with current context
         tool_executor = ToolExecutor()
-        
+
         try:
             # Encode frame for tool context
             _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
-            image_bytes = buffer.tobytes()
-            
+            _ = buffer.tobytes()  # Result not used directly but validates encoding
+
             # Run agentic analysis
             agentic_result = self.vlm_client.analyze_with_tools(
                 frame=frame,
@@ -537,17 +456,17 @@ class StreamlinedAgent:
                 user_query=custom_prompt,
                 recipients=recipients,
             )
-            
+
             if agentic_result is None or agentic_result.analysis is None:
                 logger.warning("Agentic analysis returned no result")
                 return None
-            
+
             analysis = agentic_result.analysis
-            
+
             # Build tool trace from results
             tool_trace = []
             for i, (call, result) in enumerate(zip(
-                agentic_result.tool_calls, 
+                agentic_result.tool_calls,
                 agentic_result.tool_results
             )):
                 tool_trace.append({
@@ -557,12 +476,12 @@ class StreamlinedAgent:
                     "success": result.get("success", False),
                     "result": result.get("result", {}),
                 })
-            
+
             # Save detection image if enabled
             image_path = ""
             if self.save_images:
                 image_path = self._save_detection_image(frame, analysis)
-            
+
             # Create detection event
             event = DetectionEvent(
                 timestamp=datetime.now().isoformat(),
@@ -586,46 +505,46 @@ class StreamlinedAgent:
                     "all_tools_succeeded": agentic_result.all_tools_succeeded,
                 },
             )
-            
+
             self._remember_event(event, source="agentic")
-            
+
             if agentic_result.any_tools_called:
                 logger.info(
                     "🤖 Agentic analysis called %d tools: %s",
                     len(agentic_result.tool_calls),
                     ", ".join(agentic_result.tools_used)
                 )
-            
+
             return event
-            
-        except Exception as e:
-            logger.error(f"Agentic analysis failed: {e}")
+
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Agentic analysis failed: %s", e)
             return None
 
     def process_detection(
-        self, 
+        self,
         event: DetectionEvent,
         image_data: bytes | None = None,
     ) -> bool:
         """Process detection event and send alerts if needed."""
         if not event.should_alert:
             return False
-        
-        logger.info(f"Processing alert: {event.primary_label}")
+
+        logger.info("Processing alert: %s", event.primary_label)
         alerts_sent = 0
-        
+
         # Process rules
         for rule in self.config.get("rules", []):
             if not rule.get("enabled", True):
                 continue
             if self.alert_manager.send_email_alert(event, rule, image_data=image_data):
                 alerts_sent += 1
-        
+
         # Desktop notification
         if self.config.get("notifications", {}).get("desktop", {}).get("enabled"):
             if self.alert_manager.send_desktop_notification(event):
                 alerts_sent += 1
-        
+
         return alerts_sent > 0
 
     def _remember_event(self, event: DetectionEvent, source: str = "analysis") -> None:
@@ -653,11 +572,11 @@ class StreamlinedAgent:
         """Apply updated configuration."""
         self.config = updated_config
         self.alert_manager.refresh_config(updated_config)
-        
+
         # Update memory settings
         memory_cfg = updated_config.get("memory", {})
         new_max = max(1, int(memory_cfg.get("max_events", 50)))
         new_window = max(1, int(memory_cfg.get("summary_window", 10)))
         self._agent_memory.resize(new_max, new_window)
-        
+
         logger.info("Configuration updated")

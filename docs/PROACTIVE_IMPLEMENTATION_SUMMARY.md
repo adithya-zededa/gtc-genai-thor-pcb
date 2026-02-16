@@ -92,7 +92,7 @@ inspected_signatures = {
 ### Core Components
 
 #### 1. Enhanced ProactiveMonitoringAgent
-**File:** [`agents/core/proactive_agent.py`](../agents/core/proactive_agent.py)
+**File:** [`agents/core/proactive_monitoring.py`](../agents/core/proactive_monitoring.py)
 
 **Features:**
 - Continuous monitoring loop
@@ -396,7 +396,7 @@ proactive:
 
 ### For Developers
 
-1. **Review Code:** Start with [`agents/core/proactive_agent.py`](../agents/core/proactive_agent.py)
+1. **Review Code:** Start with [`agents/core/proactive_monitoring.py`](../agents/core/proactive_monitoring.py)
 2. **Study Prompts:** Examine [`agents/vlm/prompts.py`](../agents/vlm/prompts.py)
 3. **Run Tests:** Execute test suite for validation
 4. **Extend:** Add custom task types or analysis modes

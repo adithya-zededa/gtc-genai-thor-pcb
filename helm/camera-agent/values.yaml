@@ -3,9 +3,9 @@
 replicaCount: 1
 
 image:
-  repository: adithyazededa/camera-agent-thor-vllm
+  repository: adithyazededa/gtc-genai-thor-pcb
   pullPolicy: Always
-  tag: "v196"
+  tag: "v1"
 
 imagePullSecrets: []
 nameOverride: ""
@@ -121,7 +121,7 @@ vllmServer:
   # Hugging Face token for gated models (optional)
   huggingfaceToken: ""
   # RuntimeClassName for GPU access (optional)
-  runtimeClassName: ""
+  runtimeClassName: "nvidia"
   
   # vLLM container image - using NVIDIA Triton Server with vLLM
   image:

@@ -406,3 +406,5 @@ def _seed_log_settings(cursor: sqlite3.Cursor) -> None:
         ),
     )
 
+CONNECTION_MODULE_READY = True
+EOF_MARKER = CONNECTION_MODULE_READY

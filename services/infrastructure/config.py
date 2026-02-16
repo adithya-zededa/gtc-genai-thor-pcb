@@ -46,7 +46,7 @@ def save_camera_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
 
 def reset_camera_config() -> Dict[str, Any]:
     """Reset the configuration to defaults and persist the change."""
-    from agents.core.camera_agent import StreamlinedAgent
+    from agents.core.detection_agent import StreamlinedAgent
     
     defaults = StreamlinedAgent.default_config()
     save_camera_config(defaults)

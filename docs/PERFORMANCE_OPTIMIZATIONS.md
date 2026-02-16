@@ -117,7 +117,7 @@ result2 = future2.result()
 ### 5. Lazy Logging Optimization ⭐⭐ (MEDIUM)
 
 **Files Modified:**
-- `agents/core/camera_agent.py`
+- `agents/core/detection_agent.py`
 - `agents/vlm/client.py`
 - `services/core/camera.py`
 - `router/llm_router.py`
@@ -246,7 +246,7 @@ for subscriber in subscribers_copy:
 ### 10. SSIM Calculation Optimization ⭐ (LOW)
 
 **Files Modified:**
-- `agents/core/camera_agent.py`
+- `agents/core/detection_agent.py`
 
 **Changes:**
 - Added `_fast_similarity()` using cv2.matchTemplate

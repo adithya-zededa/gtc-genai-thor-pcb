@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import logging
-import mimetypes
 import os
 import smtplib
 from email.message import EmailMessage
-from pathlib import Path
 from typing import Any, Dict, TYPE_CHECKING
 
 from core.utils import coerce_bool
@@ -30,21 +27,39 @@ class AlertManager:
     def __init__(self, config: Dict[str, Any]) -> None:
         """Initialize the alert manager."""
         self.config = config
-        notifications = config.get("notifications", {}) if isinstance(config, dict) else {}
-        self.email_config: Dict[str, Any] = notifications.get("email", {}) if isinstance(notifications, dict) else {}
-        self.desktop_config: Dict[str, Any] = notifications.get("desktop", {}) if isinstance(notifications, dict) else {}
+        notifications = (
+            config.get("notifications", {})
+            if isinstance(config, dict) else {}
+        )
+        self.email_config: Dict[str, Any] = (
+            notifications.get("email", {})
+            if isinstance(notifications, dict) else {}
+        )
+        self.desktop_config: Dict[str, Any] = (
+            notifications.get("desktop", {})
+            if isinstance(notifications, dict) else {}
+        )
         logger.info("Alert manager initialized")
 
     def refresh_config(self, config: Dict[str, Any]) -> None:
         """Refresh configuration."""
         self.config = config
-        notifications = config.get("notifications", {}) if isinstance(config, dict) else {}
-        self.email_config = notifications.get("email", {}) if isinstance(notifications, dict) else {}
-        self.desktop_config = notifications.get("desktop", {}) if isinstance(notifications, dict) else {}
+        notifications = (
+            config.get("notifications", {})
+            if isinstance(config, dict) else {}
+        )
+        self.email_config = (
+            notifications.get("email", {})
+            if isinstance(notifications, dict) else {}
+        )
+        self.desktop_config = (
+            notifications.get("desktop", {})
+            if isinstance(notifications, dict) else {}
+        )
 
-    def send_email_alert(
-        self, 
-        event: "DetectionEvent", 
+    def send_email_alert(  # pylint: disable=too-many-locals,too-many-return-statements
+        self,
+        event: "DetectionEvent",
         rule: Dict[str, Any],
         image_data: bytes | None = None,
     ) -> bool:
@@ -55,19 +70,37 @@ class AlertManager:
 
         try:
             msg = EmailMessage()
-            actions_email = rule.get("actions", {}).get("email") if isinstance(rule.get("actions"), dict) else None
-            legacy_email = rule.get("email", {}) if isinstance(rule.get("email"), dict) else {}
-            email_action = actions_email if actions_email is not None else legacy_email
+            actions_email = (
+                rule.get("actions", {}).get("email")
+                if isinstance(rule.get("actions"), dict) else None
+            )
+            legacy_email = (
+                rule.get("email", {})
+                if isinstance(rule.get("email"), dict) else {}
+            )
+            email_action = (
+                actions_email if actions_email is not None else legacy_email
+            )
 
             if not email_action:
                 logger.warning("Rule missing email configuration")
                 return False
 
-            if not coerce_bool(email_action.get("enabled"), coerce_bool(legacy_email.get("enabled"), True)):
+            enabled = coerce_bool(
+                email_action.get("enabled"),
+                coerce_bool(legacy_email.get("enabled"), True)
+            )
+            if not enabled:
                 return False
 
-            subject_template = email_action.get("subject") or legacy_email.get("subject") or "PCB Inspection Alert"
-            body_template = email_action.get("body") or legacy_email.get("body") or "A PCB inspection alert condition was detected."
+            subject_template = (
+                email_action.get("subject") or legacy_email.get("subject")
+                or "PCB Inspection Alert"
+            )
+            body_template = (
+                email_action.get("body") or legacy_email.get("body")
+                or "A PCB inspection alert condition was detected."
+            )
 
             template_vars = {
                 "timestamp": event.timestamp,
@@ -76,9 +109,8 @@ class AlertManager:
                 "full_response": event.full_response,
                 "device": f"/dev/video{os.getenv('CAMERA_INDEX', '0')}",
                 "pcb_stable": (
-                    "yes" if event.pcb_stable else (
-                        "no" if event.pcb_stable is not None else "unknown"
-                    )
+                    "yes" if event.pcb_stable
+                    else ("no" if event.pcb_stable is not None else "unknown")
                 ),
                 "should_alert": str(event.should_alert).lower(),
             }
@@ -104,7 +136,8 @@ class AlertManager:
             msg["From"] = os.getenv("EMAIL_FROM", sender_email)
 
             recipients = (
-                email_action.get("to") or legacy_email.get("to") or self.email_config.get("recipients")
+                email_action.get("to") or legacy_email.get("to")
+                or self.email_config.get("recipients")
             )
             if not recipients:
                 logger.warning("No email recipients configured")
@@ -129,16 +162,17 @@ class AlertManager:
             smtp_port = int(os.getenv("EMAIL_SMTP_PORT", "587"))
 
             with smtplib.SMTP(smtp_server, smtp_port, timeout=30) as server:
-                if os.getenv("EMAIL_USE_TLS", "true").lower() in {"1", "true", "yes"}:
+                use_tls = os.getenv("EMAIL_USE_TLS", "true").lower()
+                if use_tls in {"1", "true", "yes"}:
                     server.starttls()
                 server.login(sender_email, sender_password)
                 server.send_message(msg)
 
-            logger.info(f"Email alert sent to {recipients}")
+            logger.info("Email alert sent to %s", recipients)
             return True
 
-        except Exception as e:
-            logger.error(f"Failed to send email alert: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Failed to send email alert: %s", e)
             return False
 
     def send_desktop_notification(self, event: "DetectionEvent") -> bool:
@@ -151,12 +185,16 @@ class AlertManager:
             return False
 
         try:
+            message = (
+                f"Detection: {event.primary_label} "
+                f"(Confidence: {event.confidence:.2%})"
+            )
             plyer_notification.notify(
                 title="Camera Agent Alert",
-                message=f"Detection: {event.primary_label} (Confidence: {event.confidence:.2%})",
+                message=message,
                 timeout=10,
             )
             return True
-        except Exception as e:
-            logger.error(f"Desktop notification failed: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Desktop notification failed: %s", e)
             return False

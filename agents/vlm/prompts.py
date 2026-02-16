@@ -171,13 +171,11 @@ Think through these questions:
    - Do we need more information (quick_check)?
    - Should we wait for better conditions?
 
-DECISION PRINCIPLES (not rigid rules, but intelligent guidelines):
-- Empty or unchanged scenes → typically wait
-- PCB entering or in motion → typically wait or quick_check
-- PCB stable and ready, not recently inspected → consider full_inspection
-- PCB stable but already inspected → typically wait
-- Scene changes after previous inspection → may warrant re-inspection
-- Consider efficiency: avoid redundant analysis, but don't miss important moments
+RUNTIME ENFORCEMENT (NON-NEGOTIABLE):
+- Workflow control is enforced by deterministic conveyor FSM code, not this prompt
+- You cannot start inspections, control timing, or emit events
+- 10-second deadlines, one-board-one-decision, and motion/zone gating are hard runtime constraints
+- Any action output here is advisory and may be ignored if FSM state disallows it
 
 SCOPE CONSTRAINT (MANDATORY):
 - If the instruction is not about PCB manufacturing defects, you MUST refuse.
@@ -203,8 +201,7 @@ OUTPUT SCHEMA (JSON only, no other text):
   "should_emit_event": true | false
 }}
 
-CRITICAL: Base your decision on reasoning and context, NOT on hardcoded rules or thresholds.
-You are an intelligent agent, not a rule-based system.
+CRITICAL: Provide analysis guidance only. Runtime state transitions and final event emission are enforced in code.
   """
 
 

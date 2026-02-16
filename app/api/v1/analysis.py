@@ -438,7 +438,8 @@ def analyze_uploaded_image():
             if use_agentic is None:
                 use_agentic = False
 
-            from agents.core.camera_agent import CircuitBreaker, StreamlinedAgent
+            from agents.core.detection_agent import StreamlinedAgent
+            from agents.core.resilience import CircuitBreaker
 
             circuit_breaker = CircuitBreaker(
                 failure_threshold=5, recovery_timeout=120.0

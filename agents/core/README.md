@@ -4,7 +4,7 @@ This directory contains the core agent implementations for the camera monitoring
 
 ## Modules
 
-### `proactive_agent.py` - Intelligent Proactive Monitoring Agent
+### `proactive_monitoring.py` - Proactive Monitoring Agent
 
 **Purpose:** LLM-driven, context-aware camera monitoring that decides autonomously when and how to analyze frames.
 
@@ -24,9 +24,9 @@ The main intelligent monitoring agent.
 
 **Initialization:**
 ```python
-from agents.core.proactive_agent import ProactiveMonitoringAgent
+from agents.core.proactive_monitoring import ProactiveMonitoringAgent
 from agents.vlm.client import UnifiedVLMClient
-from agents.core.camera_agent import StreamlinedAgent
+from agents.core.detection_agent import StreamlinedAgent
 
 agent = ProactiveMonitoringAgent(
     instruction="Monitor the conveyor for PCB defects",
@@ -163,7 +163,7 @@ agent.update_instruction("Monitor for PCB defects instead")
 agent.stop()
 ```
 
-### `camera_agent.py` - Streamlined Detection Agent
+### `detection_agent.py` - Streamlined Detection Agent
 
 **Purpose:** Executes vision analysis tasks used by monitoring workflows.
 
@@ -171,7 +171,18 @@ Used by the ProactiveMonitoringAgent to run full inspections when the LLM decide
 
 **Key Classes:**
 - `StreamlinedAgent` - Main detection agent
+
+### `resilience.py` - Resilience Primitives
+
+**Purpose:** Keeps fault-tolerance concerns separate from analysis concerns.
+
+**Key Classes:**
 - `CircuitBreaker` - Resilience pattern for VLM failures
+- `CircuitState` - Circuit breaker state enum
+
+### `conveyor_inspection_fsm.py` - Conveyor Inspection FSM
+
+**Purpose:** Deterministic conveyor-state control and one-board/one-decision guarantees.
 
 ### `state.py` - State Management
 

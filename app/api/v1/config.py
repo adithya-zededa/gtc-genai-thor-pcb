@@ -107,7 +107,7 @@ def config():
 @api_bp.route("/config/defaults", methods=["GET"])
 def config_defaults():
     """Return the default configuration without persisting it."""
-    from agents.core.camera_agent import StreamlinedAgent
+    from agents.core.detection_agent import StreamlinedAgent
 
     defaults = StreamlinedAgent.default_config()
     sanitized = sanitize_config_payload(defaults)
