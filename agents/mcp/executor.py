@@ -98,7 +98,10 @@ class MCPExecutor(BaseDomainExecutor):
         if service:
             if not service.agent:
                 service.initialize()
-            service.start_monitoring()
+            service.start_monitoring(
+                mode="auto",
+                instruction=str(args.get("description", "") or ""),
+            )
 
         self.audit_log.log(AuditLogEntry.create(
             event_type=AuditEventType.SESSION_STARTED,
@@ -123,7 +126,7 @@ class MCPExecutor(BaseDomainExecutor):
                 return {"success": False, "message": "No active session"}
 
             service = get_monitoring_service()
-            if service and service.is_monitoring:
+            if service and service.get_active_monitoring_mode() != "idle":
                 service.stop_monitoring()
 
             if self.state_machine.state == AgentState.MONITORING:
@@ -180,7 +183,10 @@ class MCPExecutor(BaseDomainExecutor):
             "state": self.state_machine.state.value,
             "state_machine": self.state_machine.get_status(),
             "session": self._current_session.to_dict() if self._current_session else None,
-            "monitoring_active": service.is_monitoring if service else False,
+            "monitoring_active": (
+                service.get_active_monitoring_mode() != "idle"
+                if service else False
+            ),
             "stats": service._serialize_stats() if service and hasattr(service, '_serialize_stats') else {},
             "metrics": self.audit_log.get_metrics(),
         }
@@ -239,7 +245,7 @@ class MCPExecutor(BaseDomainExecutor):
         from services.core.monitoring import get_monitoring_service
 
         service = get_monitoring_service()
-        if service and service.is_monitoring:
+        if service and service.get_active_monitoring_mode() != "idle":
             service.stop_monitoring()
 
         self.state_machine.transition_to(AgentState.IDLE, "go_idle")
@@ -268,8 +274,23 @@ class MCPExecutor(BaseDomainExecutor):
 
     def _handle_send_alert_email(self, args: Dict[str, Any]) -> Dict[str, Any]:
         from agents.tools.base import _tool_send_alert_email
+        from .email_arg_utils import default_recipients
+
+        recipients = args.get("recipients")
+        if not isinstance(recipients, list) or not recipients:
+            recipients = default_recipients()
+
+        if not recipients:
+            return {
+                "success": False,
+                "message": (
+                    "No email recipients provided and no default recipients are configured. "
+                    "Add recipients in notification settings or include them in the alert request."
+                ),
+            }
+
         return _tool_send_alert_email(
-            recipients=args.get("recipients", []),
+            recipients=recipients,
             subject=args.get("subject", "Alert"),
             body=args.get("body", ""),
             priority=args.get("priority", "normal"),

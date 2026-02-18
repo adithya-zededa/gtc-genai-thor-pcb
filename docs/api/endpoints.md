@@ -135,9 +135,68 @@ Routes below are mounted at root (`/`) in `app/views/__init__.py`.
 
 Socket.IO events are handled in `app/websocket/chat.py`.
 
+### Chat lifecycle and control
+
 | Event | Direction | Description |
 | --- | --- | --- |
-| `chat_message` | client → server | User chat message for the agent |
-| `chat_response` | server → client | Agent response |
-| `frame_update` | server → client | Live camera frame (base64 JPEG) |
-| `status_update` | server → client | Monitoring status update |
+| `chat_connect` | client → server | Optional explicit chat init (fallback to auto-init on socket connect) |
+| `chat_disconnect` | client → server | Explicitly end chat session |
+| `chat_connected` | server → client | Session bootstrap payload (agent state, tools, history, metrics) |
+| `chat_error` | server → client | Chat/session initialization or runtime error |
+
+### Conversation and proposal workflow
+
+| Event | Direction | Description |
+| --- | --- | --- |
+| `chat_message` | client → server | Submit user chat input |
+| `chat_message` | server → client | Echo user/assistant/tool messages with updated state |
+| `approve_proposal` | client → server | Approve pending proposal for execution |
+| `reject_proposal` | client → server | Reject pending proposal |
+| `tool_confirmation_required` | server → client | Proposal requires user approval in UI |
+| `proposal_result` | server → client | Final result after approval/rejection path |
+| `proposal_error` | server → client | Proposal command validation error |
+| `agent_activity` | server → client | Real-time activity chips (in-progress/completed/failed) |
+| `agent_state_changed` | server → client | Broadcast state transition + available tools/metrics |
+
+### Conversation utility queries
+
+| Event | Direction | Description |
+| --- | --- | --- |
+| `get_conversation_history` | client → server | Request chat history |
+| `conversation_history` | server → client | Returns stored chat messages |
+| `clear_conversation` | client → server | Clear chat history for session/client |
+| `conversation_cleared` | server → client | Acknowledge successful clear |
+| `get_agent_state` | client → server | Query current state/metrics/pending proposals |
+| `agent_state` | server → client | Agent state snapshot payload |
+| `get_available_tools` | client → server | Query tool list for current state |
+| `available_tools` | server → client | Current tool list payload |
+| `get_tool_schemas` | client → server | Query JSON schemas for all tools |
+| `tool_schemas` | server → client | Tool schema payload |
+| `get_pending_proposals` | client → server | Query pending proposals |
+| `pending_proposals` | server → client | Pending proposal payload |
+| `get_audit_metrics` | client → server | Query audit counters/metrics |
+| `audit_metrics` | server → client | Audit metrics payload |
+
+### Monitoring stream events
+
+| Event | Direction | Description |
+| --- | --- | --- |
+| `subscribe_monitoring` | client → server | Subscribe client to monitoring updates |
+| `unsubscribe_monitoring` | client → server | Unsubscribe client from monitoring updates |
+| `subscribed` | server → client | Monitoring subscription acknowledgment |
+| `unsubscribed` | server → client | Monitoring unsubscription acknowledgment |
+| `frame_update` | server → client | Live frame payload (base64 image + metadata) |
+| `detection_event` | server → client | Generic detection broadcast |
+| `chat_detection` | server → client | Detection rendered as chat message payload |
+| `new_log` | server → client | New monitoring/logging entry |
+| `monitoring_status` | server → client | Monitoring status update |
+| `alert` | server → client | Alert broadcast |
+
+### Client bridge events (browser `CustomEvent`)
+
+`templates/base.html` bridges selected Socket.IO events into browser-level
+events consumed by `templates/chat.html`:
+
+- `chat_connected` → `agent-chat-connected`
+- `chat_message` → `agent-chat-message`
+- `agent_state_changed` → `agent-state-changed`

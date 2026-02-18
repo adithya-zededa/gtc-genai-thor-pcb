@@ -32,7 +32,7 @@ proactive:
   # 
   # All config values are GUIDELINES for the LLM, not hard thresholds.
   # ═══════════════════════════════════════════════════════════════════════
-  enabled: false  # Set to true to enable proactive mode
+  enabled: true  # Set to true to enable proactive mode
   frame_interval_seconds: 0.1  # Fast conveyor gating cadence
   fast_observation_mode: true  # Use CV-only fast path for motion/zone gating
   stationary_motion_threshold: 1.8  # Lower = more sensitive to movement
@@ -82,6 +82,21 @@ notifications:
     smtp_port: 587
     smtp_server: smtp.gmail.com
     use_tls: true
+  # Agent notification preferences (controllable via chat)
+  agent:
+    email_enabled: true
+    min_severity: medium   # low, medium, high
+    notify_on_threshold_exceeded: true
+    quiet_hours_start: null  # HH:MM or null
+    quiet_hours_end: null
+    daily_digest_enabled: false
+    daily_digest_time: "08:00"
+
+# Defect monitoring thresholds (used by check_threshold_alerts tool)
+thresholds:
+  max_defects_per_day: 10
+  max_high_severity_per_day: 5
+  trend_window_hours: 168   # 1 week
 rules:
 - id: PCB_DEFECT_DETECTED
   description: Alert when a PCB defect condition is detected

@@ -40,11 +40,96 @@ from agents.mcp.manager import (
     get_mcp_manager,
 )
 from core.logging import get_logger
+from app.database import ChatHistoryRepository
 
 if TYPE_CHECKING:
     from flask_socketio import SocketIO
 
 logger = get_logger(__name__)
+
+
+_TOOL_DISPLAY_NAMES: Dict[str, str] = {
+    "start_monitoring_session": "Start Monitoring",
+    "end_session": "End Monitoring Session",
+    "go_idle": "Pause Monitoring",
+    "get_agent_status": "Check Agent Status",
+    "analyze_current_frame": "Analyze Live Frame",
+    "query_history": "Review Event History",
+    "get_session_summary": "Generate Session Summary",
+    "set_detection_task": "Configure Detection Task",
+    "send_alert_email": "Send Alert Email",
+    "save_evidence": "Save Evidence Snapshot",
+    "log_event": "Record Monitoring Event",
+    "shutdown_agent": "Shutdown Agent",
+    "acknowledge_error": "Acknowledge Error",
+    "get_latest_pcb_frames": "List Captured PCB Frames",
+    "inspect_pcb_frame": "Inspect Stored PCB Frame",
+    "inspect_pcb": "Inspect Live PCB",
+    "classify_board": "Identify Board Type",
+    "send_defect_alert": "Send Defect Alert",
+    "log_defect": "Record Defect",
+    "generate_defect_report": "Generate Defect Report",
+    "query_pcb_inspections": "Query PCB Inspections",
+    "get_monitoring_status": "Check Monitoring Status",
+    "toggle_email_notifications": "Update Email Notifications",
+    "get_defect_summary": "Summarize Defects",
+    "count_defective_pcbs": "Count Defective PCBs",
+    "get_latest_defect": "Get Latest Defect",
+    "get_defect_type_breakdown": "Defect Type Breakdown",
+    "get_defect_trend": "Analyze Defect Trend",
+    "get_most_severe_defect": "Find Most Severe Defect",
+    "get_top_defect_sources": "Top Defect Sources",
+    "generate_summary_report": "Generate Monitoring Report",
+    "check_threshold_alerts": "Check Threshold Alerts",
+    "get_defect_insights": "Generate Defect Insights",
+    "get_notification_preferences": "View Notification Settings",
+}
+
+
+def _friendly_tool_name(tool_name: str) -> str:
+    """Return a polished user-facing tool/action label."""
+    if tool_name in _TOOL_DISPLAY_NAMES:
+        return _TOOL_DISPLAY_NAMES[tool_name]
+
+    compact = "".join(ch if ch.isalnum() else " " for ch in (tool_name or ""))
+    tokens = [t for t in compact.split() if t]
+    if not tokens and tool_name:
+        tokens = [tool_name]
+    return " ".join(t.capitalize() for t in tokens) if tokens else "Requested Action"
+
+
+def _emit_agent_activity(
+    socketio: "SocketIO",
+    session_id: str,
+    *,
+    status: str,
+    title: str,
+    detail: str,
+    tool_name: Optional[str] = None,
+    chat_session: Optional[ChatSession] = None,
+) -> None:
+    """Emit real-time activity progress updates for the chat UI."""
+    payload = {
+        "status": status,
+        "title": title,
+        "detail": detail,
+        "tool_name": tool_name,
+        "display_name": _friendly_tool_name(tool_name) if tool_name else None,
+        "timestamp": datetime.now().isoformat(),
+    }
+
+    if chat_session is not None:
+        activity_message = ChatMessage.system(
+            detail,
+            metadata={
+                "ui": "activity",
+                "activity": payload,
+            },
+        )
+        chat_session.add_message(activity_message)
+
+    room_id = chat_session.socket_session_id if chat_session else session_id
+    socketio.emit("agent_activity", payload, room=room_id)
 
 
 # =============================================================================
@@ -82,6 +167,16 @@ class ChatMessage:
         }
 
     @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ChatMessage":
+        return cls(
+            role=str(data.get("role", "assistant")),
+            content=str(data.get("content", "")),
+            metadata=data.get("metadata") or {},
+            timestamp=data.get("timestamp"),
+            id=data.get("id"),
+        )
+
+    @classmethod
     def user(cls, content: str, **kwargs) -> "ChatMessage":
         return cls(role="user", content=content, **kwargs)
 
@@ -112,18 +207,51 @@ class ChatMessage:
 class ChatSession:
     """A chat session with message history."""
 
-    def __init__(self, session_id: str):
+    def __init__(
+        self, session_id: str, client_session_id: Optional[str] = None
+    ):
         import uuid
 
         self.id = str(uuid.uuid4())
         self.socket_session_id = session_id
+        self.client_session_id = client_session_id
         self.messages: List[ChatMessage] = []
         self.created_at = datetime.now().isoformat()
         self._lock = threading.Lock()
+        self._load_messages_from_db()
+
+    def _load_messages_from_db(self) -> None:
+        if not self.client_session_id:
+            return
+
+        try:
+            payload = ChatHistoryRepository.get_messages(self.client_session_id)
+            self.messages = [ChatMessage.from_dict(item) for item in payload]
+            logger.info(
+                "Loaded %d persisted chat messages for client session %s",
+                len(self.messages),
+                self.client_session_id,
+            )
+        except Exception as exc:
+            logger.warning("Failed to load persisted chat history: %s", exc)
+
+    def _persist_message_to_db(self, message: ChatMessage) -> None:
+        if not self.client_session_id:
+            return
+
+        try:
+            ChatHistoryRepository.add_message(
+                client_session_id=self.client_session_id,
+                chat_session_id=self.id,
+                message=message.to_dict(),
+            )
+        except Exception as exc:
+            logger.warning("Failed to persist chat history: %s", exc)
 
     def add_message(self, message: ChatMessage) -> None:
         with self._lock:
             self.messages.append(message)
+            self._persist_message_to_db(message)
 
     def get_history(self, limit: int = 50) -> List[Dict[str, Any]]:
         with self._lock:
@@ -133,6 +261,11 @@ class ChatSession:
     def clear(self) -> None:
         with self._lock:
             self.messages = []
+            if self.client_session_id:
+                try:
+                    ChatHistoryRepository.clear_messages(self.client_session_id)
+                except Exception as exc:
+                    logger.warning("Failed to clear persisted chat history: %s", exc)
 
 
 class ChatSessionManager:
@@ -144,6 +277,7 @@ class ChatSessionManager:
 
     def __init__(self):
         self._sessions: Dict[str, ChatSession] = {}
+        self._client_sessions: Dict[str, ChatSession] = {}
         self._creation_lock = threading.RLock()
 
     def get_session(self, session_id: str) -> ChatSession:
@@ -160,6 +294,23 @@ class ChatSessionManager:
             if session is None:
                 session = ChatSession(session_id)
                 self._sessions[session_id] = session
+            return session
+
+    def get_or_bind_client_session(
+        self, socket_session_id: str, client_session_id: str
+    ) -> ChatSession:
+        """Get existing client-bound session or bind current socket to it."""
+        with self._creation_lock:
+            session = self._client_sessions.get(client_session_id)
+            if session is None:
+                session = ChatSession(
+                    socket_session_id, client_session_id=client_session_id
+                )
+                self._client_sessions[client_session_id] = session
+
+            session.socket_session_id = socket_session_id
+            session.client_session_id = client_session_id
+            self._sessions[socket_session_id] = session
             return session
 
     def remove_session(self, session_id: str) -> None:
@@ -181,7 +332,23 @@ def get_chat_session(session_id: str) -> ChatSession:
     return _session_manager.get_session(session_id)
 
 
-def _initialize_session(session_id: str, *, room: str | None = None) -> None:
+def get_or_bind_chat_session(
+    socket_session_id: str, client_session_id: Optional[str]
+) -> ChatSession:
+    """Get chat session, binding to a stable client session when provided."""
+    if client_session_id:
+        return _session_manager.get_or_bind_client_session(
+            socket_session_id, client_session_id
+        )
+    return _session_manager.get_session(socket_session_id)
+
+
+def _initialize_session(
+    session_id: str,
+    *,
+    room: str | None = None,
+    client_session_id: Optional[str] = None,
+) -> None:
     """Core chat-session bootstrap shared by all connection paths.
 
     Args:
@@ -192,8 +359,10 @@ def _initialize_session(session_id: str, *, room: str | None = None) -> None:
     audit_log = get_audit_log()
     state_machine = get_agent_state_machine()
 
-    chat_session = get_chat_session(session_id)
+    chat_session = get_or_bind_chat_session(session_id, client_session_id)
     join_room(session_id)
+    history = chat_session.get_history(limit=0)
+    is_restored_session = len(history) > 0
 
     # Log connection
     audit_log.log(
@@ -202,6 +371,7 @@ def _initialize_session(session_id: str, *, room: str | None = None) -> None:
             details={
                 "socket_session_id": session_id,
                 "chat_session_id": chat_session.id,
+                "client_session_id": chat_session.client_session_id,
             },
         )
     )
@@ -245,27 +415,32 @@ def _initialize_session(session_id: str, *, room: str | None = None) -> None:
             "mcp_session": mcp_session.to_dict() if mcp_session else None,
             "metrics": audit_log.get_metrics(),
             "monitoring_active": monitoring_active,
+            "history": history,
+            "restored": is_restored_session,
         },
         **emit_kwargs,
     )
 
-    # Send welcome message
-    welcome = ChatMessage.assistant(_generate_welcome_message(current_state))
-    chat_session.add_message(welcome)
+    # Send welcome message only for brand-new sessions
+    if not is_restored_session:
+        welcome = ChatMessage.assistant(_generate_welcome_message(current_state))
+        chat_session.add_message(welcome)
 
-    emit(
-        "chat_message",
-        {
-            "message": welcome.to_dict(),
-            "agent_state": current_state.value,
-        },
-        **emit_kwargs,
-    )
+        emit(
+            "chat_message",
+            {
+                "message": welcome.to_dict(),
+                "agent_state": current_state.value,
+            },
+            **emit_kwargs,
+        )
 
     logger.info("Chat initialization complete for client: %s", session_id)
 
 
-def initialize_chat_for_client(session_id: str) -> None:
+def initialize_chat_for_client(
+    session_id: str, client_session_id: Optional[str] = None
+) -> None:
     """Initialize chat session for a client on connect.
 
     Called from the main ``connect`` handler to auto-initialize
@@ -273,7 +448,11 @@ def initialize_chat_for_client(session_id: str) -> None:
     """
     actual_sid = getattr(request, "sid", session_id)
     logger.info("Auto-initializing chat for client: %s", actual_sid)
-    _initialize_session(actual_sid, room=actual_sid)
+    _initialize_session(
+        actual_sid,
+        room=actual_sid,
+        client_session_id=client_session_id,
+    )
 
 
 # =============================================================================
@@ -299,7 +478,14 @@ def register_chat_handlers(socketio: "SocketIO") -> None:
         emit ``chat_connect`` instead of relying on auto-init)."""
         logger.info(">>> chat_connect event received!")
         try:
-            _initialize_session(request.sid)
+            client_session_id = (
+                data.get("client_session_id")
+                if isinstance(data, dict)
+                else None
+            )
+            _initialize_session(
+                request.sid, client_session_id=client_session_id
+            )
         except Exception as e:
             logger.error("Error in chat_connect handler: %s", e, exc_info=True)
             emit("chat_error", {"error": str(e)})
@@ -345,6 +531,7 @@ def register_chat_handlers(socketio: "SocketIO") -> None:
                 "message": user_msg.to_dict(),
                 "agent_state": state_machine.state.value,
             },
+            room=chat_session.socket_session_id,
         )
 
         # Log user message
@@ -375,7 +562,29 @@ def register_chat_handlers(socketio: "SocketIO") -> None:
                     "message": response.to_dict(),
                     "agent_state": state_machine.state.value,
                 },
+                room=chat_session.socket_session_id,
             )
+
+            if response.role == "tool":
+                tool_meta = response.metadata or {}
+                tool_result = tool_meta.get("result") if isinstance(tool_meta, dict) else None
+                if isinstance(tool_result, dict) and bool(tool_result.get("success")):
+                    followup = _generate_tool_followup_response(
+                        user_text=user_text,
+                        tool_result=tool_result,
+                        state=state_machine.state,
+                        chat_session=chat_session,
+                    )
+                    if followup is not None:
+                        chat_session.add_message(followup)
+                        emit(
+                            "chat_message",
+                            {
+                                "message": followup.to_dict(),
+                                "agent_state": state_machine.state.value,
+                            },
+                            room=chat_session.socket_session_id,
+                        )
 
         except Exception as e:
             logger.error("Error processing chat message: %s", e, exc_info=True)
@@ -389,6 +598,7 @@ def register_chat_handlers(socketio: "SocketIO") -> None:
                     "message": error_msg.to_dict(),
                     "agent_state": state_machine.state.value,
                 },
+                room=chat_session.socket_session_id,
             )
 
     @socketio.on("approve_proposal")
@@ -415,8 +625,9 @@ def register_chat_handlers(socketio: "SocketIO") -> None:
             tool_result = result["result"]
             output = tool_result.get("output", {})
             message_text = output.get("message", "Tool executed successfully")
+            friendly_name = _friendly_tool_name(tool_result["tool_name"])
 
-            response_content = f"✅ **{tool_result['tool_name']}** executed successfully.\n\n{message_text}"
+            response_content = f"✅ **{friendly_name}** executed successfully.\n\n{message_text}"
 
             response = ChatMessage.tool(
                 content=response_content,
@@ -624,6 +835,15 @@ def _process_user_message(
     mcp_session = executor.current_session
     session_id_str = mcp_session.id if mcp_session else None
 
+    _emit_agent_activity(
+        socketio,
+        session_id,
+        status="in_progress",
+        title="Understanding Request",
+        detail="Reading your message and selecting the best next action.",
+        chat_session=chat_session,
+    )
+
     # INTERPRETATION PHASE: Route to the correct domain and detect intent
     resolved_domain, proposal = manager.interpret(
         message=user_text,
@@ -633,10 +853,27 @@ def _process_user_message(
 
     # If no tool call needed, generate conversational response
     if proposal is None:
+        _emit_agent_activity(
+            socketio,
+            session_id,
+            status="completed",
+            title="Response Ready",
+            detail="Prepared a direct response without running any actions.",
+            chat_session=chat_session,
+        )
         return _generate_conversational_response(user_text, current_state, chat_session)
 
     # If proposal was rejected during interpretation (e.g., state violation)
     if proposal.is_rejected:
+        _emit_agent_activity(
+            socketio,
+            session_id,
+            status="failed",
+            title="Action Unavailable",
+            detail=proposal.rejection_reason or "The requested action is not available in the current state.",
+            tool_name=proposal.tool_name,
+            chat_session=chat_session,
+        )
         return ChatMessage.assistant(
             f"⚠️ I understood your request, but I can't do that right now.\n\n"
             f"**Reason:** {proposal.rejection_reason}\n\n"
@@ -644,11 +881,36 @@ def _process_user_message(
         )
 
     # EXECUTION PHASE: Submit proposal through the correct domain executor
+    friendly_name = _friendly_tool_name(proposal.tool_name)
+    _emit_agent_activity(
+        socketio,
+        session_id,
+        status="in_progress",
+        title="Executing Action",
+        detail=f"Running: {friendly_name}.",
+        tool_name=proposal.tool_name,
+        chat_session=chat_session,
+    )
+
     result = manager.submit(proposal, domain=resolved_domain)
 
     if result["status"] == "pending_approval":
         # Tool requires user confirmation
-        _emit_pending_proposal(socketio, session_id, result)
+        _emit_pending_proposal(
+            socketio,
+            session_id,
+            result,
+            chat_session=chat_session,
+        )
+        _emit_agent_activity(
+            socketio,
+            session_id,
+            status="requires_approval",
+            title="Approval Needed",
+            detail=f"{friendly_name} needs your confirmation before it can continue.",
+            tool_name=proposal.tool_name,
+            chat_session=chat_session,
+        )
 
         domain_label = ""
         if resolved_domain == DOMAIN_PCB:
@@ -656,7 +918,7 @@ def _process_user_message(
 
         return ChatMessage.assistant(
             f"🔔 **Confirmation Required**{domain_label}\n\n"
-            f"I'd like to execute **{proposal.tool_name}**.\n\n"
+            f"I'd like to execute **{friendly_name}**.\n\n"
             f"_{result['confirmation_message']}_\n\n"
             f"Please approve or reject this action using the buttons above.",
             metadata={
@@ -679,8 +941,18 @@ def _process_user_message(
             message_text = output.get("message", "Done")
             data = output.get("data", {})
 
+            _emit_agent_activity(
+                socketio,
+                session_id,
+                status="completed",
+                title="Action Completed",
+                detail=f"{friendly_name} finished successfully.",
+                tool_name=proposal.tool_name,
+                chat_session=chat_session,
+            )
+
             response_content = (
-                f"✅ **{proposal.tool_name}** completed.\n\n{message_text}"
+                f"✅ **{friendly_name}** completed.\n\n{message_text}"
             )
 
             # Add additional data if present
@@ -696,24 +968,59 @@ def _process_user_message(
                 content=response_content,
                 tool_name=proposal.tool_name,
                 success=True,
-                metadata={"result": tool_result, "proposal_id": proposal.id},
+                metadata={
+                    "result": tool_result,
+                    "proposal_id": proposal.id,
+                    "display_name": friendly_name,
+                },
             )
         else:
+            _emit_agent_activity(
+                socketio,
+                session_id,
+                status="failed",
+                title="Action Failed",
+                detail=f"{friendly_name} could not be completed.",
+                tool_name=proposal.tool_name,
+                chat_session=chat_session,
+            )
             return ChatMessage.tool(
-                content=f"❌ **{proposal.tool_name}** failed: {tool_result.get('error', 'Unknown error')}",
+                content=f"❌ **{friendly_name}** failed: {tool_result.get('error', 'Unknown error')}",
                 tool_name=proposal.tool_name,
                 success=False,
-                metadata={"result": tool_result, "proposal_id": proposal.id},
+                metadata={
+                    "result": tool_result,
+                    "proposal_id": proposal.id,
+                    "display_name": friendly_name,
+                },
             )
 
     elif result["status"] == "rejected":
         # Proposal was rejected (validation or state error)
+        _emit_agent_activity(
+            socketio,
+            session_id,
+            status="failed",
+            title="Action Rejected",
+            detail=result["reason"],
+            tool_name=proposal.tool_name,
+            chat_session=chat_session,
+        )
         return ChatMessage.assistant(
             f"⚠️ I couldn't execute that request.\n\n" f"**Reason:** {result['reason']}"
         )
 
     elif result["status"] == "failed":
         # Execution failed
+        _emit_agent_activity(
+            socketio,
+            session_id,
+            status="failed",
+            title="Execution Error",
+            detail=result["error"],
+            tool_name=proposal.tool_name,
+            chat_session=chat_session,
+        )
         return ChatMessage.tool(
             content=f"❌ Execution failed: {result['error']}",
             tool_name=proposal.tool_name,
@@ -804,6 +1111,167 @@ def _generate_llm_response(
     return None
 
 
+def _deterministic_tool_summary(tool_name: str, output_message: str, output_data: Any) -> Optional[str]:
+    """Return a plain-text summary of a tool result without using the LLM.
+
+    Used as a fallback when the LLM router is unavailable.
+    """
+    if tool_name == "count_defective_pcbs" and isinstance(output_data, dict):
+        return (
+            f"Based on the current records, {output_data.get('total', 0)} defective PCB(s) "
+            f"were detected ({output_data.get('time_window', 'all time')}): "
+            f"{output_data.get('high', 0)} high, {output_data.get('medium', 0)} medium, "
+            f"{output_data.get('low', 0)} low severity."
+        )
+    if tool_name == "query_pcb_inspections" and isinstance(output_data, dict):
+        return (
+            f"I found {output_data.get('total', 0)} inspection(s) total and reviewed "
+            f"{output_data.get('showing', 0)} recent record(s): "
+            f"{output_data.get('pass_count', 0)} pass and {output_data.get('fail_count', 0)} fail."
+        )
+    if tool_name == "get_defect_type_breakdown" and isinstance(output_data, dict):
+        defect_types = output_data.get("types", [])
+        if defect_types:
+            top = defect_types[0]
+            return (
+                f"The top recorded defect type is {top.get('defect_type', 'unknown')} "
+                f"with {top.get('count', 0)} occurrence(s) ({top.get('percentage', 0)}%)."
+            )
+        return "No defect types are recorded yet."
+    if tool_name == "get_latest_defect":
+        if output_data and isinstance(output_data, dict):
+            return (
+                f"The last detection was {output_data.get('defect_type', 'unknown')} "
+                f"(severity: {output_data.get('severity', 'unknown')}) "
+                f"recorded at {output_data.get('timestamp', 'unknown')}."
+            )
+        return output_message or "No defects have been recorded yet."
+    if tool_name == "get_most_severe_defect":
+        if output_data and isinstance(output_data, dict):
+            return (
+                f"The most severe defect on record is {output_data.get('defect_type', 'unknown')} "
+                f"(severity: {output_data.get('severity', 'unknown')}) "
+                f"detected at {output_data.get('timestamp', 'unknown')}."
+            )
+        return output_message or "No defects have been recorded yet."
+    if tool_name == "get_defect_summary" and isinstance(output_data, dict):
+        return (
+            f"Defect summary ({output_data.get('time_window', 'all time')}): "
+            f"{output_data.get('total', 0)} total — "
+            f"{output_data.get('high', 0)} high, {output_data.get('medium', 0)} medium, "
+            f"{output_data.get('low', 0)} low severity."
+        )
+    if tool_name in ("inspect_pcb", "inspect_pcb_frame") and isinstance(output_data, dict):
+        detected = bool(output_data.get("detected", False))
+        confidence = output_data.get("confidence", 0)
+        description = output_data.get("description", "")
+        return (
+            f"Visual inspection result: {'defect indicated' if detected else 'no defect indicated'} "
+            f"(confidence {float(confidence):.2f}). "
+            f"{description} "
+            "Note: image analysis cannot confirm non-visual faults such as electrical performance issues."
+        ).strip()
+    return None
+
+
+def _generate_tool_followup_response(
+    *,
+    user_text: str,
+    tool_result: Dict[str, Any],
+    state: AgentState,
+    chat_session: ChatSession,
+) -> Optional[ChatMessage]:
+    """Generate a natural-language follow-up after tool execution.
+
+    The LLM always summarises the response, receiving the full tool output as
+    grounded context so it cannot hallucinate.  Deterministic formatters are
+    used only as a fallback when the LLM router is unavailable.
+    """
+    output = tool_result.get("output", {}) if isinstance(tool_result, dict) else {}
+    tool_name = str(tool_result.get("tool_name", "action"))
+    output_message = str(output.get("message", "")) if isinstance(output, dict) else ""
+    output_data = output.get("data", {}) if isinstance(output, dict) else {}
+
+    router = _get_chat_router()
+    if router is not None:
+        try:
+            # Build recent conversation history (user/assistant turns only, skip activity/system)
+            history_messages = []
+            for msg in chat_session.get_history(limit=12):
+                role = msg.get("role", "")
+                ui_type = (msg.get("metadata") or {}).get("ui")
+                if role in ("user", "assistant") and ui_type != "activity":
+                    history_messages.append({"role": role, "content": msg.get("content", "")})
+
+            # Remove the last user turn from history — we'll add it explicitly below
+            # so the tool result sits between the question and the final answer request
+            if history_messages and history_messages[-1].get("role") == "user":
+                history_messages = history_messages[:-1]
+
+            messages = [
+                # 1. System prompt: persona + instructions only, no data
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a helpful assistant embedded in an industrial PCB camera monitoring system. "
+                        "Answer questions accurately and concisely. Use markdown for emphasis where helpful. "
+                        "Ground your answers in the tool results provided in the conversation. "
+                        "Do not invent dates, counts, defect names, severities, or any values not present "
+                        "in the tool result. If a value is missing, say it is not available. "
+                        f"The agent is currently in **{state.value}** state."
+                    ),
+                },
+                # 2. Recent conversation memory
+                *history_messages[-6:],
+                # 3. The user's original question
+                {"role": "user", "content": user_text},
+                # 4. Simulated assistant turn: "I ran the tool and got this result"
+                {
+                    "role": "assistant",
+                    "content": (
+                        f"I ran the `{tool_name}` tool. Here is the result:\n\n"
+                        f"**Message:** {output_message}\n"
+                        f"**Data:** {str(output_data)[:3000]}"
+                    ),
+                },
+                # 5. User asks for the summary — forces the model to synthesise from the result above
+                {
+                    "role": "user",
+                    "content": "Based on that result, please give me a clear, concise answer to my question.",
+                },
+            ]
+
+            response = router.chat(
+                messages=messages,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            )
+            if response and response.content and response.content.strip():
+                return ChatMessage.assistant(
+                    response.content.strip(),
+                    metadata={
+                        "llm_provider": response.provider,
+                        "llm_model": response.model,
+                        "generated_from_tool": True,
+                        "grounded": True,
+                    },
+                )
+        except Exception as exc:
+            logger.warning("LLM tool follow-up failed, falling back to deterministic: %s", exc)
+
+    # LLM unavailable — use deterministic formatter as fallback
+    try:
+        fallback = _deterministic_tool_summary(tool_name, output_message, output_data)
+        if fallback:
+            return ChatMessage.assistant(
+                fallback,
+                metadata={"generated_from_tool": True, "grounded": True},
+            )
+    except Exception as exc:
+        logger.warning("Deterministic tool follow-up failed: %s", exc)
+
+    return ChatMessage.assistant(output_message or "The action completed successfully.")
+
+
 def _generate_welcome_message(state: AgentState) -> str:
     """Generate a welcome message based on current state."""
     state_descriptions = {
@@ -870,9 +1338,13 @@ def _generate_conversational_response(
 
 
 def _emit_pending_proposal(
-    socketio: "SocketIO", session_id: str, result: Dict[str, Any]
+    socketio: "SocketIO",
+    session_id: str,
+    result: Dict[str, Any],
+    chat_session: Optional[ChatSession] = None,
 ) -> None:
     """Emit a pending proposal notification."""
+    room_id = chat_session.socket_session_id if chat_session else session_id
     socketio.emit(
         "tool_confirmation_required",
         {
@@ -881,7 +1353,7 @@ def _emit_pending_proposal(
             "confirmation_message": result["confirmation_message"],
             "proposal": result["proposal"],
         },
-        room=session_id,
+        room=room_id,
     )
 
 

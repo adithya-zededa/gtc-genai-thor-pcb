@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 from core.logging import get_logger
 
 from .audit import AuditEventType, AuditLogEntry
+from .email_arg_utils import resolve_recipients
 from .lifecycle import MCPToolCallProposal
 from .registry import MCPToolRegistry
 from .state_machine import AgentState
@@ -22,21 +23,8 @@ class MCPInterpreter:
     Uses the LLM intent classifier to determine which tool to call.
     """
 
-    _VALID_TOOLS: frozenset = frozenset([
-        "start_monitoring_session",
-        "end_session",
-        "go_idle",
-        "get_agent_status",
-        "analyze_current_frame",
-        "query_history",
-        "get_session_summary",
-        "set_detection_task",
-        "send_alert_email",
-        "save_evidence",
-        "log_event",
-        "shutdown_agent",
-        "acknowledge_error",
-    ])
+    # All tools registered in the registry are available to the agent.
+    # No static whitelist — the registry is the single source of truth.
 
     def __init__(self, registry: MCPToolRegistry, audit_log: "MCPAuditLog") -> None:
         self.registry = registry
@@ -72,14 +60,14 @@ class MCPInterpreter:
             logger.warning("LLM classifier failed in general interpreter: %s", exc)
             return None
 
-        if not result.tool or result.tool not in self._VALID_TOOLS:
+        if not result.tool:
             return None
 
         tool_def = self.registry.get(result.tool)
         if not tool_def:
             return None
 
-        # NOTE: No state-based filtering — the LLM decides all actions.
+        # Runtime state policy is enforced by the executor.
 
         arguments: Dict[str, Any] = {}
         if result.params:
@@ -87,6 +75,17 @@ class MCPInterpreter:
 
         if result.tool == "analyze_current_frame" and "query" not in arguments:
             arguments["query"] = user_message
+
+        if result.tool == "send_alert_email":
+            recipients = resolve_recipients(arguments, user_message)
+            if recipients:
+                arguments["recipients"] = recipients
+
+            if not isinstance(arguments.get("subject"), str) or not arguments.get("subject", "").strip():
+                arguments["subject"] = "PCB Defect Alert"
+
+            if not isinstance(arguments.get("body"), str) or not arguments.get("body", "").strip():
+                arguments["body"] = user_message.strip() or "Automated alert requested by user."
 
         proposal = MCPToolCallProposal.create(
             tool_name=result.tool,

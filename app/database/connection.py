@@ -233,6 +233,23 @@ def init_db() -> None:
     """
     )
 
+    # Chat messages table (persistent chat memory)
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS chat_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_session_id TEXT NOT NULL,
+            chat_session_id TEXT,
+            message_id TEXT NOT NULL UNIQUE,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            metadata TEXT,
+            timestamp TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """
+    )
+
     # Create indexes for frequently queried columns
     cursor.execute(
         """
@@ -244,6 +261,12 @@ def init_db() -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_detection_logs_confidence 
         ON detection_logs(confidence)
+    """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_chat_messages_client_session
+        ON chat_messages(client_session_id, id ASC)
     """
     )
     cursor.execute(
@@ -358,6 +381,96 @@ def init_db() -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_pcb_defects_timestamp
         ON pcb_defects(timestamp DESC)
+    """
+    )
+
+    # PCB frame store — auto-captured frames with PCB present & low motion
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pcb_frame_store (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            image_path TEXT NOT NULL,
+            motion_score REAL NOT NULL DEFAULT 0.0,
+            board_signature TEXT DEFAULT '',
+            frame_number INTEGER,
+            quality_score REAL DEFAULT 0.0,
+            consumed INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_pcb_frame_store_timestamp
+        ON pcb_frame_store(timestamp DESC)
+    """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_pcb_frame_store_consumed
+        ON pcb_frame_store(consumed, timestamp DESC)
+    """
+    )
+
+    # PCB inspection outcomes table (pass/fail per inspected board)
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pcb_inspections (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            board_signature TEXT NOT NULL,
+            result TEXT NOT NULL,
+            confidence REAL DEFAULT 0.0,
+            reason TEXT DEFAULT '',
+            defect_type TEXT DEFAULT '',
+            description TEXT DEFAULT '',
+            image_path TEXT DEFAULT '',
+            decision_trace TEXT DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_pcb_inspections_timestamp
+        ON pcb_inspections(timestamp DESC)
+    """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_pcb_inspections_result
+        ON pcb_inspections(result)
+    """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_pcb_inspections_board_signature
+        ON pcb_inspections(board_signature)
+    """
+    )
+
+    # Notification preferences table (agent-controllable via chat)
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS notification_preferences (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            email_enabled INTEGER DEFAULT 1,
+            email_recipients TEXT DEFAULT '[]',
+            min_severity TEXT DEFAULT 'medium',
+            notify_on_threshold_exceeded INTEGER DEFAULT 1,
+            quiet_hours_start TEXT,
+            quiet_hours_end TEXT,
+            daily_digest_enabled INTEGER DEFAULT 0,
+            daily_digest_time TEXT DEFAULT '08:00',
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """
+    )
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO notification_preferences (id)
+        VALUES (1)
     """
     )
 

@@ -41,7 +41,6 @@ from .core import (
     AgentMemory,
     AgentSnapshot,
     DetectionEvent,
-    AlertManager,
 )
 
 # Backward-compat alias kept by core/__init__.py
@@ -61,7 +60,6 @@ __all__ = [
     "AgentSnapshot",
     "AgentState",
     "DetectionEvent",
-    "AlertManager",
     # MCP Manager (entry-point for tool calling)
     "MCPManager",
     "get_mcp_manager",

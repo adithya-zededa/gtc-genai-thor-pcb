@@ -1,297 +1,139 @@
-# Proactive Agentic Monitoring System
+# Proactive Monitoring Architecture
 
 ## Overview
 
-The Proactive Agentic Monitoring System transforms traditional reactive camera monitoring into an intelligent, context-aware system powered by Large Language Models (LLMs). Instead of hardcoded rules and thresholds, the system uses LLM reasoning to decide when and how to analyze frames.
+The proactive monitoring system watches a camera feed for PCB boards on a
+conveyor and delegates **every decision** to the LLM.  The only deterministic
+code is a lightweight OpenCV observation loop (`MonitoringLoop`) that detects
+when a board has stopped in the inspection zone.
 
-## Core Philosophy
+## Core Principle
 
-### ❌ What We DON'T Do (Reactive Systems)
+> **Except for the monitoring loop, every tool call or action is decided by
+> the LLM.**
 
-```python
-# ANTI-PATTERN: Rule-based reactive monitoring
-if ssim_score > 0.95:
-    skip_frame()
-if task == "PCB":
-    analyze_pcb()
-if object_detected and not moving:
-    run_inspection()
-```
+The system is split into two halves:
 
-**Problems with this approach:**
-- No context awareness
-- No temporal reasoning
-- Inflexible and brittle
-- Cannot adapt to user intent
-- Generates redundant analysis
+| Half | What it does | Where |
+|------|-------------|-------|
+| **Deterministic** | CV observation — motion, board-in-zone, signature | `agents/core/monitoring_loop.py` |
+| **LLM-decided** | Inspection, classification, alerting, logging | MCP tools + `on_board_ready` callback |
 
-### ✅ What We DO (Proactive Agentic)
-
-The LLM continuously reasons about observations:
-
-> "I see a PCB entering the frame."  
-> "The PCB has stopped moving and is stable."  
-> "This is the optimal moment for inspection."  
-> "This PCB was already inspected 30 seconds ago — no need to repeat."  
-> "The scene is empty — continue monitoring."
-
-**Benefits:**
-- ✅ Context-aware decision making
-- ✅ Temporal reasoning across frames
-- ✅ Adapts to natural language instructions
-- ✅ Avoids redundant analysis
-- ✅ Intelligent resource utilization
-
-## Architecture
-
-### System Flow
+## Architecture Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│          User Provides Natural Language Instruction          │
-│  "Monitor the conveyor for PCB defects"                     │
-│  "Inspect each stopped board for solder defects"            │
-│  "Alert on PCB defect conditions"                           │
-└────────────────────────┬────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│           User: "Monitor for PCB defects"        │
+└────────────────────────┬─────────────────────────┘
                          │
                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│              Continuous Monitoring Loop                      │
-└─────────────────────────────────────────────────────────────┘
-         │
-         ├─► 1. CAPTURE FRAME
-         │         │
-         │         ▼
-         ├─► 2. LLM OBSERVATION (Fast, cheap)
-         │         │
-         │         ├─► Perceive scene
-         │         ├─► Detect changes
-         │         ├─► Identify target state
-         │         └─► Update temporal context
-         │         │
-         │         ▼
-         ├─► 3. LLM DECISION (Intelligent)
-         │         │
-         │         ├─► Reason over observation + context
-         │         ├─► Consider user intent
-         │         └─► Decide action:
-         │                - wait
-         │                - quick_check
-         │                - full_inspection
-         │         │
-         │         ▼
-         ├─► 4. EXECUTE ACTION
-         │         │
-         │         ├─► wait: Continue monitoring
-         │         ├─► quick_check: Lightweight verification
-         │         └─► full_inspection: Detailed analysis
-         │         │
-         │         ▼
-         └─► 5. UPDATE CONTEXT & REPEAT
+┌──────────────────────────────────────────────────┐
+│               MonitoringLoop (CV)                │
+│                                                  │
+│   Per-frame:                                     │
+│     motion_score  = ROI diff                     │
+│     board_in_zone = contour + hysteresis         │
+│     board_sig     = tracker or hash              │
+│                                                  │
+│   State-change:                                  │
+│     just_stopped = stopped AND NOT prev_stopped  │
+└────────────────────────┬─────────────────────────┘
+                         │ on_board_ready(frame, ctx)
+                         ▼
+┌──────────────────────────────────────────────────┐
+│          Service layer (_on_board_ready)          │
+│                                                  │
+│   1. VLM analysis  →  DetectionEvent             │
+│   2. Persist to pcb_inspections (PASS / FAIL)    │
+│   3. Emit SocketIO event → Chat UI               │
+│   4. Update MonitoringContext counters            │
+│   5. LLM decides follow-up actions via MCP:      │
+│        send_defect_alert, log_defect, …          │
+└──────────────────────────────────────────────────┘
 ```
 
-## Two-Stage LLM Reasoning
+## MonitoringLoop Details
 
-### Stage 1: Observation (Perception)
+`MonitoringLoop` (~660 lines) is the **only** deterministic component:
 
-**Purpose:** Quickly perceive and describe the current frame.
+- Subscribes to camera feed via `CameraService`
+- Runs `_observe(frame)` → `Observation` dataclass (sensor readings only)
+- Detects state change: `board just stopped in zone?`
+- Fires `on_board_ready(frame, MonitoringContext)` **once** per board stop
+- Maintains `MonitoringContext` counters (frames processed, inspections, etc.)
 
-**Responsibilities:**
-- Describe what's visible in natural language
-- Detect scene changes from previous frame
-- Identify if target object is present
-- Determine target state (entering, moving, stopped, stable, gone)
-- Assess if target is ready for inspection
-- Maintain consistent scene signatures
+It does **not**:
+- Call the VLM
+- Classify defects
+- Send alerts
+- Make any quality/severity judgements
 
-**Output:** Structured JSON with:
-```json
-{
-  "scene_summary": "A PCB is visible on the conveyor, centered in frame",
-  "primary_objects": ["PCB", "conveyor belt"],
-  "target_present": true,
-  "target_state": "stable",
-  "scene_changed": false,
-  "scene_signature": "pcb-12345-centered",
-  "target_ready": true,
-  "notes": "PCB has been stable for 3 frames",
-  "confidence": 0.92
-}
+### Observation Dataclass
+
+```python
+@dataclass
+class Observation:
+    motion_score: float        # 0.0 (still) – 100.0 (moving fast)
+    board_in_zone: bool        # Contour-based board detection
+    board_signature: str | None  # Tracker ID or hash
+    edge_density: float        # Edge pixel ratio
+    raw_contours: int          # Number of contours found
+    timestamp: float
 ```
 
-**Cost:** Low (fast inference, small token count)
-
-### Stage 2: Decision (Reasoning)
-
-**Purpose:** Decide the optimal action based on observation and context.
-
-**Responsibilities:**
-- Reason about what action to take
-- Consider temporal context (how long stable? already inspected?)
-- Evaluate user's intent and objectives
-- Balance thoroughness vs. efficiency
-- Determine analysis plan if inspection is needed
-
-**Available Actions:**
-
-1. **wait** - Continue passive monitoring
-   - Use when: Scene empty, target moving, already inspected, nothing actionable
-
-2. **quick_check** - Lightweight verification (cheap)
-   - Use when: Want to confirm target state, verify readiness, gather more info
-
-3. **full_inspection** - Comprehensive analysis (expensive)
-   - Use when: Target is ready, conditions optimal, inspection warranted
-
-**Output:** Structured JSON with:
-```json
-{
-  "action": "full_inspection",
-  "confidence": 0.88,
-  "reasoning": "PCB is stable and centered, has not been inspected yet, optimal moment for defect detection",
-  "analysis_plan": {
-    "task": "pcb_inspection",
-    "custom_prompt": null,
-    "notes": "Focus on solder joints and component alignment"
-  },
-  "scene_signature": "pcb-12345-centered",
-  "should_emit_event": true
-}
-```
-
-**Cost:** Medium (more reasoning, but still efficient)
-
-## Contextual State Management
-
-The agent maintains rich contextual state that is provided to the LLM at each decision point:
+### MonitoringContext Dataclass
 
 ```python
 @dataclass
 class MonitoringContext:
-    instruction: str  # User's natural language objective
-    frames_processed: int  # Total frames observed
-    frames_since_scene_change: int  # Temporal stability
-    last_action: ActionType  # Previous action taken
-    last_action_time: float  # When last action occurred
-    last_observation: ObservationResult  # Previous scene state
-    last_decision: DecisionResult  # Previous decision reasoning
-    last_quick_check: QuickCheckResult  # Previous quick check result
-    inspected_signatures: Dict[str, float]  # Already-inspected scenes
-    quick_check_count: int  # Action statistics
-    full_inspection_count: int  # Action statistics
-    target_ready_frames: int  # How long target has been ready
+    instruction: str           # User's natural-language objective
+    frames_processed: int
+    inspections_started: int
+    inspections_completed: int
+    defect_found_count: int
+    no_defect_count: int
+    last_observation: Observation | None
+    last_action_time: float
+    last_decision: str | None
+    last_decision_reason: str | None
+    board_decisions: dict[str, str]  # signature → "PASS"/"FAIL"
 ```
 
-This context enables the LLM to:
-- Remember what it has seen before
-- Track temporal patterns
-- Avoid redundant analysis
-- Make informed decisions
-- Understand scene stability
+## What the LLM Decides
 
-## Action Execution
+Everything after observation is LLM-controlled:
 
-### Wait Action
+| Decision | How |
+|----------|-----|
+| **Whether to inspect** | `on_board_ready` fires; service calls VLM |
+| **What prompt to use** | Active task prompt from the session |
+| **Severity classification** | VLM response parsed into DetectionEvent |
+| **Whether to alert** | LLM calls `send_defect_alert` MCP tool |
+| **What to log** | LLM calls `log_defect` or other tools |
+| **When to stop** | User says "stop" → `end_session` MCP tool |
 
-The agent continues monitoring without taking action. Logs the decision reasoning for observability.
+## API
 
-```python
-if decision.action == ActionType.WAIT:
-    logger.debug("LLM decided: WAIT | Reasoning: %s", decision.reasoning)
-    continue
-```
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/monitoring/proactive/start` | POST | Start with instruction + config |
+| `/api/monitoring/proactive/stop` | POST | Stop the loop |
+| `/api/monitoring/proactive/status` | GET | Loop status + context snapshot |
 
-### Quick Check Action
-
-Runs a lightweight LLM call to verify target state and readiness.
-
-```python
-if decision.action == ActionType.QUICK_CHECK:
-    quick_result = self._run_quick_check(frame_obj, observation)
-    # Result includes: target_confirmed, ready_for_full_inspection
-    logger.debug("Quick check: confirmed=%s, ready=%s", 
-                 quick_result.target_confirmed, 
-                 quick_result.ready_for_full_inspection)
-```
-
-### Full Inspection Action
-
-Executes a comprehensive, domain-specific analysis using the detection agent.
-
-```python
-if decision.action == ActionType.FULL_INSPECTION:
-    logger.info("LLM decided: FULL_INSPECTION | Reasoning: %s", 
-                decision.reasoning)
-    event = self._run_full_inspection(frame_obj, observation, decision)
-    # Records scene signature to avoid re-inspection
-    self.context.inspected_signatures[observation.scene_signature] = time.time()
-```
-
-The inspection uses the `analysis_plan` from the decision to determine which task-specific analysis to run:
-- `pcb_inspection` - PCB defect detection
-- `custom` - Natural language custom analysis
-
-## Scene Signature Tracking
-
-To avoid redundant analysis, the agent tracks **scene signatures** - consistent identifiers for objects or scenes:
-
-```python
-# Same PCB across multiple frames gets the same signature
-"pcb-board-001-centered"
-"pcb-board-001-centered"  # Same, don't re-inspect
-"pcb-board-002-centered"  # Different PCB, inspect
-
-# Scene signatures help the LLM remember what it has seen
-inspected_signatures = {
-    "pcb-board-001-centered": 1738252800.5,  # timestamp
-  "pcb-board-002-centered": 1738252750.2,
-}
-```
-
-The LLM is responsible for maintaining signature consistency:
-- Same object → same signature
-- Scene changes → new signature
-- Temporal continuity → consistent signature
-
-## Configuration
-
-All configuration values are **GUIDELINES** for the LLM, not rigid thresholds.
-
-```yaml
-proactive:
-  enabled: true  # Enable proactive mode
-  
-  # Frame processing (guidelines, not rules)
-  frame_interval_seconds: 1.5  # How often to check frames
-  stability_frame_count: 6  # Context hint for stability
-  
-  # LLM temperatures (lower = deterministic, higher = creative)
-  observation_temperature: 0.1  # Consistent observations
-  decision_temperature: 0.2  # Balanced reasoning
-  quick_check_temperature: 0.15  # Fast confirmations
-  
-  # Context management
-  inspection_ttl_seconds: 180  # Scene memory duration
-  max_idle_seconds: 300  # Idle time awareness
-```
-
-## API Usage
-
-### Start Proactive Monitoring
+### Start Example
 
 ```bash
-POST /api/monitoring/proactive/start
-Content-Type: application/json
-
-{
-  "instruction": "Monitor the conveyor for PCB defects",
-  "frame_interval_seconds": 2.0,
-  "stability_frame_count": 5,
-  "decision_temperature": 0.25
-}
+curl -X POST http://localhost:8080/api/monitoring/proactive/start \
+  -H "Content-Type: application/json" \
+  -d '{"instruction": "Monitor the conveyor for PCB defects"}'
 ```
 
-**Response:**
+### Status Example
+
+```bash
+curl http://localhost:8080/api/monitoring/proactive/status
+```
+
 ```json
 {
   "success": true,
@@ -299,189 +141,49 @@ Content-Type: application/json
     "running": true,
     "context": {
       "instruction": "Monitor the conveyor for PCB defects",
-      "frames_processed": 0,
-      "full_inspection_count": 0
+      "frames_processed": 312,
+      "inspections_completed": 8,
+      "defect_found_count": 1,
+      "no_defect_count": 7,
+      "last_decision": "PASS"
     }
   }
 }
 ```
 
-### Get Status
+## Configuration
 
-```bash
-GET /api/monitoring/proactive/status
+Only CV-related settings affect `MonitoringLoop` directly:
+
+```yaml
+proactive:
+  enabled: true
+  frame_interval_seconds: 1.5
+  fast_observation_mode: true
+  stationary_motion_threshold: 5.0
+  # Zone crop and segmentation controls …
 ```
 
-**Response:**
-```json
-{
-  "success": true,
-  "status": {
-    "running": true,
-    "instruction": "Monitor the conveyor for PCB defects",
-    "context": {
-      "frames_processed": 145,
-      "frames_since_scene_change": 8,
-      "last_action": "full_inspection",
-      "quick_check_count": 12,
-      "full_inspection_count": 5,
-      "inspected_signatures": ["pcb-001", "pcb-002"],
-      "last_observation": {
-        "scene_summary": "PCB centered on conveyor, stable",
-        "target_present": true,
-        "target_state": "stable",
-        "target_ready": true
-      },
-      "last_decision": {
-        "action": "full_inspection",
-        "confidence": 0.88,
-        "reasoning": "PCB is stable and ready for inspection"
-      }
-    }
-  }
-}
-```
+Temperature, TTL, and idle settings exist in config but are **not** consumed
+by the loop — they are available for future LLM-side tuning if needed.
 
-### Stop Proactive Monitoring
+## Comparison: Old vs Current
 
-```bash
-POST /api/monitoring/proactive/stop
-```
+| Aspect | Old (v1) | Current |
+|--------|----------|---------|
+| **Core control** | 4-state hardcoded FSM + DefectMonitorLoop | MonitoringLoop + on_board_ready callback |
+| **Inspection trigger** | FSM state `INSPECTING` | Board-just-stopped boolean edge |
+| **Frame quality gating** | Deterministic stability streak + quality threshold | Reported as metrics, LLM decides |
+| **Alert dispatch** | Hardcoded AlertManager (duplicate of email tool) | `send_defect_alert` MCP tool |
+| **Severity classification** | Hardcoded prompt inside defect_monitor.py | LLM classifies via VLM |
+| **Files** | 5 files, ~3100 lines | 1 file, ~660 lines |
 
-## Example Use Cases
+## Source Files
 
-### 1. PCB Defect Detection
+- `agents/core/monitoring_loop.py` — observation loop
+- `agents/core/detection_agent.py` — VLM analysis agent
+- `agents/core/state.py` — DetectionEvent, AgentMemory
+- `services/core/monitoring.py` — callback wiring + persistence
+- `app/api/v1/monitoring.py` — REST endpoints
 
-**Instruction:**
-```
-"Monitor the conveyor for PCB defects. Inspect each board when it stops moving."
-```
-
-**Agent Behavior:**
-- Waits while conveyor is empty
-- Observes PCB entering frame
-- Quick-checks as PCB moves into position
-- Waits for PCB to stop and stabilize
-- Runs full inspection when stable
-- Remembers PCB signature to avoid re-inspection
-
-### 2. PCB Defect Alerting
-
-**Instruction:**
-```
-"Watch for PCB defects and alert if found."
-```
-
-**Agent Behavior:**
-- Monitors for PCB boards
-- Quick-checks when a board appears
-- Runs full inspection when a board is stable
-- Detects manufacturing defect conditions
-- Emits alert event when defects are found
-- Avoids re-checking the same board
-
-### 3. Custom Monitoring Task
-
-**Instruction:**
-```
-"Watch for any objects left unattended for more than 30 seconds."
-```
-
-**Agent Behavior:**
-- LLM interprets custom objective
-- Tracks object presence over time
-- Uses temporal context to measure duration
-- Decides when "unattended" threshold is met
-- Generates custom analysis based on instruction
-
-## Performance Characteristics
-
-### Efficiency
-
-- **Observation Stage:** ~100-200ms per frame (fast VLM inference)
-- **Decision Stage:** ~200-400ms per frame (reasoning with context)
-- **Quick Check:** ~100-200ms (lightweight confirmation)
-- **Full Inspection:** ~500-2000ms (comprehensive domain analysis)
-
-### Resource Utilization
-
-The proactive agent is highly efficient:
-- Most frames result in `wait` action (passive monitoring)
-- `quick_check` used sparingly for verification
-- `full_inspection` only when conditions are optimal
-- Avoids redundant analysis through signature tracking
-
-**Example metrics from 1000 frames:**
-- Frames processed: 1000
-- Total actions: 45
-  - Wait: 920 (92%)
-  - Quick check: 25 (2.5%)
-  - Full inspection: 10 (1%)
-- Action rate: 4.5%
-- Efficiency: 95.5% passive monitoring
-
-## Comparison: Reactive vs. Proactive
-
-| Aspect | Reactive System | Proactive Agentic System |
-|--------|----------------|-------------------------|
-| **Decision Logic** | Hardcoded rules & thresholds | LLM reasoning |
-| **Context Awareness** | None | Rich temporal context |
-| **Adaptability** | Fixed behavior | Adapts to instructions |
-| **Redundancy** | High (checks every frame) | Low (intelligent skipping) |
-| **User Control** | Code changes required | Natural language |
-| **Temporal Reasoning** | None | Tracks changes over time |
-| **Scene Understanding** | Pixel-level only | Semantic understanding |
-| **Resource Efficiency** | Low | High |
-
-## Best Practices
-
-### Writing Good Instructions
-
-✅ **Good Instructions:**
-- "Monitor the conveyor for PCB defects and inspect boards when they stop"
-- "Alert when any PCB appears bent, burned, or missing components"
-- "Inspect boards for solder bridges and lifted pads"
-
-❌ **Poor Instructions:**
-- "Do stuff" (too vague)
-- "Analyze every frame" (defeats the purpose)
-- "If SSIM > 0.9 then skip" (tries to impose rules)
-
-### Configuration Tuning
-
-- **frame_interval_seconds:** Lower for faster-moving scenes, higher for static
-- **stability_frame_count:** Higher for more stability assurance
-- **observation_temperature:** Keep low (0.1) for consistent perception
-- **decision_temperature:** Increase (0.2-0.3) for more exploratory behavior
-- **inspection_ttl_seconds:** Lower for frequently changing scenes
-
-### Monitoring and Debugging
-
-Check agent status regularly:
-```bash
-GET /api/monitoring/proactive/status
-```
-
-Review decision reasoning in logs:
-```
-[INFO] LLM decided: FULL_INSPECTION | Reasoning: PCB is stable and centered, 
-       has not been inspected yet, optimal moment for defect detection
-```
-
-Track performance metrics:
-- Frames processed
-- Action rate (should be low for efficiency)
-- Quick checks vs. full inspections ratio
-- Inspected scenes count
-
-## Conclusion
-
-The Proactive Agentic Monitoring System represents a paradigm shift from reactive, rule-based monitoring to intelligent, context-aware analysis. By leveraging LLM reasoning, the system achieves:
-
-- 🎯 **Precision:** Analyzes at optimal moments
-- 🧠 **Intelligence:** Understands context and intent
-- ⚡ **Efficiency:** Minimizes redundant work
-- 🔧 **Flexibility:** Adapts to natural language instructions
-- 📊 **Observability:** Provides reasoning transparency
-
-This approach is production-ready, highly efficient, and truly intelligent.
+---

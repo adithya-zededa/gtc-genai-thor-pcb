@@ -69,7 +69,10 @@ def get_status():
         stats = service._serialize_stats()  # pylint: disable=protected-access
 
     status = {
-        "monitoring_active": service.is_monitoring if service else False,
+        "monitoring_active": (
+            (service.get_active_monitoring_mode() != "idle")
+            if service else False
+        ),
         "camera_available": check_camera_availability(),
         "inference_backend": "vllm",
         "inference_available": check_inference_backend_availability(),
@@ -182,7 +185,11 @@ def proactive_start():
     if error:
         return error
 
-    if not service.start_proactive_monitoring(instruction, config=config):
+    if not service.start_monitoring(
+        mode="proactive",
+        instruction=instruction,
+        config=config,
+    ):
         return (
             jsonify(
                 {

@@ -192,6 +192,18 @@ class MCPManager:
             session_id=session_id,
         )
 
+        if proposal is None and resolved == DOMAIN_PCB:
+            logger.info("No PCB proposal generated; falling back to General MCP interpreter")
+            general_interpreter = get_mcp_interpreter()
+            proposal = general_interpreter.interpret(
+                user_message=message,
+                agent_state=state,
+                session_id=session_id,
+            )
+            if proposal and not proposal.is_rejected:
+                proposal.arguments.setdefault("__domain", DOMAIN_GENERAL)
+                return DOMAIN_GENERAL, proposal
+
         # Tag the proposal with the domain for downstream routing
         if proposal and not proposal.is_rejected:
             proposal.arguments.setdefault("__domain", resolved)

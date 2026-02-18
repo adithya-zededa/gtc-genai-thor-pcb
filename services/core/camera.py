@@ -9,7 +9,7 @@ import base64
 import logging
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from queue import Full, Queue
 from typing import Any, Callable, Dict, Optional
@@ -18,6 +18,7 @@ import cv2
 
 from core.config import get_config
 from core.logging import get_logger
+from services.core.pcb_presence_cv import DetectorConfig, OpenCvPcbPresenceDetector
 
 logger = get_logger(__name__)
 
@@ -36,6 +37,7 @@ class CameraFrame:
     raw_frame: Any  # OpenCV frame (numpy array)
     width: int
     height: int
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 class CameraFeedPublisher:
@@ -82,6 +84,8 @@ class CameraFeedPublisher:
             "is_running": False,
             "camera_available": False,
         }
+
+        self._presence_detector = OpenCvPcbPresenceDetector(DetectorConfig())
 
         logger.info(
             f"CameraFeedPublisher initialized: camera={camera_index}, "
@@ -238,7 +242,10 @@ class CameraFeedPublisher:
 
                 self.frame_number += 1
 
-                _, buffer = cv2.imencode(".jpg", frame, encode_params)
+                raw_frame = frame.copy()
+                ui_frame, overlay_meta = self._build_overlay_frame(frame)
+
+                _, buffer = cv2.imencode(".jpg", ui_frame, encode_params)
                 image_data = buffer.tobytes()
                 image_b64 = base64.b64encode(image_data).decode("utf-8")
 
@@ -247,9 +254,10 @@ class CameraFeedPublisher:
                     timestamp=datetime.now().isoformat(),
                     image_data=image_data,
                     image_b64=image_b64,
-                    raw_frame=frame,
+                    raw_frame=raw_frame,
                     width=frame.shape[1],
                     height=frame.shape[0],
+                    metadata=overlay_meta,
                 )
 
                 self._publish_frame(camera_frame)
@@ -258,6 +266,69 @@ class CameraFeedPublisher:
             except Exception as e:
                 logger.error("Capture loop error: %s", e)
                 time.sleep(0.1)
+
+    def _build_overlay_frame(self, frame: Any) -> tuple[Any, Dict[str, Any]]:
+        """Render PCB presence overlay for UI without mutating raw analysis frame."""
+        try:
+            result = self._presence_detector.process_frame(frame)
+            detected = bool(result.pcb_present)
+            label = "DETECTED" if detected else "NOT DETECTED"
+            color = (0, 200, 0) if detected else (0, 0, 255)
+
+            overlay_frame = frame.copy()
+            cv2.rectangle(overlay_frame, (10, 10), (710, 120), (20, 20, 20), -1)
+            cv2.addWeighted(overlay_frame, 0.45, frame, 0.55, 0, overlay_frame)
+            cv2.putText(
+                overlay_frame,
+                f"PCB: {label}",
+                (24, 48),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1.0,
+                color,
+                3,
+                cv2.LINE_AA,
+            )
+            cv2.putText(
+                overlay_frame,
+                (
+                    f"raw={'YES' if result.pcb_present_raw else 'NO'}  "
+                    f"motion={result.motion_score:.2f}  edge={result.edge_density:.2f}"
+                ),
+                (24, 82),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.66,
+                (255, 255, 255),
+                2,
+                cv2.LINE_AA,
+            )
+            cv2.putText(
+                overlay_frame,
+                (
+                    f"area={result.candidate_area_ratio:.3f}  "
+                    f"extent={result.candidate_extent:.3f}"
+                ),
+                (24, 110),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.60,
+                (230, 230, 230),
+                2,
+                cv2.LINE_AA,
+            )
+
+            metadata = {
+                "pcb_present": detected,
+                "pcb_present_raw": bool(result.pcb_present_raw),
+                "motion_score": float(result.motion_score),
+                "edge_density": float(result.edge_density),
+                "candidate_area_ratio": float(result.candidate_area_ratio),
+                "candidate_extent": float(result.candidate_extent),
+                "overlay_enabled": True,
+            }
+            return overlay_frame, metadata
+        except Exception as exc:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Overlay build failed; using raw frame: %s", exc)
+            return frame, {"overlay_enabled": False}
 
     def _publish_frame(self, frame: CameraFrame) -> None:
         """Push a captured frame to subscribers and update stats.

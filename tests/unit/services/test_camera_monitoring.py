@@ -114,3 +114,39 @@ def test_start_monitoring_autostarts_publisher_when_allowed(dummy_agent):
     assert service.start_monitoring() is True
     assert fake_publisher.start_calls == 1
     service.stop_monitoring()
+
+
+def test_start_monitoring_explicit_proactive_mode(monkeypatch, dummy_agent):
+    fake_publisher = FakePublisher(running=True)
+    service = CameraMonitoringService(
+        publisher_getter=lambda: fake_publisher,
+        auto_start_publisher=False,
+    )
+    service.agent = dummy_agent
+
+    called = {}
+
+    def _fake_start_proactive(instruction: str, config=None):
+        called["instruction"] = instruction
+        called["config"] = config
+        return True
+
+    monkeypatch.setattr(service, "start_proactive_monitoring", _fake_start_proactive)
+
+    assert service.start_monitoring(mode="proactive", instruction="Inspect PCB defects") is True
+    assert called["instruction"] == "Inspect PCB defects"
+
+
+def test_start_monitoring_auto_falls_back_to_reactive_when_proactive_disabled(dummy_agent):
+    fake_publisher = FakePublisher(running=True)
+    service = CameraMonitoringService(
+        publisher_getter=lambda: fake_publisher,
+        auto_start_publisher=False,
+    )
+    service.agent = dummy_agent
+
+    # Keep tests deterministic and avoid threading implementation details.
+    service._monitoring_loop = lambda: None  # type: ignore[attr-defined]
+
+    assert service.start_monitoring(mode="auto", instruction="") is True
+    assert service.get_active_monitoring_mode() in {"reactive", "idle"}

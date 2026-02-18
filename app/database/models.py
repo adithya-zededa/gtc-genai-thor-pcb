@@ -285,3 +285,109 @@ class PCBDefect:  # pylint: disable=too-many-instance-attributes
             "description": self.description,
             "created_at": self.created_at,
         }
+
+
+@dataclass
+class PCBFrameStore:
+    """A stored camera frame captured when a PCB was detected with low motion."""
+
+    id: Optional[int] = None
+    timestamp: Optional[str] = None
+    image_path: str = ""
+    motion_score: float = 0.0
+    board_signature: str = ""
+    frame_number: Optional[int] = None
+    quality_score: float = 0.0
+    consumed: bool = False
+    created_at: Optional[str] = None
+
+    @classmethod
+    def from_row(cls, row) -> Optional["PCBFrameStore"]:
+        """Create PCBFrameStore from database row."""
+        if row is None:
+            return None
+        return cls(
+            id=row["id"],
+            timestamp=row["timestamp"],
+            image_path=row["image_path"],
+            motion_score=float(row["motion_score"]),
+            board_signature=row["board_signature"],
+            frame_number=row["frame_number"],
+            quality_score=float(row["quality_score"]),
+            consumed=bool(row["consumed"]),
+            created_at=row["created_at"],
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "id": self.id,
+            "timestamp": self.timestamp,
+            "image_path": self.image_path,
+            "motion_score": self.motion_score,
+            "board_signature": self.board_signature,
+            "frame_number": self.frame_number,
+            "quality_score": self.quality_score,
+            "consumed": self.consumed,
+            "created_at": self.created_at,
+        }
+
+
+@dataclass
+class PCBInspection:  # pylint: disable=too-many-instance-attributes
+    """PCB inspection outcome record with explicit PASS/FAIL result."""
+
+    id: Optional[int] = None
+    timestamp: Optional[str] = None
+    board_signature: str = ""
+    result: str = "PASS"
+    confidence: float = 0.0
+    reason: str = ""
+    defect_type: str = ""
+    description: str = ""
+    image_path: str = ""
+    decision_trace: Dict[str, Any] = field(default_factory=dict)
+    created_at: Optional[str] = None
+
+    @classmethod
+    def from_row(cls, row) -> Optional["PCBInspection"]:
+        """Create PCBInspection from database row."""
+        if row is None:
+            return None
+
+        decision_trace = {}
+        if row["decision_trace"]:
+            try:
+                decision_trace = json.loads(row["decision_trace"])
+            except json.JSONDecodeError:
+                decision_trace = {"raw": row["decision_trace"]}
+
+        return cls(
+            id=row["id"],
+            timestamp=row["timestamp"],
+            board_signature=row["board_signature"],
+            result=row["result"],
+            confidence=float(row["confidence"]),
+            reason=row["reason"],
+            defect_type=row["defect_type"],
+            description=row["description"],
+            image_path=row["image_path"],
+            decision_trace=decision_trace,
+            created_at=row["created_at"],
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "id": self.id,
+            "timestamp": self.timestamp,
+            "board_signature": self.board_signature,
+            "result": self.result,
+            "confidence": self.confidence,
+            "reason": self.reason,
+            "defect_type": self.defect_type,
+            "description": self.description,
+            "image_path": self.image_path,
+            "decision_trace": self.decision_trace,
+            "created_at": self.created_at,
+        }

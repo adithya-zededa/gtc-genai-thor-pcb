@@ -10,7 +10,7 @@ from .schema import MCPSchemaType, MCPParameterSchema, MCPOutputSchema, standard
 from .state_machine import AgentState
 from .registry import MCPToolDefinition, MCPToolRegistry
 
-# All states — the LLM makes the decisions, not state filters.
+# General tools are available across all states by design.
 _ALL_STATES = tuple(AgentState)
 
 
@@ -122,8 +122,8 @@ TOOL_SEND_ALERT_EMAIL = MCPToolDefinition(
         MCPParameterSchema(
             name="recipients",
             type=MCPSchemaType.ARRAY,
-            description="List of email addresses to send the alert to",
-            required=True,
+            description="Optional list of email addresses; if omitted, configured default recipients are used",
+            required=False,
             items_type=MCPSchemaType.STRING,
         ),
         MCPParameterSchema(
@@ -205,7 +205,7 @@ TOOL_SAVE_EVIDENCE = MCPToolDefinition(
 
 TOOL_LOG_EVENT = MCPToolDefinition(
     name="log_event",
-    description="Log an event to the persistent audit log.",
+    description="Log an event to the persistent audit log. Only use when the user explicitly requests logging — automatic DB logging handles routine persistence.",
     category="logging",
     input_schema=[
         MCPParameterSchema(

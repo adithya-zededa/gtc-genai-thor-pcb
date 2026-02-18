@@ -90,15 +90,19 @@ def capture_frame():
         latest_frame = publisher.get_latest_frame()
 
         if latest_frame:
+            metadata = {
+                "frame_number": latest_frame.frame_number,
+                "source": "camera_publisher",
+            }
+            if getattr(latest_frame, "metadata", None):
+                metadata.update(latest_frame.metadata)
+
             return jsonify(
                 {
                     "success": True,
                     "image_b64": latest_frame.image_b64,
                     "timestamp": latest_frame.timestamp,
-                    "metadata": {
-                        "frame_number": latest_frame.frame_number,
-                        "source": "camera_publisher",
-                    },
+                    "metadata": metadata,
                 }
             )
 

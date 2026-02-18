@@ -78,12 +78,9 @@ curl -X POST http://localhost:8080/api/monitoring/proactive/stop
 │
 ├── agents/                   # ML/AI components
 │   ├── core/
+│   │   ├── monitoring_loop.py        # CV observation loop (only deterministic piece)
 │   │   ├── detection_agent.py        # VLM detection/analysis agent
-│   │   ├── proactive_monitoring.py   # Proactive monitoring orchestration
-│   │   ├── conveyor_inspection_fsm.py # Conveyor inspection state machine
-│   │   ├── resilience.py             # Circuit breaker and resilience primitives
-│   │   ├── state.py                  # Agent memory
-│   │   └── alerting.py               # Alert manager
+│   │   └── state.py                  # Agent memory & DetectionEvent
 │   ├── tools/               # Tool executor
 │   └── vlm/                 # Vision Language Model
 │       ├── client.py         # Unified VLM client

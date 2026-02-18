@@ -1,8 +1,9 @@
 """LLM-based intent classifier for MCP domain routing and tool selection.
 
-Uses a single LLM inference call that returns structured JSON to classify
-    user messages into domains and tools.  The vLLM backend is the sole
-    inference provider — there are no keyword or regex fallbacks.
+Uses a single LLM inference call to classify user messages into domains
+and tool selections.  A per-request cache eliminates redundant calls
+within the same request cycle.
+
 Output schema::
 
     {
@@ -15,13 +16,15 @@ Output schema::
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import threading
 import time
+from datetime import datetime
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import requests
 
@@ -43,7 +46,7 @@ class ClassificationResult:
     confidence: float = 0.0
     params: Dict[str, Any] = field(default_factory=dict)
     rationale: str = ""
-    source: str = "llm"                  # "llm" or "keyword_fallback"
+    source: str = "llm"                  # "llm", "circuit_breaker", or "llm_error"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -54,6 +57,53 @@ class ClassificationResult:
             "rationale": self.rationale,
             "source": self.source,
         }
+
+
+# ---------------------------------------------------------------------------
+# Per-request classification cache
+# ---------------------------------------------------------------------------
+
+class _ClassificationCache:
+    """Thread-safe TTL cache keyed on message hash.
+
+    Prevents redundant LLM calls when classify() is invoked multiple
+    times for the same user message within a single request cycle
+    (e.g. domain detection + interpreter + scope validation).
+    """
+
+    def __init__(self, ttl: float = 10.0, max_size: int = 128) -> None:
+        self._store: Dict[str, Tuple[ClassificationResult, float]] = {}
+        self._ttl = ttl
+        self._max_size = max_size
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _key(message: str) -> str:
+        return hashlib.sha256(message.strip().lower().encode()).hexdigest()[:16]
+
+    def get(self, message: str) -> Optional[ClassificationResult]:
+        key = self._key(message)
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is None:
+                return None
+            result, ts = entry
+            if time.time() - ts > self._ttl:
+                del self._store[key]
+                return None
+            return result
+
+    def put(self, message: str, result: ClassificationResult) -> None:
+        key = self._key(message)
+        with self._lock:
+            if len(self._store) >= self._max_size:
+                # Evict oldest entry
+                oldest_key = min(self._store, key=lambda k: self._store[k][1])
+                del self._store[oldest_key]
+            self._store[key] = (result, time.time())
+
+
+_classification_cache = _ClassificationCache()
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +122,7 @@ Given the user message below, decide:
 
 | domain   | description |
 |----------|-------------|
-| pcb      | PCB inspection on a conveyor, board presence, motion/stopped state, board defects, board-type identification, defect logging/reporting. |
+| pcb      | PCB inspection on a conveyor, board presence, motion/stopped state, board defects, board-type identification, defect logging/reporting, defect analytics, monitoring status queries, notification configuration, defect trends, severity analysis, threshold checking, insights. |
 | general  | Session control, greetings, help, status, and other non-inspection camera control tasks. |
 
 Scope constraint:
@@ -84,17 +134,35 @@ Scope constraint:
 ### PCB domain tools
 | tool                   | when to pick |
 |------------------------|--------------|
-| inspect_pcb            | User wants to visually inspect / check / scan a PCB for defects. |
+| get_latest_pcb_frames  | User wants to see / list / check what PCB frames have been captured or are available for inspection. |
+| inspect_pcb_frame      | User wants to inspect a stored PCB frame for defects using the VLM. Use this before deciding to send alerts. |
+| inspect_pcb            | User wants to visually inspect / check / scan a PCB for defects (live camera). Defects are auto-logged. |
 | classify_board         | User wants to identify what type of board is visible. |
-| send_defect_alert      | User wants to email/alert someone about a defect. |
-| log_defect             | User wants to record / save / log a defect. |
-| generate_defect_report | User wants a report or summary of past defects. |
+| send_defect_alert      | User wants to email/alert someone about a defect. Should only be used after inspecting a frame. |
+| log_defect             | ONLY use when the user EXPLICITLY asks to manually record / save / log a defect. Inspection tools auto-log defects to the DB — do NOT pick this after an inspection or proactively. |
+| generate_defect_report | User wants a report or summary of past defects (legacy report tool). |
+| start_defect_monitoring | Deprecated. Avoid selecting this tool; prefer general-domain session controls. |
+| stop_defect_monitoring | Deprecated. Avoid selecting this tool; prefer `end_session` or `go_idle`. |
+| query_pcb_inspections  | User asks about past inspections, how many defects were found, pass/fail rates, PCB history, what PCBs were detected, or any question about previously inspected boards. |
+| get_monitoring_status  | User asks about the current monitoring status — is it running, what's been detected so far, how many defects total, recent activity. |
+| toggle_email_notifications | User wants to enable, disable, or configure email notifications for defects. Also use when user sets severity threshold or adds/removes notification recipients. |
+| get_defect_summary     | User wants a summary of defects for a time period, specific log, or board type. "Show me defects from the last hour", "summarize today's defects". |
+| count_defective_pcbs   | User asks how many defective PCBs were detected overall or in a time window. "How many defects?", "How many bad PCBs today?". |
+| get_latest_defect      | User asks when the most recent defect was detected. "When was the last defect?", "Most recent defect?". |
+| get_defect_type_breakdown | User asks what types of defects have been found and how frequently. "What kinds of defects?", "Most common defect type?". |
+| get_defect_trend       | User asks whether defect rates are increasing, decreasing, or stable. "Are defects trending up?", "Is the defect rate improving?". |
+| get_most_severe_defect | User asks about the most severe or highest priority defect. "What's the worst defect?", "Highest severity defect?". |
+| get_top_defect_sources | User asks which boards or sources produce the most defects. "Which board has the most defects?", "Top defect sources?". |
+| generate_summary_report | User wants a daily, weekly, or on-demand summary report. "Give me a daily report", "Weekly summary", "Generate report". |
+| check_threshold_alerts | User asks whether defects exceeded thresholds or triggered alerts. "Any threshold violations?", "Are we within limits?". |
+| get_defect_insights    | User wants recommendations or insights based on defect patterns. "What should we improve?", "Give me insights", "Any recommendations?". |
+| get_notification_preferences | User asks about current notification settings. "What are my notification settings?", "Are notifications on?". |
 
 ### General domain tools
 | tool                      | when to pick |
 |---------------------------|--------------|
-| start_monitoring_session  | User wants to start / begin / activate camera monitoring. |
-| end_session               | User wants to stop / end / deactivate monitoring or end the session. |
+| start_monitoring_session  | User wants to start / begin / activate camera monitoring, including phrases like "start monitoring", "start monitoring session", "begin monitoring", "watch for defects". |
+| end_session               | User wants to stop / end / deactivate monitoring or end the session, including phrases like "stop monitoring". |
 | go_idle                   | User wants to pause monitoring or put the agent in idle / take a break. |
 | get_agent_status          | User asks about the agent's status, whether it's running, current state. |
 | analyze_current_frame     | User wants to analyze / look at / describe / examine what's in the camera view. |
@@ -102,6 +170,8 @@ Scope constraint:
 | get_session_summary       | User wants a summary / recap of the monitoring session. |
 | set_detection_task        | User wants to set PCB inspection task behavior (pcb_inspection or custom). |
 | send_alert_email          | User wants to send an alert email about a detection. |
+| save_evidence             | User wants to save the current camera frame as evidence for later review. |
+| log_event                 | ONLY use when the user EXPLICITLY asks to log or record a specific event. Do NOT call this proactively — automatic DB logging handles persistence separately. |
 | shutdown_agent            | User wants to completely shut down the agent. |
 | acknowledge_error         | User wants to acknowledge / dismiss an error state. |
 
@@ -114,6 +184,10 @@ Pick `null` for the tool when the message is a greeting, help request, thanks, o
 - **recipient_email**: the primary email to send something to.
 - **recipients**: list of emails for alerts.
 - **query**: the original user message (useful as context for scan/inspect tools).
+- **hours**: if a time window is mentioned (e.g., "last 24 hours", "past week" = 168), extract as numeric hours.
+- **period**: if user mentions "daily", "weekly", or "all", extract it.
+- **enabled**: if user says "enable", "turn on" → true; "disable", "turn off" → false.
+- **min_severity**: if user specifies severity threshold for notifications.
 
 ## Output format
 Respond ONLY with a JSON object — no explanation, no markdown fences:
@@ -162,6 +236,18 @@ class LLMIntentClassifier:
         self._router = None
         self._router_checked = False
 
+        self._metrics: Dict[str, Any] = {
+            "classify_calls": 0,
+            "llm_successes": 0,
+            "llm_failures": 0,
+            "circuit_open_returns": 0,
+            "router_failures": 0,
+            "direct_backend_failures": 0,
+            "fallback_general_returns": 0,
+            "last_error": None,
+            "last_error_at": None,
+        }
+
     # ------------------------------------------------------------------
     # Lazy resolution of URL / model from env
     # ------------------------------------------------------------------
@@ -209,8 +295,11 @@ class LLMIntentClassifier:
     def classify(self, message: str) -> ClassificationResult:
         """Classify a user message, returning domain + tool + params.
 
-        Uses the LLM exclusively.  Returns a low-confidence general
-        result if the LLM is unreachable.
+        Pipeline:
+        1. Per-request cache check (dedup within same request cycle)
+        2. Circuit breaker check
+        3. LLM inference
+        4. Low-confidence general result if LLM unreachable
         """
         if not message or not message.strip():
             return ClassificationResult(
@@ -218,21 +307,41 @@ class LLMIntentClassifier:
                 rationale="Empty message",
             )
 
-        # Circuit breaker check
+        self._metrics["classify_calls"] += 1
+
+        # 1. Check per-request cache (eliminates redundant LLM calls)
+        cached = _classification_cache.get(message)
+        if cached is not None:
+            self._metrics.setdefault("cache_hits", 0)
+            self._metrics["cache_hits"] += 1
+            logger.debug("Classification cache hit for: %s", message[:60])
+            return cached
+
+        # 2. Circuit breaker check
         if self._is_circuit_open():
             logger.debug("LLM classifier circuit open — returning general")
+            self._metrics["circuit_open_returns"] += 1
+            self._metrics["fallback_general_returns"] += 1
             return ClassificationResult(
                 domain="general", tool=None, confidence=0.2,
                 rationale="LLM circuit breaker open",
                 source="circuit_breaker",
             )
 
+        # 3. LLM inference
         try:
             result = self._call_llm(message)
             self._record_success()
+            self._metrics["llm_successes"] += 1
+            self._metrics["last_error"] = None
+            _classification_cache.put(message, result)
             return result
         except Exception as exc:
             self._record_failure()
+            self._metrics["llm_failures"] += 1
+            self._metrics["fallback_general_returns"] += 1
+            self._metrics["last_error"] = str(exc)
+            self._metrics["last_error_at"] = datetime.now().isoformat()
             logger.warning(
                 "LLM classification failed (%s), returning general domain",
                 exc,
@@ -256,6 +365,7 @@ class LLMIntentClassifier:
             try:
                 raw = self._router_completion(router, prompt)
             except Exception as exc:
+                self._metrics["router_failures"] += 1
                 logger.warning("Router classification failed (%s), falling back to direct backend", exc)
                 raw = self._direct_completion(prompt)
         else:
@@ -297,7 +407,11 @@ class LLMIntentClassifier:
 
     def _direct_completion(self, prompt: str) -> str:
         """Send classification request directly to vLLM."""
-        return self._vllm_completion(prompt)
+        try:
+            return self._vllm_completion(prompt)
+        except Exception:
+            self._metrics["direct_backend_failures"] += 1
+            raise
 
     def _vllm_completion(self, prompt: str) -> str:
         payload = {
@@ -383,9 +497,23 @@ class LLMIntentClassifier:
             if self._consecutive_failures >= self._max_failures:
                 self._circuit_open_until = time.time() + self._backoff_seconds
                 logger.warning(
-                    "LLM classifier circuit OPEN — will use keyword fallback for %.0fs",
+                    "LLM classifier circuit OPEN — returning low-confidence general results for %.0fs",
                     self._backoff_seconds,
                 )
+
+    def get_health_metrics(self) -> Dict[str, Any]:
+        """Return classifier health and fallback metrics."""
+        calls = int(self._metrics.get("classify_calls", 0) or 0)
+        successes = int(self._metrics.get("llm_successes", 0) or 0)
+        cache_hits = int(self._metrics.get("cache_hits", 0) or 0)
+        return {
+            **self._metrics,
+            "circuit_open": self._is_circuit_open(),
+            "consecutive_failures": self._consecutive_failures,
+            "llm_success_rate": (successes / calls) if calls > 0 else 0.0,
+            "cache_hit_rate": (cache_hits / calls) if calls > 0 else 0.0,
+            "llm_calls_avoided": cache_hits,
+        }
 
 
 # ---------------------------------------------------------------------------

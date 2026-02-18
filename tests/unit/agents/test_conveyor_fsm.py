@@ -130,3 +130,29 @@ def test_inspected_board_is_never_reinspected():
 
     # Cleanup to avoid waiting for timer in case of regressions.
     time.sleep(0.01)
+
+
+def test_inspected_board_tolerates_near_hash_signature_and_skips_reinspection():
+    decisions = []
+    fsm = ConveyorInspectionFSM(
+        inspection_window_seconds=0.5,
+        on_decision=decisions.append,
+    )
+
+    base_signature = "board-000000000000000000000000"
+    near_signature = "board-000000000000000000000001"
+
+    fsm.update_inputs(motion_moving=True, board_in_zone=False, board_signature=None)
+    fsm.update_inputs(motion_moving=False, board_in_zone=True, board_signature=base_signature)
+    assert fsm.begin_inspection_on_first_frame() is True
+    fsm.submit_analysis(_make_defect_event())
+    assert len(decisions) == 1
+
+    fsm.update_inputs(motion_moving=True, board_in_zone=False, board_signature=None)
+    assert fsm.state == ConveyorState.MOVING
+
+    # Near-identical signature should resolve to the already inspected board.
+    fsm.update_inputs(motion_moving=False, board_in_zone=True, board_signature=near_signature)
+    assert fsm.state == ConveyorState.INSPECTED_COMPLETE
+    assert fsm.begin_inspection_on_first_frame() is False
+    assert len(decisions) == 1

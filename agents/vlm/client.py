@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+from datetime import datetime
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
@@ -197,6 +198,17 @@ class UnifiedVLMClient:
         self.backend = backend
         self.temperature = temperature
         self.prompt = prompt or DEFAULT_DETECTION_PROMPT
+
+        self._metrics: Dict[str, Any] = {
+            "total_requests": 0,
+            "successful_requests": 0,
+            "request_failures": 0,
+            "timeouts": 0,
+            "parse_failures": 0,
+            "fallback_results": 0,
+            "last_error": None,
+            "last_error_at": None,
+        }
         
         # Configure session with optimized connection pooling
         self.session = self._create_optimized_session()
@@ -672,6 +684,7 @@ class UnifiedVLMClient:
     ) -> Optional[AnalysisResult]:
         """Analyze a frame with dynamic task type selection."""
         effective_task_type = task_type or self.default_task_type
+        self._metrics["total_requests"] += 1
 
         try:
             base64_image = self._encode_frame(frame)
@@ -680,6 +693,9 @@ class UnifiedVLMClient:
             
             parsed = self._parse_json_response(raw_response)
             if not parsed:
+                self._metrics["parse_failures"] += 1
+                self._metrics["fallback_results"] += 1
+                logger.warning("VLM response parse failed; returning non-detection fallback")
                 logger.warning("Could not parse VLM response as JSON")
                 return self._create_fallback_analysis_result(effective_task_type, raw_response)
             
@@ -699,6 +715,9 @@ class UnifiedVLMClient:
             for bool_field in ["pcb_stable"]:
                 if bool_field in details:
                     details[bool_field] = self._coerce_bool(details[bool_field])
+
+            self._metrics["successful_requests"] += 1
+            self._metrics["last_error"] = None
             
             return AnalysisResult(
                 task_type=effective_task_type.value,
@@ -711,12 +730,22 @@ class UnifiedVLMClient:
             )
             
         except requests.exceptions.Timeout:
+            self._metrics["timeouts"] += 1
+            self._metrics["request_failures"] += 1
+            self._metrics["last_error"] = "timeout"
+            self._metrics["last_error_at"] = datetime.now().isoformat()
             logger.error("VLM request timed out after %ds", self.timeout)
             raise
         except requests.exceptions.RequestException as exc:
+            self._metrics["request_failures"] += 1
+            self._metrics["last_error"] = str(exc)
+            self._metrics["last_error_at"] = datetime.now().isoformat()
             logger.error("VLM request failed: %s", exc)
             raise
         except Exception as exc:
+            self._metrics["request_failures"] += 1
+            self._metrics["last_error"] = str(exc)
+            self._metrics["last_error_at"] = datetime.now().isoformat()
             logger.error("VLM analysis failed: %s", exc)
             raise
 
@@ -728,13 +757,23 @@ class UnifiedVLMClient:
         """Create a fallback AnalysisResult when JSON parsing fails."""
         return AnalysisResult(
             task_type=task_type.value,
-            detected=True,
-            confidence=0.3,
-            reasoning=f"Fallback: {raw_response[:150]}",
+            detected=False,
+            confidence=0.0,
+            reasoning="Unable to parse structured model output; treating frame as unknown/non-detection.",
             should_alert=False,
             raw_response=raw_response,
-            details={},
+            details={"parse_error": True},
         )
+
+    def get_health_metrics(self) -> Dict[str, Any]:
+        """Return runtime health metrics for observability dashboards."""
+        total = int(self._metrics.get("total_requests", 0) or 0)
+        success = int(self._metrics.get("successful_requests", 0) or 0)
+        return {
+            **self._metrics,
+            "success_rate": (success / total) if total > 0 else 0.0,
+            "degraded_mode_active": bool(self._metrics.get("last_error")),
+        }
 
     def analyze_frame(
         self,

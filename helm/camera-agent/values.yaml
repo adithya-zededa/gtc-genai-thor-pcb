@@ -5,7 +5,7 @@ replicaCount: 1
 image:
   repository: adithyazededa/gtc-genai-thor-pcb
   pullPolicy: Always
-  tag: "v1"
+  tag: "v16"
 
 imagePullSecrets: []
 nameOverride: ""
@@ -58,14 +58,14 @@ camera:
   # Enable camera device mount (set to false if no camera available)
   enabled: true
   # Device path on the host
-  devicePath: /dev/video1
+  devicePath: /dev/video0
   # Camera index used by OpenCV
-  index: 1
+  index: 0
 
 # Speaker device configuration
 speaker:
   # Enable speaker device mount (set to false if no speaker available)
-  enabled: true
+  enabled: false
   # Device path on the host (typically /dev/snd for ALSA sound devices)
   devicePath: /dev/snd
   # Audio device to use (ALSA device specification, optional - leave empty for system default)

@@ -10,7 +10,7 @@ real-time camera monitoring with AI-powered inference capabilities.
 ```
 .
 ├── agents/              # Agent logic
-│   ├── core/            # Core agent, state management, alerting
+│   ├── core/            # Monitoring loop, detection agent, state
 │   ├── tools/           # Tool definitions & executors (email, PCB)
 │   ├── mcp/             # Model Context Protocol server & domain MCPs
 │   ├── classifiers/     # LLM-based classification

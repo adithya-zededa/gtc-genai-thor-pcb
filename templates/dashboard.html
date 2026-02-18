@@ -59,6 +59,58 @@
     </div>
 </div>
 
+<!-- Defect Analytics Row -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <div class="glass-card liquid-hover hover-sweep group">
+        <div class="absolute inset-0 opacity-[0.08] rounded-[inherit]" style="background: linear-gradient(135deg, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0) 70%);"></div>
+        <div class="relative flex items-center justify-between">
+            <div>
+                <p class="text-caption">Defects (24h)</p>
+                <p class="mt-2 text-title-2 font-bold tabular-nums" id="defects-24h">0</p>
+            </div>
+            <div class="h-12 w-12 rounded-2xl flex items-center justify-center glass-orange" style="box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);">
+                <i class="fas fa-bug" style="color: var(--system-orange);"></i>
+            </div>
+        </div>
+    </div>
+    <div class="glass-card liquid-hover hover-sweep group">
+        <div class="absolute inset-0 opacity-[0.08] rounded-[inherit]" style="background: linear-gradient(135deg, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0) 70%);"></div>
+        <div class="relative flex items-center justify-between">
+            <div>
+                <p class="text-caption">High Severity</p>
+                <p class="mt-2 text-title-2 font-bold tabular-nums" id="high-severity-24h">0</p>
+            </div>
+            <div class="h-12 w-12 rounded-2xl flex items-center justify-center glass-red" style="box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);">
+                <i class="fas fa-exclamation-triangle" style="color: var(--system-red);"></i>
+            </div>
+        </div>
+    </div>
+    <div class="glass-card liquid-hover hover-sweep group">
+        <div class="absolute inset-0 opacity-[0.08] rounded-[inherit]" style="background: linear-gradient(135deg, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0) 70%);"></div>
+        <div class="relative flex items-center justify-between">
+            <div>
+                <p class="text-caption">Trend</p>
+                <p class="mt-2 text-title-2 font-bold" id="defect-trend-label" style="color: var(--system-green);">Stable</p>
+            </div>
+            <div class="h-12 w-12 rounded-2xl flex items-center justify-center glass-green" id="trend-icon-bg" style="box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);">
+                <i class="fas fa-arrows-alt-h" id="trend-icon" style="color: var(--system-green);"></i>
+            </div>
+        </div>
+    </div>
+    <div class="glass-card liquid-hover hover-sweep group">
+        <div class="absolute inset-0 opacity-[0.08] rounded-[inherit]" style="background: linear-gradient(135deg, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0) 70%);"></div>
+        <div class="relative flex items-center justify-between">
+            <div>
+                <p class="text-caption">Threshold</p>
+                <p class="mt-2 text-title-2 font-bold" id="threshold-status" style="color: var(--system-green);">OK</p>
+            </div>
+            <div class="h-12 w-12 rounded-2xl flex items-center justify-center glass-green" id="threshold-icon-bg" style="box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);">
+                <i class="fas fa-shield-alt" id="threshold-icon" style="color: var(--system-green);"></i>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- System Status & Resources (Liquid Glass Panels) -->
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
     <!-- Service Health -->
@@ -195,6 +247,113 @@
     </div>
 </section>
 
+<!-- Defect Trend & Severity Breakdown -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+    <!-- Defect Trend Chart -->
+    <section class="glass-card animate-slide-up" style="animation-delay: 80ms;">
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+                <div class="h-9 w-9 rounded-xl flex items-center justify-center glass-orange">
+                    <i class="fas fa-chart-area" style="color: var(--system-orange);"></i>
+                </div>
+                <h3 class="text-headline">Defect Trend (7 Days)</h3>
+            </div>
+            <span id="trend-badge" class="status-badge online">
+                <i class="fas fa-arrows-alt-h mr-1"></i>
+                <span id="trend-badge-text">Stable</span>
+            </span>
+        </div>
+        <div class="relative h-56">
+            <canvas id="defect-trend-chart"></canvas>
+        </div>
+    </section>
+
+    <!-- Severity & Type Breakdown -->
+    <section class="glass-card animate-slide-up" style="animation-delay: 90ms;">
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+                <div class="h-9 w-9 rounded-xl flex items-center justify-center glass-red">
+                    <i class="fas fa-chart-pie" style="color: var(--system-red);"></i>
+                </div>
+                <h3 class="text-headline">Defect Breakdown</h3>
+            </div>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+            <!-- Severity -->
+            <div>
+                <p class="text-footnote font-medium text-secondary mb-3">By Severity</p>
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between glass-ultra-thin rounded-lg p-2.5">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full" style="background: var(--system-red);"></span>
+                            <span class="text-subhead">High</span>
+                        </div>
+                        <span class="text-subhead font-semibold" id="sev-high-count">0</span>
+                    </div>
+                    <div class="flex items-center justify-between glass-ultra-thin rounded-lg p-2.5">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full" style="background: var(--system-orange);"></span>
+                            <span class="text-subhead">Medium</span>
+                        </div>
+                        <span class="text-subhead font-semibold" id="sev-medium-count">0</span>
+                    </div>
+                    <div class="flex items-center justify-between glass-ultra-thin rounded-lg p-2.5">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full" style="background: var(--system-green);"></span>
+                            <span class="text-subhead">Low</span>
+                        </div>
+                        <span class="text-subhead font-semibold" id="sev-low-count">0</span>
+                    </div>
+                </div>
+            </div>
+            <!-- Type -->
+            <div>
+                <p class="text-footnote font-medium text-secondary mb-3">Top Defect Types</p>
+                <div class="space-y-2" id="defect-types-list">
+                    <p class="text-footnote text-tertiary">No data yet</p>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
+
+<!-- Threshold Alerts & Insights -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+    <!-- Threshold Alerts -->
+    <section class="glass-card animate-slide-up" style="animation-delay: 85ms;">
+        <div class="flex items-center gap-3 mb-4">
+            <div class="h-9 w-9 rounded-xl flex items-center justify-center glass-blue">
+                <i class="fas fa-shield-alt" style="color: var(--system-blue);"></i>
+            </div>
+            <h3 class="text-headline">Threshold Alerts</h3>
+        </div>
+        <div id="threshold-alerts-list" class="space-y-2">
+            <div class="glass-ultra-thin rounded-xl py-6 text-center">
+                <i class="fas fa-check-circle text-xl mb-2" style="color: var(--system-green);"></i>
+                <p class="text-subhead font-medium text-secondary">All thresholds OK</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- AI Insights -->
+    <section class="glass-card animate-slide-up" style="animation-delay: 95ms;">
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+                <div class="h-9 w-9 rounded-xl flex items-center justify-center glass-purple">
+                    <i class="fas fa-lightbulb" style="color: var(--system-purple);"></i>
+                </div>
+                <h3 class="text-headline">AI Insights</h3>
+            </div>
+            <span id="risk-badge" class="status-badge online">
+                <span id="risk-badge-text">Low Risk</span>
+            </span>
+        </div>
+        <div id="insights-list" class="space-y-2">
+            <p class="text-body text-secondary">No insights available yet.</p>
+        </div>
+    </section>
+</div>
+
 <!-- Performance & Agent (Liquid Glass) -->
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
     <section class="glass-card animate-slide-up" style="animation-delay: 100ms;">
@@ -254,6 +413,7 @@
 {% block extra_js %}
 <script>
     let performanceChart;
+    let defectTrendChart;
     let activityData = [];
     const MEMORY_RENDER_LIMIT = 5;
 
@@ -661,8 +821,10 @@
     // Initialize dashboard
     document.addEventListener('DOMContentLoaded', function() {
         initPerformanceChart();
+        initDefectTrendChart();
         updateSystemStatusText();
         updateAgentSummary();
+        updateDefectAnalytics();
         
         // Refresh activity button
         const refreshBtn = document.getElementById('refresh-activity');
@@ -683,9 +845,216 @@
         
         // Update status every 10 seconds
         setInterval(updateSystemStatusText, 10000);
+        // Update defect analytics every 30 seconds
+        setInterval(updateDefectAnalytics, 30000);
         
         // Add initial activity
         addActivity('Dashboard loaded', 'info');
     });
+
+    // =========================================================
+    // Defect Analytics
+    // =========================================================
+
+    function initDefectTrendChart() {
+        const ctx = document.getElementById('defect-trend-chart');
+        if (!ctx) return;
+        defectTrendChart = new Chart(ctx.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Defects',
+                    data: [],
+                    backgroundColor: 'rgba(255, 149, 0, 0.35)',
+                    borderColor: 'rgb(255, 149, 0)',
+                    borderWidth: 1.5,
+                    borderRadius: 6,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                },
+                scales: {
+                    y: { beginAtZero: true, ticks: { precision: 0 } },
+                    x: { grid: { display: false } },
+                }
+            }
+        });
+    }
+
+    async function updateDefectAnalytics() {
+        try {
+            const [countRes, trendRes, typesRes, thresholdRes, insightsRes] = await Promise.all([
+                fetch('/api/defects/count?hours=24').then(r => r.json()),
+                fetch('/api/defects/trend?hours=168&buckets=7').then(r => r.json()),
+                fetch('/api/defects/types?hours=168').then(r => r.json()),
+                fetch('/api/defects/thresholds').then(r => r.json()),
+                fetch('/api/defects/insights?hours=168').then(r => r.json()),
+            ]);
+
+            // -- Defect counts --
+            if (countRes.success) {
+                const el24 = document.getElementById('defects-24h');
+                const elHigh = document.getElementById('high-severity-24h');
+                if (el24) el24.textContent = countRes.total || 0;
+                if (elHigh) elHigh.textContent = countRes.breakdown?.high || 0;
+
+                // Severity breakdown
+                const sevHigh = document.getElementById('sev-high-count');
+                const sevMed = document.getElementById('sev-medium-count');
+                const sevLow = document.getElementById('sev-low-count');
+                if (sevHigh) sevHigh.textContent = countRes.breakdown?.high || 0;
+                if (sevMed) sevMed.textContent = countRes.breakdown?.medium || 0;
+                if (sevLow) sevLow.textContent = countRes.breakdown?.low || 0;
+            }
+
+            // -- Trend chart --
+            if (trendRes.success && defectTrendChart) {
+                const buckets = trendRes.buckets || [];
+                const labels = buckets.map(b => {
+                    try {
+                        const d = new Date(b.period_start);
+                        return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                    } catch { return ''; }
+                });
+                const data = buckets.map(b => b.count);
+                defectTrendChart.data.labels = labels;
+                defectTrendChart.data.datasets[0].data = data;
+                defectTrendChart.update();
+
+                // Trend label
+                const trendLabel = document.getElementById('defect-trend-label');
+                const trendIcon = document.getElementById('trend-icon');
+                const trendIconBg = document.getElementById('trend-icon-bg');
+                const trendBadge = document.getElementById('trend-badge');
+                const trendBadgeText = document.getElementById('trend-badge-text');
+                const direction = trendRes.trend || 'stable';
+
+                if (direction === 'increasing') {
+                    if (trendLabel) { trendLabel.textContent = 'Increasing'; trendLabel.style.color = 'var(--system-red)'; }
+                    if (trendIcon) { trendIcon.className = 'fas fa-arrow-up'; trendIcon.style.color = 'var(--system-red)'; }
+                    if (trendIconBg) trendIconBg.className = 'h-12 w-12 rounded-2xl flex items-center justify-center glass-red';
+                    if (trendBadge) trendBadge.className = 'status-badge warning';
+                    if (trendBadgeText) trendBadgeText.textContent = 'Increasing';
+                } else if (direction === 'decreasing') {
+                    if (trendLabel) { trendLabel.textContent = 'Decreasing'; trendLabel.style.color = 'var(--system-green)'; }
+                    if (trendIcon) { trendIcon.className = 'fas fa-arrow-down'; trendIcon.style.color = 'var(--system-green)'; }
+                    if (trendIconBg) trendIconBg.className = 'h-12 w-12 rounded-2xl flex items-center justify-center glass-green';
+                    if (trendBadge) trendBadge.className = 'status-badge online';
+                    if (trendBadgeText) trendBadgeText.textContent = 'Decreasing';
+                } else {
+                    if (trendLabel) { trendLabel.textContent = 'Stable'; trendLabel.style.color = 'var(--system-green)'; }
+                    if (trendIcon) { trendIcon.className = 'fas fa-arrows-alt-h'; trendIcon.style.color = 'var(--system-green)'; }
+                    if (trendIconBg) trendIconBg.className = 'h-12 w-12 rounded-2xl flex items-center justify-center glass-green';
+                    if (trendBadge) trendBadge.className = 'status-badge online';
+                    if (trendBadgeText) trendBadgeText.textContent = 'Stable';
+                }
+            }
+
+            // -- Defect types --
+            if (typesRes.success) {
+                const container = document.getElementById('defect-types-list');
+                if (container) {
+                    const types = (typesRes.types || []).slice(0, 4);
+                    if (types.length === 0) {
+                        container.innerHTML = '<p class="text-footnote text-tertiary">No data yet</p>';
+                    } else {
+                        container.innerHTML = types.map(t => `
+                            <div class="flex items-center justify-between glass-ultra-thin rounded-lg p-2.5">
+                                <span class="text-subhead truncate" style="max-width: 120px;" title="${t.defect_type}">${t.defect_type || 'Unknown'}</span>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-subhead font-semibold">${t.count}</span>
+                                    <span class="text-caption text-tertiary">${t.percentage}%</span>
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+                }
+            }
+
+            // -- Threshold alerts --
+            if (thresholdRes.success) {
+                const statusEl = document.getElementById('threshold-status');
+                const iconEl = document.getElementById('threshold-icon');
+                const iconBg = document.getElementById('threshold-icon-bg');
+                const listEl = document.getElementById('threshold-alerts-list');
+
+                if (thresholdRes.threshold_exceeded) {
+                    if (statusEl) { statusEl.textContent = 'ALERT'; statusEl.style.color = 'var(--system-red)'; }
+                    if (iconEl) { iconEl.className = 'fas fa-exclamation-triangle'; iconEl.style.color = 'var(--system-red)'; }
+                    if (iconBg) iconBg.className = 'h-12 w-12 rounded-2xl flex items-center justify-center glass-red';
+
+                    if (listEl) {
+                        listEl.innerHTML = (thresholdRes.alerts || []).map(a => `
+                            <div class="glass-ultra-thin rounded-xl p-3 flex items-start gap-3">
+                                <i class="fas fa-exclamation-circle mt-0.5" style="color: var(--system-red);"></i>
+                                <div>
+                                    <p class="text-subhead font-medium">${a.type === 'rate_exceeded' ? 'Rate Exceeded' : 'High Severity Alert'}</p>
+                                    <p class="text-footnote text-secondary mt-0.5">${a.message}</p>
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+                } else {
+                    if (statusEl) { statusEl.textContent = 'OK'; statusEl.style.color = 'var(--system-green)'; }
+                    if (iconEl) { iconEl.className = 'fas fa-shield-alt'; iconEl.style.color = 'var(--system-green)'; }
+                    if (iconBg) iconBg.className = 'h-12 w-12 rounded-2xl flex items-center justify-center glass-green';
+                    if (listEl) {
+                        listEl.innerHTML = `
+                            <div class="glass-ultra-thin rounded-xl py-6 text-center">
+                                <i class="fas fa-check-circle text-xl mb-2" style="color: var(--system-green);"></i>
+                                <p class="text-subhead font-medium text-secondary">All thresholds OK</p>
+                                <p class="text-footnote text-tertiary mt-1">${thresholdRes.total_defects || 0} defects / ${thresholdRes.high_severity_count || 0} high severity in the last ${thresholdRes.window_hours || 24}h</p>
+                            </div>
+                        `;
+                    }
+                }
+            }
+
+            // -- AI Insights --
+            if (insightsRes.success) {
+                const riskBadge = document.getElementById('risk-badge');
+                const riskBadgeText = document.getElementById('risk-badge-text');
+                const listEl = document.getElementById('insights-list');
+                const risk = insightsRes.risk_level || 'low';
+
+                if (risk === 'high') {
+                    if (riskBadge) riskBadge.className = 'status-badge offline';
+                    if (riskBadgeText) riskBadgeText.textContent = 'High Risk';
+                } else if (risk === 'medium') {
+                    if (riskBadge) riskBadge.className = 'status-badge warning';
+                    if (riskBadgeText) riskBadgeText.textContent = 'Medium Risk';
+                } else {
+                    if (riskBadge) riskBadge.className = 'status-badge online';
+                    if (riskBadgeText) riskBadgeText.textContent = 'Low Risk';
+                }
+
+                const recs = insightsRes.recommendations || [];
+                if (listEl) {
+                    if (recs.length === 0) {
+                        listEl.innerHTML = '<p class="text-body text-secondary">No insights available yet.</p>';
+                    } else {
+                        listEl.innerHTML = recs.map(r => {
+                            const isAlert = r.startsWith('ALERT:');
+                            const icon = isAlert ? 'fa-exclamation-triangle' : 'fa-lightbulb';
+                            const color = isAlert ? 'var(--system-red)' : 'var(--system-purple)';
+                            return `
+                                <div class="glass-ultra-thin rounded-xl p-3 flex items-start gap-3">
+                                    <i class="fas ${icon} mt-0.5" style="color: ${color};"></i>
+                                    <p class="text-subhead text-secondary">${r}</p>
+                                </div>
+                            `;
+                        }).join('');
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Failed to fetch defect analytics:', error);
+        }
+    }
 </script>
 {% endblock %}

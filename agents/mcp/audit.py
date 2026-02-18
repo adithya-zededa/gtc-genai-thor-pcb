@@ -90,24 +90,64 @@ class MCPAuditLog:
             "latency_samples": 0,
         }
 
+    @staticmethod
+    def _redact_value(key: str, value: Any) -> Any:
+        sensitive_tokens = (
+            "email", "recipient", "subject", "body", "password", "token", "secret", "image_data"
+        )
+        lower_key = key.lower()
+
+        if any(token in lower_key for token in sensitive_tokens):
+            if isinstance(value, list):
+                return ["[REDACTED]" for _ in value]
+            return "[REDACTED]"
+
+        if isinstance(value, dict):
+            return {
+                k: MCPAuditLog._redact_value(k, v)
+                for k, v in value.items()
+            }
+        if isinstance(value, list):
+            return [
+                MCPAuditLog._redact_value(lower_key, item)
+                for item in value
+            ]
+        return value
+
+    @classmethod
+    def _redact_details(cls, details: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(details, dict):
+            return {"value": "[REDACTED]"}
+        return {k: cls._redact_value(k, v) for k, v in details.items()}
+
     def log(self, entry: AuditLogEntry) -> None:
         """Add an entry to the audit log."""
-        with self._lock:
-            self._entries.append(entry)
+        redacted_details = self._redact_details(entry.details)
+        safe_entry = AuditLogEntry(
+            id=entry.id,
+            event_type=entry.event_type,
+            timestamp=entry.timestamp,
+            session_id=entry.session_id,
+            details=redacted_details,
+            latency_ms=entry.latency_ms,
+        )
 
-            if entry.event_type == AuditEventType.TOOL_PROPOSED:
+        with self._lock:
+            self._entries.append(safe_entry)
+
+            if safe_entry.event_type == AuditEventType.TOOL_PROPOSED:
                 self._metrics["total_proposals"] += 1
-            elif entry.event_type == AuditEventType.TOOL_APPROVED:
+            elif safe_entry.event_type == AuditEventType.TOOL_APPROVED:
                 self._metrics["total_approvals"] += 1
-            elif entry.event_type == AuditEventType.TOOL_REJECTED:
+            elif safe_entry.event_type == AuditEventType.TOOL_REJECTED:
                 self._metrics["total_rejections"] += 1
-            elif entry.event_type == AuditEventType.TOOL_SUCCEEDED:
+            elif safe_entry.event_type == AuditEventType.TOOL_SUCCEEDED:
                 self._metrics["total_executions"] += 1
-            elif entry.event_type == AuditEventType.TOOL_FAILED:
+            elif safe_entry.event_type == AuditEventType.TOOL_FAILED:
                 self._metrics["total_failures"] += 1
 
-            if entry.latency_ms is not None:
-                self._metrics["total_latency_ms"] += entry.latency_ms
+            if safe_entry.latency_ms is not None:
+                self._metrics["total_latency_ms"] += safe_entry.latency_ms
                 self._metrics["latency_samples"] += 1
 
             if len(self._entries) > self._max_entries:
@@ -115,9 +155,9 @@ class MCPAuditLog:
 
         logger.info(
             "AUDIT [%s] %s: %s",
-            entry.event_type.value,
-            entry.session_id or "no-session",
-            json.dumps(entry.details, default=str)[:500],
+            safe_entry.event_type.value,
+            safe_entry.session_id or "no-session",
+            json.dumps(safe_entry.details, default=str)[:500],
         )
 
     def get_entries(

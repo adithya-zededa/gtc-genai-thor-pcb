@@ -107,7 +107,7 @@
         </a>
 
         <a href="{{ url_for('views.chat') }}" class="dock-item {% if request.endpoint in ['views.chat', 'views.monitoring'] %}active{% endif %}" title="Agent Chat">
-            <i class="fas fa-robot"></i>
+            <i class="fas fa-comments"></i>
         </a>
 
         <div class="dock-separator"></div>
@@ -153,7 +153,7 @@
                 </div>
             </div>
             <button onclick="closeTestImageModal()" class="btn-icon hover-sweep">
-                <i class="fas fa-times"></i>
+                <span class="text-xs">Close</span>
             </button>
         </div>
 
@@ -243,7 +243,6 @@
                     class="btn btn-primary"
                     style="background: linear-gradient(135deg, var(--system-purple) 0%, #8e44ad 100%);"
                     disabled>
-                <i class="fas fa-magic"></i>
                 <span>Analyze</span>
             </button>
         </div>
@@ -255,6 +254,25 @@
         let socket;
         let isReconnecting = false;
         let isOffline = false;
+
+        function getOrCreateClientSessionId() {
+            const storageKey = 'agent_chat_client_session_id';
+            try {
+                const existing = localStorage.getItem(storageKey);
+                if (existing) {
+                    return existing;
+                }
+
+                const generated = (window.crypto && crypto.randomUUID)
+                    ? crypto.randomUUID()
+                    : 'cid_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
+
+                localStorage.setItem(storageKey, generated);
+                return generated;
+            } catch (error) {
+                return 'cid_fallback_' + Date.now();
+            }
+        }
         
         // Offline state management - UI remains interactive
         function setOfflineState(offline) {
@@ -273,7 +291,12 @@
         
         // Initialize socket connection
         function initSocket() {
-            socket = io();
+            const clientSessionId = getOrCreateClientSessionId();
+            socket = io({
+                auth: {
+                    client_session_id: clientSessionId
+                }
+            });
             
             socket.on('connect', function() {
                 console.log('[Base] Socket connected, sid:', socket.id);
@@ -328,21 +351,11 @@
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
             
-            const icons = {
-                'success': 'fa-check',
-                'error': 'fa-times',
-                'warning': 'fa-exclamation',
-                'info': 'fa-info'
-            };
-            
             toast.className = 'toast ' + type;
             toast.innerHTML = `
-                <div class="toast-icon">
-                    <i class="fas ${icons[type] || icons['info']}"></i>
-                </div>
                 <span>${message}</span>
-                <button onclick="this.parentElement.remove()" class="btn-icon ml-2" style="width:24px;height:24px;">
-                    <i class="fas fa-times text-xs"></i>
+                <button onclick="this.parentElement.remove()" class="btn ml-2" style="padding: 0.15rem 0.5rem; min-height: auto; font-size: 11px;">
+                    Close
                 </button>
             `;
             

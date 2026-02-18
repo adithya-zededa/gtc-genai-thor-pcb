@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import logging
 import os
+import threading
 import time
 from dataclasses import asdict
 from datetime import datetime
@@ -22,8 +23,7 @@ import yaml
 from core.logging import get_logger
 from core.utils import coerce_bool
 from agents.core.state import AgentMemory, DetectionEvent
-from agents.core.alerting import AlertManager
-from agents.core.resilience import CircuitBreaker, CircuitState
+from core.resilience import CircuitBreaker
 
 if TYPE_CHECKING:
     from agents.vlm import UnifiedVLMClient, DetectionResult, TaskType  # noqa: F401
@@ -43,7 +43,6 @@ DEFAULT_CONFIG_PATH = os.getenv("CAMERA_AGENT_CONFIG", "config.yaml")
 __all__ = [
     "StreamlinedAgent",
     "CircuitBreaker",
-    "CircuitState",
     "DEFAULT_CONFIG_PATH",
 ]
 
@@ -67,6 +66,9 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
         self.circuit_breaker = circuit_breaker or CircuitBreaker()
         self.last_error: Optional[str] = None
 
+        # Lock for SSIM cache fields (thread-safety)
+        self._ssim_lock = threading.Lock()
+
         # Initialize memory
         memory_cfg = config.get("memory", {})
         self._memory_max_events = max(1, int(memory_cfg.get("max_events", 50)))
@@ -75,9 +77,6 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
             max_events=self._memory_max_events,
             summary_window=self._memory_summary_window,
         )
-
-        # Initialize alert manager
-        self.alert_manager = AlertManager(config)
 
         # SSIM caching for efficiency
         self._ssim_threshold = 0.95
@@ -141,10 +140,14 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
 
         return config
 
+    _default_config_cache: Optional[Dict[str, Any]] = None
+
     @classmethod
     def default_config(cls) -> Dict[str, Any]:
-        """Return the default configuration."""
-        return copy.deepcopy(cls.load_config_from_path())
+        """Return the default configuration (cached after first load)."""
+        if cls._default_config_cache is None:
+            cls._default_config_cache = cls.load_config_from_path()
+        return copy.deepcopy(cls._default_config_cache)
 
     def _make_similarity_reference(self, frame: np.ndarray) -> Optional[np.ndarray]:
         """Create a grayscale reference for similarity comparison.
@@ -179,51 +182,52 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
         Uses either SSIM (if scikit-image available) or fast template matching.
         Performance: 20% faster with template matching, no external dependency.
         """
-        if self._last_similarity_frame is None or self._last_processed_event is None:
-            return False, None
+        with self._ssim_lock:
+            if self._last_similarity_frame is None or self._last_processed_event is None:
+                return False, None
 
-        # Check time since last analysis
-        time_since_last = current_time - self._last_analysis_time
-        if time_since_last > self._ssim_recheck_seconds:
-            return False, None
+            # Check time since last analysis
+            time_since_last = current_time - self._last_analysis_time
+            if time_since_last > self._ssim_recheck_seconds:
+                return False, None
 
-        # Compare frames
-        current_ref = self._make_similarity_reference(frame)
-        if current_ref is None:
-            return False, None
+            # Compare frames
+            current_ref = self._make_similarity_reference(frame)
+            if current_ref is None:
+                return False, None
 
-        try:
-            # Try SSIM first if available, otherwise use fast template matching
-            if structural_similarity is not None:
-                similarity = structural_similarity(
-                    self._last_similarity_frame,
-                    current_ref,
-                    data_range=255
-                )
-                if isinstance(similarity, tuple):
-                    similarity = similarity[0]
-            else:
-                # Fallback to fast template matching (20% faster)
-                similarity = self._fast_similarity(self._last_similarity_frame, current_ref)
+            try:
+                # Try SSIM first if available, otherwise use fast template matching
+                if structural_similarity is not None:
+                    similarity = structural_similarity(
+                        self._last_similarity_frame,
+                        current_ref,
+                        data_range=255
+                    )
+                    if isinstance(similarity, tuple):
+                        similarity = similarity[0]
+                else:
+                    # Fallback to fast template matching (20% faster)
+                    similarity = self._fast_similarity(self._last_similarity_frame, current_ref)
 
-            if similarity >= self._ssim_threshold:
-                # Reuse previous event
-                reused = copy.deepcopy(self._last_processed_event)
-                reused.timestamp = datetime.now().isoformat()
-                reused.should_alert = False  # Don't re-alert
-                reused.decision_trace["ssim_skip"] = {
-                    "similarity": round(similarity, 3),
-                    "reused": True,
-                    "method": "ssim" if structural_similarity else "template_match",
-                }
+                if similarity >= self._ssim_threshold:
+                    # Reuse previous event
+                    reused = copy.deepcopy(self._last_processed_event)
+                    reused.timestamp = datetime.now().isoformat()
+                    reused.should_alert = False  # Don't re-alert
+                    reused.decision_trace["ssim_skip"] = {
+                        "similarity": round(similarity, 3),
+                        "reused": True,
+                        "method": "ssim" if structural_similarity else "template_match",
+                    }
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug("♻️ SSIM skip: similarity=%.3f", similarity)
+                    return True, reused
+            except Exception as e:  # pylint: disable=broad-exception-caught
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("♻️ SSIM skip: similarity=%.3f", similarity)
-                return True, reused
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("SSIM comparison failed: %s", e)
+                    logger.debug("SSIM comparison failed: %s", e)
 
-        return False, None
+            return False, None
 
     def _run_vlm_analysis(
         self,
@@ -330,9 +334,10 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
         )
 
         # Update cache
-        self._last_similarity_frame = self._make_similarity_reference(frame)
-        self._last_processed_event = event
-        self._last_analysis_time = time.time()
+        with self._ssim_lock:
+            self._last_similarity_frame = self._make_similarity_reference(frame)
+            self._last_processed_event = event
+            self._last_analysis_time = time.time()
         self._remember_event(event, source="unified_vlm")
 
         # Log result
@@ -444,10 +449,6 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
         tool_executor = ToolExecutor()
 
         try:
-            # Encode frame for tool context
-            _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
-            _ = buffer.tobytes()  # Result not used directly but validates encoding
-
             # Run agentic analysis
             agentic_result = self.vlm_client.analyze_with_tools(
                 frame=frame,
@@ -526,26 +527,16 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
         event: DetectionEvent,
         image_data: bytes | None = None,
     ) -> bool:
-        """Process detection event and send alerts if needed."""
-        if not event.should_alert:
-            return False
+        """Deprecated — alerting is now decided by the LLM via MCP tools.
 
-        logger.info("Processing alert: %s", event.primary_label)
-        alerts_sent = 0
-
-        # Process rules
-        for rule in self.config.get("rules", []):
-            if not rule.get("enabled", True):
-                continue
-            if self.alert_manager.send_email_alert(event, rule, image_data=image_data):
-                alerts_sent += 1
-
-        # Desktop notification
-        if self.config.get("notifications", {}).get("desktop", {}).get("enabled"):
-            if self.alert_manager.send_desktop_notification(event):
-                alerts_sent += 1
-
-        return alerts_sent > 0
+        Kept as a no-op for backward compatibility.
+        """
+        if event.should_alert:
+            logger.info(
+                "Detection flagged for alert: %s (LLM should call send_alert_email tool)",
+                event.primary_label,
+            )
+        return False
 
     def _remember_event(self, event: DetectionEvent, source: str = "analysis") -> None:
         """Store event in memory for tracking."""
@@ -571,7 +562,6 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
     def apply_config(self, updated_config: Dict[str, Any]) -> None:
         """Apply updated configuration."""
         self.config = updated_config
-        self.alert_manager.refresh_config(updated_config)
 
         # Update memory settings
         memory_cfg = updated_config.get("memory", {})

@@ -28,12 +28,17 @@ def register_handlers(socketio: "SocketIO") -> None:
     register_chat_handlers(socketio)
 
     @socketio.on("connect")
-    def handle_connect():
+    def handle_connect(auth=None):
         """Handle client connection."""
         logger.info("Client connected: %s", request.sid)
+        client_session_id = None
+        if isinstance(auth, dict):
+            client_session_id = auth.get("client_session_id")
         # Auto-initialize chat session on connect
         try:
-            initialize_chat_for_client(request.sid)
+            initialize_chat_for_client(
+                request.sid, client_session_id=client_session_id
+            )
         except Exception as e:
             logger.error("Failed to initialize chat for client: %s", e, exc_info=True)
             emit("chat_error", {"error": str(e)})

@@ -27,7 +27,7 @@ proactive:
   # The LLM makes final decisions based on reasoning and context.
   # ═══════════════════════════════════════════════════════════════════════
   
-  enabled: false  # Enable/disable proactive mode
+  enabled: true  # Enable/disable proactive mode
   
   # Frame Processing
   frame_interval_seconds: 0.1  # Fast conveyor gating cadence

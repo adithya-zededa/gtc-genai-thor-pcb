@@ -54,7 +54,7 @@ mypy agents/ services/ app/ core/
 
 | Directory        | What belongs here                          |
 |----------------- |------------------------------------------- |
-| `agents/core/`   | Core agent loop, state, alerting           |
+| `agents/core/`   | Monitoring loop, detection agent, state     |
 | `agents/tools/`  | Callable tools (each file = one domain)    |
 | `services/core/` | Stateless business logic (camera, monitor) |
 | `config/`        | Pydantic models, defaults, schemas         |

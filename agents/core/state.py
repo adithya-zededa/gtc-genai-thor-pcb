@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Deque, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from collections import deque
 
 
@@ -64,7 +64,7 @@ class AgentMemory:
         """Initialize the agent memory."""
         self._max_events = max(1, int(max_events or 1))
         self._summary_window = max(1, min(self._max_events, int(summary_window or 1)))
-        self._events: Deque[Dict[str, Any]] = deque(maxlen=self._max_events)
+        self._events: deque[Dict[str, Any]] = deque(maxlen=self._max_events)
         self._lock = threading.RLock()
 
     def resize(self, max_events: int, summary_window: int) -> None:
@@ -78,10 +78,9 @@ class AgentMemory:
             self._summary_window = new_window
 
     def append(self, event: Dict[str, Any]) -> None:
-        """Add an event to memory."""
-        sanitized = {key: event.get(key) for key in event.keys()}
+        """Add an event to memory (stores a shallow copy)."""
         with self._lock:
-            self._events.append(sanitized)
+            self._events.append(dict(event))
 
     add_event = append  # Alias for backward compatibility
 

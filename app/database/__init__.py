@@ -12,14 +12,19 @@ from .models import (
     Invoice,
     LogSettings,
     PCBDefect,
+    PCBFrameStore,
+    PCBInspection,
     User,
 )
 from .repositories import (
+    ChatHistoryRepository,
     ConfigHistoryRepository,
     DetectionLogRepository,
     InvoiceRepository,
     LogSettingsRepository,
     PCBDefectRepository,
+    PCBFrameStoreRepository,
+    PCBInspectionRepository,
     UserRepository,
 )
 
@@ -37,11 +42,16 @@ __all__ = [
     "LogSettings",
     "Invoice",
     "PCBDefect",
+    "PCBFrameStore",
+    "PCBInspection",
     # Repositories
+    "ChatHistoryRepository",
     "DetectionLogRepository",
     "UserRepository",
     "ConfigHistoryRepository",
     "LogSettingsRepository",
     "InvoiceRepository",
     "PCBDefectRepository",
+    "PCBFrameStoreRepository",
+    "PCBInspectionRepository",
 ]
