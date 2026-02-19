@@ -29,92 +29,58 @@ from core.logging import get_logger
 logger = get_logger(__name__)
 
 
-DEFAULT_MONITORING_DEFECT_PROMPT = """Inspect this PCB image for manufacturing defects and output ONLY valid JSON.
+DEFAULT_MONITORING_DEFECT_PROMPT = """You are a PCB quality inspector. Examine this image and report ONLY defects with clear visual evidence. Output ONLY valid JSON.
 
-This is a FAIL-biased inspection:
-If clear visual evidence of a defect exists, set detected=true.
+BOARD: Arduino Uno R4 Minima viewed at a slight angle on a green surface.
 
-If a required region is occluded, cropped, blurred, or cannot be confidently evaluated,
-set detected=true and classify the issue as type="visual_uncertain".
+CONNECTOR CHECKLIST — check each, report what you actually see:
 
-CRITICAL: Use ONLY what is visible in this image.
-Do NOT assume component presence based on typical board layout.
-Do NOT confuse nearby components (USB port, capacitors, small connectors) for the DC barrel jack.
+1) DC Power Barrel Jack (left edge of board):
+   - PRESENT: You can see a large black cylindrical connector body protruding from the board edge.
+   - MISSING: No connector body — only bare copper pads or an empty footprint visible.
+   Report exactly what you observe. If the black cylindrical connector is visible, it is present.
 
-BOARD ORIENTATION (camera view):
-The board is an Arduino Uno R4 Minima (or similar) viewed at a slight angle.
-- TOP-LEFT CORNER / upper-left edge: This is where the DC power barrel jack should be.
-- TOP-CENTER: USB-C or Micro-USB connector (smaller, flat — this is NOT the power jack).
-- RIGHT EDGE: Digital I/O pin headers.
-- BOTTOM EDGE: Analog pin headers.
-- LEFT EDGE (below power jack area): ICSP header / UART pins.
+2) USB Connector (top edge, near center):
+   - PRESENT: A metallic rectangular or USB-C port is visible.
+   - MISSING: Empty pads where the connector should be.
 
-STEP 1 – Mandatory Connector Checks (evaluate first):
+3) Pin Headers / UART Caps:
+   - Check if header pins have protective caps/jumpers where expected.
+   - Missing caps on one or both sides = defect.
 
-1) DC/Power Barrel Jack — LOOK AT THE TOP-LEFT CORNER OF THE BOARD
-A properly installed DC barrel jack is:
-- A large, cylindrical, black plastic connector body (~9mm diameter)
-- Mounted at the TOP-LEFT edge of the board
-- Clearly taller/bulkier than surrounding SMD components
+GENERAL DEFECT INSPECTION — only report if you see clear evidence:
+solder_bridge, missing_component, cold_solder_joint, lifted_pad, trace_damage,
+connector_misalignment, insufficient_solder, excess_solder, contamination, mechanical_damage
 
-What a MISSING power jack looks like:
-- Exposed bare metal pads or solder points where the jack should be
-- Empty PCB footprint with visible through-hole pads but NO connector body
-- Only small SMD components visible in the area (these are NOT the jack)
-- The area looks "flat" compared to a board with the jack installed
+SEVERITY: high (missing connector, severe damage) | medium (cold joint, lifted pad) | low (cosmetic) | uncertain (not clearly visible)
 
-If you see exposed metal pads, empty footprint, or no large cylindrical black
-connector at the top-left edge → power_jack_status="missing", this is a HIGH
-severity defect. Do NOT report it as "present_intact".
+RULES:
+- Report detected=true ONLY if you find at least one real defect with visible evidence.
+- If the board looks normal with all connectors present and no visible defects, report detected=false.
+- Do NOT hallucinate defects. If a component is visibly present, report it as present.
+- If a region is occluded or unclear, you may report type="visual_uncertain".
 
-2) UART/Header Caps (both sides if applicable)
-- Confirm caps/jumpers present where expected.
-- Missing on one or both sides → defect.
-- If area not clearly visible → defect type="visual_uncertain".
-
-STEP 2 – General PCB Defect Inspection:
-Check for:
-- solder_bridge
-- missing_component
-- cold_solder_joint
-- lifted_pad
-- trace_damage
-- connector_misalignment
-- insufficient_solder
-- excess_solder
-- contamination
-- mechanical_damage
-
-Only report defects that have visible evidence.
-
-SEVERITY GUIDELINES:
-- high: missing connector, severe bridge, detached component, structural damage
-- medium: cold joint, minor bridge risk, lifted pad
-- low: cosmetic excess solder without electrical risk
-- uncertain: region not clearly visible
-
-Return JSON with this exact structure:
-
+Return this exact JSON structure:
 {
     "detected": bool,
     "confidence": float (0-1),
-    "reasoning": string (brief, evidence-based),
+    "reasoning": "brief evidence-based explanation",
     "should_alert": bool,
     "details": {
         "power_jack_status": "present_intact|missing|damaged|misaligned|uncertain",
         "uart_cap_status": "present_both_sides|missing_one_side|missing_both_sides|uncertain",
         "defects": [
             {
-                "type": "standardized_type_from_list_above",
+                "type": "defect_type",
                 "severity": "low|medium|high|uncertain",
-                "location": "clear spatial description",
-                "description": "objective visual evidence only"
+                "location": "spatial description",
+                "description": "what you see"
             }
         ]
     }
 }
 
-Set should_alert=true for medium or high severity defects.
+Set should_alert=true only for medium or high severity defects.
 """
 
 
