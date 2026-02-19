@@ -29,20 +29,93 @@ from core.logging import get_logger
 logger = get_logger(__name__)
 
 
-DEFAULT_MONITORING_DEFECT_PROMPT = (
-    "Inspect this PCB image for manufacturing defects and output only JSON. "
-    "This is a FAIL-focused inspection: if evidence of a defect exists, detected must be true. "
-    "Mandatory connector checks (do these first): "
-    "(1) DC/power barrel jack presence and integrity. Verify the connector body exists where expected and is not bent/deformed. "
-    "Missing connector body, missing black plastic housing, or bent jack = DEFECT. "
-    "(2) UART/header cap presence on both expected sides. Missing cap on one side = DEFECT. "
-    "Do not assume parts are present from prior frames or typical board layout; use only visible evidence in this image. "
-    "If the power jack region is not clearly visible or cannot be positively confirmed intact, treat as defect_suspected and set detected=true. "
-    "Also check solder bridges, missing components, cold solder joints, trace damage, lifted pads, and connector misalignment. "
-    "Return JSON with keys: detected (bool), confidence (0-1), reasoning (string), should_alert (bool), details (object). "
-    "details must include: power_jack_status (present_intact|missing|damaged|uncertain), uart_cap_status (present_both_sides|missing_one_side|missing_both_sides|uncertain), defects (list of {type,severity,location,description}). "
-    "Set should_alert=true for medium/high severity defects."
-)
+DEFAULT_MONITORING_DEFECT_PROMPT = """Inspect this PCB image for manufacturing defects and output ONLY valid JSON.
+
+This is a FAIL-biased inspection:
+If clear visual evidence of a defect exists, set detected=true.
+
+If a required region is occluded, cropped, blurred, or cannot be confidently evaluated,
+set detected=true and classify the issue as type="visual_uncertain".
+
+CRITICAL: Use ONLY what is visible in this image.
+Do NOT assume component presence based on typical board layout.
+Do NOT confuse nearby components (USB port, capacitors, small connectors) for the DC barrel jack.
+
+BOARD ORIENTATION (camera view):
+The board is an Arduino Uno R4 Minima (or similar) viewed at a slight angle.
+- TOP-LEFT CORNER / upper-left edge: This is where the DC power barrel jack should be.
+- TOP-CENTER: USB-C or Micro-USB connector (smaller, flat — this is NOT the power jack).
+- RIGHT EDGE: Digital I/O pin headers.
+- BOTTOM EDGE: Analog pin headers.
+- LEFT EDGE (below power jack area): ICSP header / UART pins.
+
+STEP 1 – Mandatory Connector Checks (evaluate first):
+
+1) DC/Power Barrel Jack — LOOK AT THE TOP-LEFT CORNER OF THE BOARD
+A properly installed DC barrel jack is:
+- A large, cylindrical, black plastic connector body (~9mm diameter)
+- Mounted at the TOP-LEFT edge of the board
+- Clearly taller/bulkier than surrounding SMD components
+
+What a MISSING power jack looks like:
+- Exposed bare metal pads or solder points where the jack should be
+- Empty PCB footprint with visible through-hole pads but NO connector body
+- Only small SMD components visible in the area (these are NOT the jack)
+- The area looks "flat" compared to a board with the jack installed
+
+If you see exposed metal pads, empty footprint, or no large cylindrical black
+connector at the top-left edge → power_jack_status="missing", this is a HIGH
+severity defect. Do NOT report it as "present_intact".
+
+2) UART/Header Caps (both sides if applicable)
+- Confirm caps/jumpers present where expected.
+- Missing on one or both sides → defect.
+- If area not clearly visible → defect type="visual_uncertain".
+
+STEP 2 – General PCB Defect Inspection:
+Check for:
+- solder_bridge
+- missing_component
+- cold_solder_joint
+- lifted_pad
+- trace_damage
+- connector_misalignment
+- insufficient_solder
+- excess_solder
+- contamination
+- mechanical_damage
+
+Only report defects that have visible evidence.
+
+SEVERITY GUIDELINES:
+- high: missing connector, severe bridge, detached component, structural damage
+- medium: cold joint, minor bridge risk, lifted pad
+- low: cosmetic excess solder without electrical risk
+- uncertain: region not clearly visible
+
+Return JSON with this exact structure:
+
+{
+    "detected": bool,
+    "confidence": float (0-1),
+    "reasoning": string (brief, evidence-based),
+    "should_alert": bool,
+    "details": {
+        "power_jack_status": "present_intact|missing|damaged|misaligned|uncertain",
+        "uart_cap_status": "present_both_sides|missing_one_side|missing_both_sides|uncertain",
+        "defects": [
+            {
+                "type": "standardized_type_from_list_above",
+                "severity": "low|medium|high|uncertain",
+                "location": "clear spatial description",
+                "description": "objective visual evidence only"
+            }
+        ]
+    }
+}
+
+Set should_alert=true for medium or high severity defects.
+"""
 
 
 class MonitoringMode(str, Enum):

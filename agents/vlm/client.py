@@ -582,7 +582,10 @@ class UnifiedVLMClient:
             "model": self.model,
             "messages": messages,
             "temperature": temperature if temperature is not None else self.temperature,
-            "max_tokens": max_tokens if max_tokens is not None else 1024,
+            "max_tokens": max_tokens if max_tokens is not None else 2048,
+            # Penalise repeated tokens to break degenerate reasoning loops
+            "repetition_penalty": 1.15,
+            "frequency_penalty": 0.3,
             # Disable Qwen3 thinking mode for structured JSON output
             "chat_template_kwargs": {"enable_thinking": False},
         }
@@ -689,7 +692,7 @@ class UnifiedVLMClient:
         try:
             base64_image = self._encode_frame(frame)
             prompt = self._build_prompt(effective_task_type, cv_context, user_query)
-            raw_response = self._send_vlm_request(prompt, base64_image)
+            raw_response = self._send_vlm_request(prompt, base64_image, max_tokens=2048)
             
             parsed = self._parse_json_response(raw_response)
             if not parsed:

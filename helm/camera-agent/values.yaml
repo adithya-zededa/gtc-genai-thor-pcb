@@ -5,7 +5,7 @@ replicaCount: 1
 image:
   repository: adithyazededa/gtc-genai-thor-pcb
   pullPolicy: Always
-  tag: "v16"
+  tag: "v20"
 
 imagePullSecrets: []
 nameOverride: ""
