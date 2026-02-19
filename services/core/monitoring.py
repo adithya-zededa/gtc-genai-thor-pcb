@@ -29,58 +29,48 @@ from core.logging import get_logger
 logger = get_logger(__name__)
 
 
-DEFAULT_MONITORING_DEFECT_PROMPT = """You are a PCB quality inspector. Examine this image and report ONLY defects with clear visual evidence. Output ONLY valid JSON.
+DEFAULT_MONITORING_DEFECT_PROMPT = """You are a PCB quality inspector. Examine this image carefully. Output ONLY valid JSON.
 
-BOARD: Arduino Uno R4 Minima viewed at a slight angle on a green surface.
+BOARD: Arduino Uno R4 Minima on a green surface, viewed at a slight angle.
 
-CONNECTOR CHECKLIST — check each, report what you actually see:
+IMPORTANT: You MUST look at each connector location individually and describe what you physically see there before deciding its status. Do NOT assume all connectors are present just because this is an Arduino board.
 
-1) DC Power Barrel Jack (left edge of board):
-   - PRESENT: You can see a large black cylindrical connector body protruding from the board edge.
-   - MISSING: No connector body — only bare copper pads or an empty footprint visible.
-   Report exactly what you observe. If the black cylindrical connector is visible, it is present.
+STEP 1 — Look at the LEFT EDGE of the board for the DC Power Barrel Jack:
+- A present barrel jack is a LARGE BLACK CYLINDRICAL plastic body (~9mm wide, ~11mm tall) that sticks out from the board edge. It is the TALLEST component on the board edge.
+- If you see only flat bare copper pads, solder points, or empty through-holes at that location with NO tall black cylinder, the jack is MISSING.
+- Describe what you see at this location in your reasoning.
 
-2) USB Connector (top edge, near center):
-   - PRESENT: A metallic rectangular or USB-C port is visible.
-   - MISSING: Empty pads where the connector should be.
+STEP 2 — Look at the TOP EDGE for the USB connector:
+- A small metallic rectangular port. Much smaller and flatter than the barrel jack.
+- Describe what you see.
 
-3) Pin Headers / UART Caps:
-   - Check if header pins have protective caps/jumpers where expected.
-   - Missing caps on one or both sides = defect.
+STEP 3 — Check pin headers for protective caps/jumpers.
 
-GENERAL DEFECT INSPECTION — only report if you see clear evidence:
-solder_bridge, missing_component, cold_solder_joint, lifted_pad, trace_damage,
-connector_misalignment, insufficient_solder, excess_solder, contamination, mechanical_damage
+STEP 4 — General defect scan: solder_bridge, missing_component, cold_solder_joint, lifted_pad, trace_damage, connector_misalignment, mechanical_damage. Report only what has visible evidence.
 
-SEVERITY: high (missing connector, severe damage) | medium (cold joint, lifted pad) | low (cosmetic) | uncertain (not clearly visible)
+SEVERITY: high = missing connector or structural damage | medium = cold joint, lifted pad | low = cosmetic only
 
-RULES:
-- Report detected=true ONLY if you find at least one real defect with visible evidence.
-- If the board looks normal with all connectors present and no visible defects, report detected=false.
-- Do NOT hallucinate defects. If a component is visibly present, report it as present.
-- If a region is occluded or unclear, you may report type="visual_uncertain".
-
-Return this exact JSON structure:
+Return this JSON:
 {
     "detected": bool,
     "confidence": float (0-1),
-    "reasoning": "brief evidence-based explanation",
+    "reasoning": "Describe what you see at each connector location, then state your conclusion",
     "should_alert": bool,
     "details": {
-        "power_jack_status": "present_intact|missing|damaged|misaligned|uncertain",
+        "power_jack_status": "present_intact|missing|damaged|uncertain",
         "uart_cap_status": "present_both_sides|missing_one_side|missing_both_sides|uncertain",
         "defects": [
             {
                 "type": "defect_type",
                 "severity": "low|medium|high|uncertain",
-                "location": "spatial description",
-                "description": "what you see"
+                "location": "where on the board",
+                "description": "what you physically see"
             }
         ]
     }
 }
 
-Set should_alert=true only for medium or high severity defects.
+detected=true if ANY defect found. should_alert=true for medium/high severity.
 """
 
 
