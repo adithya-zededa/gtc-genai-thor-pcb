@@ -324,7 +324,25 @@ class MonitoringLoop:
                             it = iter(self._inspected_signatures)
                             for _ in range(to_remove):
                                 self._inspected_signatures.discard(next(it))
-                        self._fire_board_ready(frame_obj.raw_frame, obs)
+
+                        # Wait for camera to auto-focus after board stops,
+                        # then grab a fresh, sharp frame for inspection.
+                        logger.info(
+                            "Board stopped — waiting 3 s for camera focus before inspection"
+                        )
+                        self._stop_event.wait(timeout=3.0)
+                        if self._stop_event.is_set():
+                            break
+                        # Acquire a fresh frame after the settle delay
+                        focused_frame_obj = self._publisher.get_frame(
+                            self._subscriber_id, timeout=2.0
+                        )
+                        inspection_frame = (
+                            focused_frame_obj.raw_frame
+                            if focused_frame_obj is not None
+                            else frame_obj.raw_frame
+                        )
+                        self._fire_board_ready(inspection_frame, obs)
 
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error(
