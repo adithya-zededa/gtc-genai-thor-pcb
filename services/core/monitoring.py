@@ -33,28 +33,37 @@ DEFAULT_MONITORING_DEFECT_PROMPT = """You are a PCB quality inspector. Examine t
 
 BOARD: Arduino Uno R4 Minima on a green surface, viewed at a slight angle.
 
-IMPORTANT: You MUST look at each connector location individually and describe what you physically see there before deciding its status. Do NOT assume all connectors are present just because this is an Arduino board.
+IMPORTANT: You MUST look at each location individually and describe what you physically see BEFORE deciding its status. Do NOT assume all connectors are present just because this is an Arduino board.
 
-STEP 1 — Look at the LEFT EDGE of the board for the DC Power Barrel Jack:
-- A present barrel jack is a LARGE BLACK CYLINDRICAL plastic body (~9mm wide, ~11mm tall) that sticks out from the board edge. It is the TALLEST component on the board edge.
-- If you see only flat bare copper pads, solder points, or empty through-holes at that location with NO tall black cylinder, the jack is MISSING.
+STEP 1 — DC Power Barrel Jack (LEFT EDGE of board, upper area):
+- PRESENT: A LARGE BLACK CYLINDRICAL plastic body (~9mm wide, ~11mm tall) protruding from the board edge. It is the tallest component on that edge.
+- MISSING: Only flat bare copper pads, solder points, or empty through-holes — NO tall black cylinder.
 - Describe what you see at this location in your reasoning.
 
-STEP 2 — Look at the TOP EDGE for the USB connector:
-- A small metallic rectangular port. Much smaller and flatter than the barrel jack.
-- Describe what you see.
+STEP 2 — USB connector (TOP EDGE, near center):
+- A small metallic rectangular port. Describe what you see.
 
-STEP 3 — Check pin headers for protective caps/jumpers.
+STEP 3 — UART / ICSP Pin Header Caps (LEFT EDGE, below the barrel jack area):
+- On the Arduino Uno R4 Minima, there is a small BLACK PLASTIC CAP (jumper cap) sitting on the UART/ICSP header pins along the left edge of the board, below the power jack area.
+- PRESENT: A small black rectangular plastic cap is visible on the header pins.
+- MISSING: The header pins are exposed with NO black cap on them — bare gold/silver metal pins visible.
+- Check BOTH sides of the board for these caps. Describe what you see.
 
 STEP 4 — General defect scan: solder_bridge, missing_component, cold_solder_joint, lifted_pad, trace_damage, connector_misalignment, mechanical_damage. Report only what has visible evidence.
 
-SEVERITY: high = missing connector or structural damage | medium = cold joint, lifted pad | low = cosmetic only
+SEVERITY: high = missing connector or structural damage | medium = cold joint, missing cap | low = cosmetic only
+
+CRITICAL LOGIC — you MUST follow these rules:
+- If power_jack_status is "missing" or "damaged" → detected MUST be true, should_alert MUST be true.
+- If uart_cap_status is "missing_one_side" or "missing_both_sides" → detected MUST be true, should_alert MUST be true.
+- If ANY defect is found → detected MUST be true.
+- detected=false ONLY when ALL connectors are present and intact AND no defects found.
 
 Return this JSON:
 {
     "detected": bool,
     "confidence": float (0-1),
-    "reasoning": "Describe what you see at each connector location, then state your conclusion",
+    "reasoning": "Describe what you see at each location, then state your conclusion",
     "should_alert": bool,
     "details": {
         "power_jack_status": "present_intact|missing|damaged|uncertain",
@@ -62,15 +71,13 @@ Return this JSON:
         "defects": [
             {
                 "type": "defect_type",
-                "severity": "low|medium|high|uncertain",
+                "severity": "low|medium|high",
                 "location": "where on the board",
                 "description": "what you physically see"
             }
         ]
     }
 }
-
-detected=true if ANY defect found. should_alert=true for medium/high severity.
 """
 
 

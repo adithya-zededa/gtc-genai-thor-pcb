@@ -705,12 +705,34 @@ class UnifiedVLMClient:
             detected = bool(parsed.get("detected", False))
             confidence = float(parsed.get("confidence", 0.5))
             reasoning = str(parsed.get("reasoning", raw_response[:200]))
-            
+
+            # ── Safety net: enforce detected/alert when status fields
+            #    indicate a defect, even if the model forgot to set them.
+            details_block = parsed.get("details", {})
+            _pj = str(details_block.get("power_jack_status", "")).lower()
+            _uc = str(details_block.get("uart_cap_status", "")).lower()
+            status_defect = _pj in ("missing", "damaged") or _uc in (
+                "missing_one_side", "missing_both_sides",
+            )
+            if status_defect:
+                if not detected:
+                    logger.warning(
+                        "Overriding detected=false→true (power_jack=%s, uart_cap=%s)",
+                        _pj, _uc,
+                    )
+                detected = True
+                confidence = max(confidence, 0.85)
+
             if custom_alert_condition:
                 should_alert = custom_alert_condition(parsed)
             else:
                 alert_fn = ALERT_CONDITIONS.get(effective_task_type, _default_alert_condition)
                 should_alert = alert_fn(parsed)
+
+            # Also force alert when status fields show defects
+            if status_defect and not should_alert:
+                logger.warning("Overriding should_alert=false→true due to status fields")
+                should_alert = True
             
             details = {k: v for k, v in parsed.items() 
                       if k not in ("detected", "confidence", "reasoning")}
