@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
     <title>{% block title %}ZEDEDA Camera Agent{% endblock %}</title>
+    <script>
+        (function() {
+            const storedTheme = localStorage.getItem('zededa-theme');
+            if (storedTheme === 'light' || storedTheme === 'dark') {
+                document.documentElement.setAttribute('data-theme', storedTheme);
+            }
+        })();
+    </script>
 
     <!-- Favicon -->
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}" />
@@ -41,7 +49,7 @@
     {% block extra_head %}{% endblock %}
 </head>
 
-<body class="min-h-screen flex flex-col">
+<body class="min-h-screen">
 
     <!-- Offline Indicator - shows when disconnected from server -->
     <div id="offline-indicator" class="offline-indicator">
@@ -49,83 +57,92 @@
         <span>Reconnecting...</span>
     </div>
 
-    <!-- Floating Glass Navigation Bar -->
-    <header class="navbar-glass select-none">
-        <div class="flex items-center gap-4">
-            <div class="flex items-center gap-3">
-                <img src="{{ url_for('static', filename='logo-ai-flows.png') }}" class="h-8 opacity-95 hover:opacity-100 transition-opacity" alt="AI Flows" />
-                <div class="w-px h-6 bg-[var(--border-separator)]"></div>
-                <h1 class="text-headline tracking-tight">
-                    {% block page_title %}Dashboard{% endblock %}
-                </h1>
-            </div>
-        </div>
-
-        <div class="flex items-center gap-3">
-            <!-- System Status Pills (Glass) -->
-            <div class="hidden md:flex items-center gap-1 glass-thin px-3 py-2 rounded-full">
-                <div class="flex items-center gap-1.5 px-2">
-                    <span class="status-dot checking" id="camera-status"></span>
-                    <span class="text-footnote">Camera</span>
-                </div>
-                <div class="w-px h-4 bg-[var(--border-separator)]"></div>
-                <div class="flex items-center gap-1.5 px-2">
-                    <span class="status-dot checking" id="ollama-status"></span>
-                    <span class="text-footnote">AI</span>
-                </div>
+    <div class="app-shell">
+        <aside id="app-sidebar" class="sidebar-glass app-sidebar select-none">
+            <div class="sidebar-brand">
+                <img
+                    id="app-logo"
+                    src="{{ url_for('static', filename='logo-light.png') }}"
+                    data-logo-light="{{ url_for('static', filename='logo-light.png') }}"
+                    data-logo-dark="{{ url_for('static', filename='logo-dark.png') }}"
+                    class="h-8 opacity-95"
+                    alt="AI Flows"
+                    style="height: 28px; width: auto; flex-shrink: 0; object-fit: contain;"
+                />
+                <span class="sidebar-label text-subhead font-semibold" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">ZEDEDA Camera Agent</span>
             </div>
 
-            {% block header_controls %}{% endblock %}
-        </div>
-    </header>
+            <nav class="sidebar-nav" aria-label="Primary">
+                <a href="{{ url_for('views.dashboard') }}" class="sidebar-item {% if request.endpoint=='views.dashboard' %}active{% endif %}" title="Dashboard">
+                    <i class="fas fa-tachometer-alt"></i>
+                    <span class="sidebar-label">Dashboard</span>
+                </a>
 
-    <!-- Main Content -->
-    <main class="flex-1 px-6 py-8 pb-32 max-w-6xl mx-auto w-full space-y-6" role="main">
-        {% with messages = get_flashed_messages() %}
-            {% if messages %}
-                <div class="space-y-3 animate-slide-up">
-                    {% for message in messages %}
-                        <div class="glass-card flex items-center gap-3 py-3 px-4">
-                            <div class="w-8 h-8 rounded-full flex items-center justify-center" style="background: var(--system-blue-glass);">
-                                <i class="fa-solid fa-circle-info text-sm" style="color: var(--system-blue);"></i>
-                            </div>
-                            <span class="text-body">{{ message }}</span>
+                <a href="{{ url_for('views.chat') }}" class="sidebar-item {% if request.endpoint in ['views.chat', 'views.monitoring'] %}active{% endif %}" title="Agent Chat">
+                    <i class="fas fa-comments"></i>
+                    <span class="sidebar-label">Agent Chat</span>
+                </a>
+
+                <a href="{{ url_for('views.users') }}" class="sidebar-item {% if request.endpoint=='views.users' %}active{% endif %}" title="Users">
+                    <i class="fas fa-users"></i>
+                    <span class="sidebar-label">Users</span>
+                </a>
+
+                <a href="{{ url_for('views.logs') }}" class="sidebar-item {% if request.endpoint=='views.logs' %}active{% endif %}" title="Logs">
+                    <i class="fas fa-list"></i>
+                    <span class="sidebar-label">Logs</span>
+                </a>
+            </nav>
+        </aside>
+
+        <div id="sidebar-backdrop" class="sidebar-backdrop" onclick="closeSidebarOnMobile()"></div>
+
+        <div class="app-main">
+            <header class="navbar-glass select-none">
+                <div class="flex items-center gap-3">
+                    <button id="sidebar-toggle" type="button" class="btn-icon" onclick="toggleSidebar()" title="Toggle sidebar" aria-label="Toggle sidebar">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <img
+                        id="header-logo"
+                        src="{{ url_for('static', filename='logo-light.png') }}"
+                        data-logo-light="{{ url_for('static', filename='logo-light.png') }}"
+                        data-logo-dark="{{ url_for('static', filename='logo-dark.png') }}"
+                        class="h-8 opacity-95"
+                        alt="AI Flows"
+                        style="height: 28px; width: auto; object-fit: contain;"
+                    />
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <button id="settings-btn" type="button" class="btn-icon hover-sweep" onclick="openSettingsOverlay()" title="Settings" aria-label="Settings">
+                        <i class="fas fa-cog"></i>
+                    </button>
+
+                    {% block header_controls %}{% endblock %}
+                </div>
+            </header>
+
+            <main class="content-main" role="main">
+                {% with messages = get_flashed_messages() %}
+                    {% if messages %}
+                        <div class="space-y-3 animate-slide-up">
+                            {% for message in messages %}
+                                <div class="glass-card flex items-center gap-3 py-3 px-4">
+                                    <div class="w-8 h-8 rounded-full flex items-center justify-center" style="background: var(--system-blue-glass);">
+                                        <i class="fa-solid fa-circle-info text-sm" style="color: var(--system-blue);"></i>
+                                    </div>
+                                    <span class="text-body">{{ message }}</span>
+                                </div>
+                            {% endfor %}
                         </div>
-                    {% endfor %}
-                </div>
-            {% endif %}
-        {% endwith %}
+                    {% endif %}
+                {% endwith %}
 
-        {% block content %}{% endblock %}
-    </main>
-
-
-    <!-- iOS-style Floating Glass Dock -->
-    <nav class="dock-glass">
-        <a href="{{ url_for('views.dashboard') }}" class="dock-item {% if request.endpoint=='views.dashboard' %}active{% endif %}" title="Dashboard">
-            <i class="fas fa-tachometer-alt"></i>
-        </a>
-
-        <a href="{{ url_for('views.chat') }}" class="dock-item {% if request.endpoint in ['views.chat', 'views.monitoring'] %}active{% endif %}" title="Agent Chat">
-            <i class="fas fa-comments"></i>
-        </a>
-
-        <div class="dock-separator"></div>
-
-        <a href="{{ url_for('views.users') }}" class="dock-item {% if request.endpoint=='views.users' %}active{% endif %}" title="Users">
-            <i class="fas fa-users"></i>
-        </a>
-
-        <a href="{{ url_for('views.logs') }}" class="dock-item {% if request.endpoint=='views.logs' %}active{% endif %}" title="Logs">
-            <i class="fas fa-list"></i>
-        </a>
-
-        <div class="dock-separator"></div>
-
-        <a href="{{ url_for('views.settings') }}" class="dock-item {% if request.endpoint=='views.settings' %}active{% endif %}" title="Settings">
-            <i class="fas fa-wrench"></i>
-        </a>
-    </nav>
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
 
     <!-- Toast Container - aria-live for accessibility -->
     <div id="toast-container" class="toast-container" role="status" aria-live="polite" aria-atomic="false"></div>
@@ -248,12 +265,193 @@
         </div>
     </div>
 
+    <div id="settings-overlay" class="settings-overlay hidden" onclick="handleSettingsOverlayClick(event)">
+        <div class="settings-panel">
+            <div class="settings-header">
+                <h2 class="text-headline flex items-center gap-2">
+                    <i class="fas fa-cog"></i>
+                    <span>Settings</span>
+                </h2>
+                <button type="button" class="btn-icon hover-sweep" onclick="closeSettingsOverlay()" aria-label="Close settings">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <div class="settings-content">
+                <section class="settings-section">
+                    <h3 class="settings-section-title">System Status</h3>
+                    <div class="settings-status-grid">
+                        <div class="settings-status-card">
+                            <div class="flex items-center gap-2">
+                                <span id="settings-camera-status-dot" class="status-dot checking"></span>
+                                <span class="text-subhead">Camera</span>
+                            </div>
+                            <span id="settings-camera-status-text" class="text-footnote text-tertiary">Checking...</span>
+                        </div>
+
+                        <div class="settings-status-card">
+                            <div class="flex items-center gap-2">
+                                <span id="settings-ai-status-dot" class="status-dot checking"></span>
+                                <span class="text-subhead">AI</span>
+                            </div>
+                            <span id="settings-ai-status-text" class="text-footnote text-tertiary">Checking...</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="settings-section">
+                    <h3 class="settings-section-title">Appearance</h3>
+                    <button id="settings-theme-toggle" type="button" class="btn btn-secondary" onclick="toggleTheme()">
+                        <i id="settings-theme-icon" class="fas fa-moon"></i>
+                        <span id="settings-theme-label">Enable Dark Theme</span>
+                    </button>
+                </section>
+            </div>
+        </div>
+    </div>
+
     <!-- Base JavaScript (Liquid Glass compatible) -->
     <script>
         // Global variables
         let socket;
         let isReconnecting = false;
         let isOffline = false;
+
+        function getThemePreference() {
+            const storedTheme = localStorage.getItem('zededa-theme');
+            if (storedTheme === 'light' || storedTheme === 'dark') {
+                return storedTheme;
+            }
+            return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+
+        function applyTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('zededa-theme', theme);
+
+            document.querySelectorAll('[data-logo-light][data-logo-dark]').forEach(function(logoEl) {
+                const lightLogo = logoEl.dataset.logoLight;
+                const darkLogo = logoEl.dataset.logoDark;
+                logoEl.src = theme === 'dark' ? darkLogo : lightLogo;
+            });
+
+            const settingsThemeIcon = document.getElementById('settings-theme-icon');
+            const settingsThemeLabel = document.getElementById('settings-theme-label');
+            if (settingsThemeIcon) {
+                settingsThemeIcon.classList.remove('fa-sun', 'fa-moon');
+                settingsThemeIcon.classList.add(theme === 'dark' ? 'fa-sun' : 'fa-moon');
+            }
+            if (settingsThemeLabel) {
+                settingsThemeLabel.textContent = theme === 'dark' ? 'Enable Light Theme' : 'Enable Dark Theme';
+            }
+        }
+
+        function initThemeToggle() {
+            applyTheme(getThemePreference());
+        }
+
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+            const nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            applyTheme(nextTheme);
+        }
+
+        function openSettingsOverlay() {
+            const overlay = document.getElementById('settings-overlay');
+            if (!overlay) return;
+            overlay.classList.remove('hidden');
+            updateSystemStatus();
+        }
+
+        function closeSettingsOverlay() {
+            const overlay = document.getElementById('settings-overlay');
+            if (!overlay) return;
+            overlay.classList.add('hidden');
+        }
+
+        function handleSettingsOverlayClick(event) {
+            if (event.target && event.target.id === 'settings-overlay') {
+                closeSettingsOverlay();
+            }
+        }
+
+        function isMobileViewport() {
+            return window.matchMedia('(max-width: 1024px)').matches;
+        }
+
+        function syncSidebarBackdrop() {
+            const sidebar = document.getElementById('app-sidebar');
+            const backdrop = document.getElementById('sidebar-backdrop');
+            if (!sidebar || !backdrop) return;
+
+            if (isMobileViewport() && sidebar.classList.contains('open')) {
+                backdrop.classList.add('active');
+            } else {
+                backdrop.classList.remove('active');
+            }
+        }
+
+        function toggleSidebar() {
+            const sidebar = document.getElementById('app-sidebar');
+            const sidebarToggle = document.getElementById('sidebar-toggle');
+            if (!sidebar) return;
+
+            if (isMobileViewport()) {
+                sidebar.classList.toggle('open');
+            } else {
+                sidebar.classList.toggle('collapsed');
+                localStorage.setItem('zededa-sidebar-collapsed', sidebar.classList.contains('collapsed') ? 'true' : 'false');
+                if (sidebarToggle) {
+                    const icon = sidebarToggle.querySelector('i');
+                    if (icon) {
+                        icon.className = sidebar.classList.contains('collapsed') ? 'fas fa-chevron-right' : 'fas fa-bars';
+                    }
+                }
+            }
+            syncSidebarBackdrop();
+        }
+
+        function closeSidebarOnMobile() {
+            const sidebar = document.getElementById('app-sidebar');
+            if (!sidebar || !isMobileViewport()) return;
+            sidebar.classList.remove('open');
+            syncSidebarBackdrop();
+        }
+
+        function initSidebar() {
+            const sidebar = document.getElementById('app-sidebar');
+            const sidebarToggle = document.getElementById('sidebar-toggle');
+
+            if (sidebar && sidebarToggle && !isMobileViewport()) {
+                const isCollapsed = localStorage.getItem('zededa-sidebar-collapsed') === 'true';
+                sidebar.classList.toggle('collapsed', isCollapsed);
+
+                const icon = sidebarToggle.querySelector('i');
+                if (icon) {
+                    icon.className = isCollapsed ? 'fas fa-chevron-right' : 'fas fa-bars';
+                }
+            }
+
+            syncSidebarBackdrop();
+            window.addEventListener('resize', function() {
+                const sidebar = document.getElementById('app-sidebar');
+                const sidebarToggle = document.getElementById('sidebar-toggle');
+
+                if (sidebar && sidebarToggle) {
+                    const icon = sidebarToggle.querySelector('i');
+                    if (icon) {
+                        if (isMobileViewport()) {
+                            icon.className = 'fas fa-bars';
+                        } else {
+                            const isCollapsed = sidebar.classList.contains('collapsed');
+                            icon.className = isCollapsed ? 'fas fa-chevron-right' : 'fas fa-bars';
+                        }
+                    }
+                }
+
+                syncSidebarBackdrop();
+            });
+        }
 
         function getOrCreateClientSessionId() {
             const storageKey = 'agent_chat_client_session_id';
@@ -406,14 +604,38 @@
             if (status) {
                 var cameraStatus = document.getElementById('camera-status');
                 var ollamaStatus = document.getElementById('ollama-status');
+                var settingsCameraStatus = document.getElementById('settings-camera-status-dot');
+                var settingsAiStatus = document.getElementById('settings-ai-status-dot');
+                var settingsCameraText = document.getElementById('settings-camera-status-text');
+                var settingsAiText = document.getElementById('settings-ai-status-text');
+                var cameraOnline = !!status.camera_available;
+                var aiOnline = !!status.inference_available;
                 
                 if (cameraStatus) {
                     cameraStatus.classList.remove('online', 'offline', 'checking');
-                    cameraStatus.classList.add(status.camera_available ? 'online' : 'offline');
+                    cameraStatus.classList.add(cameraOnline ? 'online' : 'offline');
                 }
                 if (ollamaStatus) {
                     ollamaStatus.classList.remove('online', 'offline', 'checking');
-                    ollamaStatus.classList.add(status.inference_available ? 'online' : 'offline');
+                    ollamaStatus.classList.add(aiOnline ? 'online' : 'offline');
+                }
+
+                if (settingsCameraStatus) {
+                    settingsCameraStatus.classList.remove('online', 'offline', 'checking');
+                    settingsCameraStatus.classList.add(cameraOnline ? 'online' : 'offline');
+                }
+
+                if (settingsAiStatus) {
+                    settingsAiStatus.classList.remove('online', 'offline', 'checking');
+                    settingsAiStatus.classList.add(aiOnline ? 'online' : 'offline');
+                }
+
+                if (settingsCameraText) {
+                    settingsCameraText.textContent = cameraOnline ? 'Online' : 'Offline';
+                }
+
+                if (settingsAiText) {
+                    settingsAiText.textContent = aiOnline ? 'Online' : 'Offline';
                 }
             }
         }
@@ -638,8 +860,16 @@
         
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
+            initThemeToggle();
+            initSidebar();
             initSocket();
             updateSystemStatus();
+
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    closeSettingsOverlay();
+                }
+            });
             
             // Task type change handler for upload modal
             var taskTypeSelect = document.getElementById('test-task-type');

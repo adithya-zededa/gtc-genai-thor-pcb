@@ -86,13 +86,6 @@ class NotificationSettings(BaseModel):
     desktop_enabled: bool = Field(default=True, description="Enable desktop alerts")
 
 
-class TTSSettings(BaseModel):
-    """Text-to-Speech configuration for invoice audio summaries."""
-    enabled: bool = Field(default=True, description="Enable TTS for invoice generation")
-    language: str = Field(default="en", description="TTS language code")
-    slow: bool = Field(default=False, description="Use slower speech rate")
-
-
 class Settings(BaseModel):
     """Root settings container.
 
@@ -109,7 +102,6 @@ class Settings(BaseModel):
     router: RouterSettings = Field(default_factory=RouterSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     notifications: NotificationSettings = Field(default_factory=NotificationSettings)
-    tts: TTSSettings = Field(default_factory=TTSSettings)
     http_timeout: float = Field(default=5.0, ge=0.1, description="HTTP request timeout")
 
     @classmethod

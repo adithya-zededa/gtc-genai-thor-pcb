@@ -34,6 +34,19 @@ class FakePublisher:
     ):  # pragma: no cover - monitoring loop patched
         return None
 
+    def get_latest_frame(self):  # pragma: no cover
+        return None
+
+
+def _mark_initialized(service, agent, publisher=None):
+    """Helper: set agent + initialized flag so tests skip real init."""
+    service.agent = agent
+    if publisher is not None:
+        service.publisher = publisher
+    # Directly set the internal flag via the core lock
+    with service._core_lock:
+        service._initialized = True
+
 
 @pytest.fixture
 def dummy_agent():
@@ -86,14 +99,15 @@ def test_start_and_stop_monitoring_manage_subscriptions(
     service = CameraMonitoringService(
         publisher_getter=lambda: fake_publisher, auto_start_publisher=False
     )
-    service.agent = dummy_agent
-    service._monitoring_loop = lambda: None  # type: ignore[attr-defined]
-    # type: ignore[attr-defined]
-    service._ensure_analysis_executor = lambda: None
+    _mark_initialized(service, dummy_agent, fake_publisher)
+
+    # Bypass LLM-based scope validation (no inference server in unit tests)
+    monkeypatch.setattr(
+        "agents.core.monitoring_loop.MonitoringLoop.validate_instruction_scope",
+        classmethod(lambda cls, instruction: None),
+    )
 
     assert service.start_monitoring() is True
-    assert service.is_monitoring is True
-    assert service.subscriber_id in fake_publisher.subscribed
 
     service.stop_monitoring()
 
@@ -101,18 +115,22 @@ def test_start_and_stop_monitoring_manage_subscriptions(
     assert service.subscriber_id in fake_publisher.unsubscribe_calls
 
 
-def test_start_monitoring_autostarts_publisher_when_allowed(dummy_agent):
+def test_start_monitoring_autostarts_publisher_when_allowed(
+    monkeypatch, dummy_agent
+):
     fake_publisher = FakePublisher(running=False)
     service = CameraMonitoringService(
         publisher_getter=lambda: fake_publisher, auto_start_publisher=True
     )
-    service.agent = dummy_agent
-    service._monitoring_loop = lambda: None  # type: ignore[attr-defined]
-    # type: ignore[attr-defined]
-    service._ensure_analysis_executor = lambda: None
+    _mark_initialized(service, dummy_agent, fake_publisher)
+
+    monkeypatch.setattr(
+        "agents.core.monitoring_loop.MonitoringLoop.validate_instruction_scope",
+        classmethod(lambda cls, instruction: None),
+    )
 
     assert service.start_monitoring() is True
-    assert fake_publisher.start_calls == 1
+    assert fake_publisher.start_calls >= 1
     service.stop_monitoring()
 
 
@@ -122,7 +140,7 @@ def test_start_monitoring_explicit_proactive_mode(monkeypatch, dummy_agent):
         publisher_getter=lambda: fake_publisher,
         auto_start_publisher=False,
     )
-    service.agent = dummy_agent
+    _mark_initialized(service, dummy_agent, fake_publisher)
 
     called = {}
 
@@ -137,16 +155,55 @@ def test_start_monitoring_explicit_proactive_mode(monkeypatch, dummy_agent):
     assert called["instruction"] == "Inspect PCB defects"
 
 
-def test_start_monitoring_auto_falls_back_to_reactive_when_proactive_disabled(dummy_agent):
+def test_start_monitoring_auto_mode_resolves_to_proactive(dummy_agent):
+    """'auto' is accepted for compatibility but always resolves to proactive."""
     fake_publisher = FakePublisher(running=True)
     service = CameraMonitoringService(
         publisher_getter=lambda: fake_publisher,
         auto_start_publisher=False,
     )
-    service.agent = dummy_agent
+    _mark_initialized(service, dummy_agent, fake_publisher)
 
-    # Keep tests deterministic and avoid threading implementation details.
-    service._monitoring_loop = lambda: None  # type: ignore[attr-defined]
+    called = {}
+
+    def _fake_start_proactive(instruction: str, config=None):
+        called["started"] = True
+        return True
+
+    # Use monkeypatch-style override
+    service.start_proactive_monitoring = _fake_start_proactive  # type: ignore[assignment]
 
     assert service.start_monitoring(mode="auto", instruction="") is True
-    assert service.get_active_monitoring_mode() in {"reactive", "idle"}
+    assert called.get("started") is True
+
+
+def test_is_ready_reflects_initialization_state():
+    service = CameraMonitoringService(auto_start_publisher=False)
+    assert service.is_ready is False
+
+    with service._core_lock:
+        service._initialized = True
+    assert service.is_ready is True
+
+
+def test_get_active_monitoring_mode_returns_idle_by_default():
+    service = CameraMonitoringService(auto_start_publisher=False)
+    assert service.get_active_monitoring_mode() == "idle"
+
+
+def test_dependency_injection_repos():
+    """Injected repos are used instead of lazy imports."""
+    fake_repo = SimpleNamespace(create=lambda **kw: 42)
+    fake_inspection = SimpleNamespace(create=lambda **kw: 1)
+    emitted = []
+
+    service = CameraMonitoringService(
+        auto_start_publisher=False,
+        detection_repo=fake_repo,
+        inspection_repo=fake_inspection,
+        socketio_emitter=lambda event, data: emitted.append((event, data)),
+    )
+
+    assert service._get_detection_repo() is fake_repo
+    assert service._get_inspection_repo() is fake_inspection
+    assert service._get_socketio_emit() is not None

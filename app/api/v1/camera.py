@@ -97,12 +97,23 @@ def capture_frame():
             if getattr(latest_frame, "metadata", None):
                 metadata.update(latest_frame.metadata)
 
+            # Include monitoring stats so chat UI can update counters
+            stats = {}
+            try:
+                from services.core.monitoring import get_monitoring_service
+                service = get_monitoring_service()
+                if service and hasattr(service, "_serialize_stats"):
+                    stats = service._serialize_stats()
+            except Exception:
+                pass
+
             return jsonify(
                 {
                     "success": True,
                     "image_b64": latest_frame.image_b64,
                     "timestamp": latest_frame.timestamp,
                     "metadata": metadata,
+                    "stats": stats,
                 }
             )
 

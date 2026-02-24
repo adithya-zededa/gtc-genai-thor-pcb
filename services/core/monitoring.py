@@ -2,6 +2,25 @@
 
 Provides the StreamlinedMonitoringService that subscribes to the
 camera feed and runs the unified VLM-based detection pipeline.
+
+Design notes
+~~~~~~~~~~~~
+* **Proactive-only runtime** — The only active monitoring mode is
+  ``PROACTIVE``.  The ``MonitoringMode`` enum retains an ``IDLE``
+  member for API consumers that inspect the current mode; there is no
+  separate "reactive" runtime.
+* **Dependency injection** — Database and SocketIO helpers are injected
+  at construction time (``detection_repo``, ``inspection_repo``,
+  ``socketio_emitter``) so the service is testable in isolation and
+  never performs deferred imports from ``app.*`` in background threads.
+  For backward-compatibility the service *also* supports late-import
+  resolution when no dependency was injected, caching the reference on
+  first successful import.
+* **Thread safety** — ``is_monitoring``, ``agent``, and ``publisher``
+  are guarded by ``_core_lock``.  Stats and prompt state each have
+  their own dedicated locks, which are never held simultaneously.
+* **Config caching** — ``load_camera_config()`` is called in
+  ``initialize()`` and cached; ``_run_analysis`` reads from the cache.
 """
 
 from __future__ import annotations
@@ -10,10 +29,9 @@ import threading
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Protocol
 from uuid import uuid4
 
 from agents.core.detection_agent import StreamlinedAgent
@@ -29,100 +47,92 @@ from core.logging import get_logger
 logger = get_logger(__name__)
 
 
-DEFAULT_MONITORING_DEFECT_PROMPT = """You are a PCB quality inspector. Examine this image carefully. Output ONLY valid JSON.
+# ---------------------------------------------------------------------------
+# Default prompt
+# ---------------------------------------------------------------------------
 
-BOARD: Arduino Uno R4 Minima on a green surface, viewed at a slight angle.
+DEFAULT_MONITORING_DEFECT_PROMPT = """You are a PCB quality inspector. Look at this image and answer the questions below. Output ONLY valid JSON.
 
-IMPORTANT: You MUST look at each location individually and describe what you physically see BEFORE deciding its status. Do NOT assume all connectors are present just because this is an Arduino board.
+This is an Arduino Uno R4 Minima PCB on a green surface.
 
-STEP 1 — DC Power Barrel Jack (LEFT EDGE of board, upper area):
-- PRESENT: A LARGE BLACK CYLINDRICAL plastic body (~9mm wide, ~11mm tall) protruding from the board edge. It is the tallest component on that edge.
-- MISSING: Only flat bare copper pads, solder points, or empty through-holes — NO tall black cylinder.
-- Describe what you see at this location in your reasoning.
+Answer each question by describing ONLY what you see in the image. Do NOT repeat my instructions back. Do NOT guess. If you cannot see a location clearly, say "uncertain".
 
-STEP 2 — USB connector (TOP EDGE, near center):
-- A small metallic rectangular port. Describe what you see.
+Q1: Look at the LEFT EDGE of the board, upper area. Is there a tall black cylindrical barrel jack connector there? Describe the shape, color, and height of whatever object is at that location. If you only see flat copper pads or bare solder points with no tall connector, it is missing.
 
-STEP 3 — UART / ICSP Pin Header Caps (LEFT EDGE, below the barrel jack area):
-- On the Arduino Uno R4 Minima, there is a small BLACK PLASTIC CAP (jumper cap) sitting on the UART/ICSP header pins along the left edge of the board, below the power jack area.
-- PRESENT: A small black rectangular plastic cap is visible on the header pins.
-- MISSING: The header pins are exposed with NO black cap on them — bare gold/silver metal pins visible.
-- Check BOTH sides of the board for these caps. Describe what you see.
+Q2: Look at the TOP EDGE. Is there a USB port? Describe it.
 
-STEP 4 — General defect scan: solder_bridge, missing_component, cold_solder_joint, lifted_pad, trace_damage, connector_misalignment, mechanical_damage. Report only what has visible evidence.
+Q3: Look at the header pins along the LEFT EDGE (below the power area) and the BOTTOM EDGE. Do the header pins have small black plastic caps on them? Check both sides.
 
-SEVERITY: high = missing connector or structural damage | medium = cold joint, missing cap | low = cosmetic only
+Q4: Any other defects? (solder bridges, missing parts, cold joints, trace damage, mechanical damage)
 
-CRITICAL LOGIC — you MUST follow these rules:
-- If power_jack_status is "missing" or "damaged" → detected MUST be true, should_alert MUST be true.
-- If uart_cap_status is "missing_one_side" or "missing_both_sides" → detected MUST be true, should_alert MUST be true.
-- If ANY defect is found → detected MUST be true.
-- detected=false ONLY when ALL connectors are present and intact AND no defects found.
-
-Return this JSON:
+Based on your answers, fill in this JSON:
 {
-    "detected": bool,
-    "confidence": float (0-1),
-    "reasoning": "Describe what you see at each location, then state your conclusion",
-    "should_alert": bool,
+    "detected": true if ANY connector is missing/damaged or ANY defect found, otherwise false,
+    "confidence": float 0-1,
+    "reasoning": "your observations from Q1-Q4",
+    "should_alert": true if detected is true,
     "details": {
-        "power_jack_status": "present_intact|missing|damaged|uncertain",
-        "uart_cap_status": "present_both_sides|missing_one_side|missing_both_sides|uncertain",
-        "defects": [
-            {
-                "type": "defect_type",
-                "severity": "low|medium|high",
-                "location": "where on the board",
-                "description": "what you physically see"
-            }
-        ]
+        "power_jack_status": "present_intact or missing or damaged or uncertain",
+        "uart_cap_status": "present_both_sides or missing_one_side or missing_both_sides or uncertain",
+        "defects": []
     }
 }
 """
 
 
+# ---------------------------------------------------------------------------
+# Monitoring mode
+# ---------------------------------------------------------------------------
+
 class MonitoringMode(str, Enum):
     """Supported monitoring runtime modes."""
 
-    AUTO = "auto"
+    IDLE = "idle"
     PROACTIVE = "proactive"
 
 
-@dataclass(frozen=True)
-class MonitoringModeDecision:
-    """Decision payload for monitoring mode selection."""
+# ---------------------------------------------------------------------------
+# Dependency protocols (for injection)
+# ---------------------------------------------------------------------------
 
-    mode: MonitoringMode
-    reason: str
-
-
-class MonitoringModeSelector:
-    """Deterministic strategy for selecting monitoring mode."""
+class DetectionLogRepo(Protocol):
+    """Minimal interface for the detection-log persistence layer."""
 
     @staticmethod
-    def choose_mode(  # pylint: disable=too-many-arguments
-        requested_mode: MonitoringMode,
+    def create(
         *,
-        proactive_config: Dict[str, Any],
-        instruction: str,
-        task_type: TaskType,
-        custom_prompt: str,
-        proactive_running: bool,
-    ) -> MonitoringModeDecision:
-        _ = (requested_mode, proactive_config, instruction, task_type, custom_prompt, proactive_running)
-        return MonitoringModeDecision(
-            mode=MonitoringMode.PROACTIVE,
-            reason="proactive_only_runtime",
-        )
+        timestamp: str,
+        confidence: float,
+        response: str,
+        image_path: str,
+        frame_number: Any,
+        reason: str,
+        vision_description: str,
+        decision_details: Any,
+        tool_trace: Any,
+    ) -> Optional[int]: ...
+
+
+class PCBInspectionRepo(Protocol):
+    """Minimal interface for the PCB-inspection persistence layer."""
 
     @staticmethod
-    def _is_proactive_scope_instruction(instruction: str) -> bool:
-        try:
-            MonitoringLoop.validate_instruction_scope(instruction)
-            return True
-        except ValueError:
-            return False
+    def create(
+        *,
+        board_signature: str,
+        result: str,
+        confidence: float,
+        reason: str,
+        defect_type: str,
+        description: str,
+        image_path: str,
+        decision_trace: dict,
+    ) -> Optional[int]: ...
 
+
+# ---------------------------------------------------------------------------
+# Module-level helpers
+# ---------------------------------------------------------------------------
 
 def _parse_monitoring_mode(
     mode: Optional[MonitoringMode | str],
@@ -136,24 +146,57 @@ def _parse_monitoring_mode(
                 return candidate
     return MonitoringMode.PROACTIVE
 
-# Global singleton for monitoring service
+
+# ---------------------------------------------------------------------------
+# Global singleton
+# ---------------------------------------------------------------------------
+
 _monitoring_service: Optional["StreamlinedMonitoringService"] = None
 _service_lock = threading.Lock()
 
 
 def get_monitoring_service() -> Optional["StreamlinedMonitoringService"]:
-    """Get or create the global monitoring service instance."""
+    """Get or create the global monitoring service instance.
+
+    The returned service may not be *initialized* yet (i.e. the VLM
+    client and camera publisher are not connected).  Call
+    ``service.is_ready`` to check, or ``service.initialize()`` to
+    perform first-time setup.  Most public methods that need the agent
+    will call ``initialize()`` lazily if it has not been done.
+    """
     global _monitoring_service
-    
+
     with _service_lock:
         if _monitoring_service is None:
             _monitoring_service = StreamlinedMonitoringService()
         return _monitoring_service
 
 
+# ---------------------------------------------------------------------------
+# Service
+# ---------------------------------------------------------------------------
+
 class StreamlinedMonitoringService:
-    """
-    Camera monitoring controller using the streamlined VLM pipeline.
+    """Camera monitoring controller using the streamlined VLM pipeline.
+
+    Parameters
+    ----------
+    subscriber_id : str, optional
+        Unique ID used when subscribing to the camera publisher.
+    publisher_getter : callable
+        Factory that returns a camera publisher instance.
+    auto_start_publisher : bool
+        When *True* the publisher is started automatically on first use.
+    detection_repo : object, optional
+        Injected ``DetectionLogRepository``-like object.  When *None*
+        the service will fall back to a lazy import from
+        ``app.database`` (kept for backward-compat; prefer explicit
+        injection in new code and tests).
+    inspection_repo : object, optional
+        Injected ``PCBInspectionRepository``-like object.
+    socketio_emitter : callable, optional
+        ``socketio.emit``-compatible callable.  When *None* the
+        service will fall back to a lazy import from ``app``.
     """
 
     def __init__(
@@ -161,56 +204,71 @@ class StreamlinedMonitoringService:
         subscriber_id: Optional[str] = None,
         publisher_getter: Callable = get_camera_publisher,
         auto_start_publisher: bool = True,
+        *,
+        detection_repo: Optional[DetectionLogRepo] = None,
+        inspection_repo: Optional[PCBInspectionRepo] = None,
+        socketio_emitter: Optional[Callable] = None,
     ) -> None:
-        self.agent: Optional[StreamlinedAgent] = None
+        # --- Core state (guarded by _core_lock) -----------------------
+        self._core_lock = threading.Lock()
+        self._agent: Optional[StreamlinedAgent] = None
+        self._publisher: Optional[Any] = None
+        self._is_monitoring: bool = False
+        self._initialized: bool = False
+
         self.subscriber_id = subscriber_id or f"monitor_{uuid4().hex[:8]}"
-        self.is_monitoring = False
         self.last_frame: Optional[Dict[str, object]] = None
         self.last_error: Optional[str] = None
         self._thread: Optional[threading.Thread] = None
         self._publisher_getter = publisher_getter
-        self.publisher = None
         self.auto_start_publisher = auto_start_publisher
-        
-        # Dynamic prompt configuration
+
+        # --- Injected dependencies ------------------------------------
+        self._detection_repo = detection_repo
+        self._inspection_repo = inspection_repo
+        self._socketio_emit = socketio_emitter
+
+        # --- Dynamic prompt configuration (guarded by _prompt_lock) ---
         self._current_task_type: TaskType = TaskType.CUSTOM
-        self._custom_prompt: str = ""
+        self._custom_prompt: Optional[str] = None
         self._alerts_enabled: bool = False
         self._agentic_mode: bool = False
         self._prompt_version: int = 0
         self._prompt_lock = threading.Lock()
-        
-        # Inference lock
+
+        # --- Inference lock -------------------------------------------
         self._inference_lock = threading.Lock()
-        
-        # Timing configuration
+
+        # --- Timing configuration -------------------------------------
         self.last_processed_time = 0.0
         self.capture_interval = 30.0
         self.analysis_workers = 1
         self.max_pending_analyses = 3
-        
-        # Analysis executor
+
+        # --- Analysis executor ----------------------------------------
         self._analysis_executor: Optional[ThreadPoolExecutor] = None
-        self._analysis_futures = deque()
+        self._analysis_futures: deque = deque()
         self._futures_lock = threading.Lock()
-        
-        # Proactive agent state
+
+        # --- Proactive agent state (guarded by _proactive_lock) -------
         self.proactive_agent: Optional[MonitoringLoop] = None
         self._proactive_instruction: str = ""
         self._proactive_config: Dict[str, Any] = {}
         self._proactive_lock = threading.RLock()
-        self._mode_selector = MonitoringModeSelector()
-        self._active_mode = MonitoringMode.PROACTIVE
+        self._active_mode: MonitoringMode = MonitoringMode.IDLE
         self._last_mode_decision_reason = "not_started"
 
-        # Motion detection
+        # --- Cached config (set during initialize) --------------------
+        self._cached_config: Dict[str, Any] = {}
+
+        # --- Motion detection -----------------------------------------
         self.ssim_threshold = 0.80
         self.motion_burst_interval = 0.2
         self._last_backpressure_log = 0.0
-        
-        # Stats tracking
+
+        # --- Stats tracking (guarded by _stats_lock) ------------------
         self._stats_lock = threading.Lock()
-        self.stats = {
+        self.stats: Dict[str, Any] = {
             'total_frames': 0,
             'processed_frames': 0,
             'detections': 0,
@@ -219,49 +277,153 @@ class StreamlinedMonitoringService:
             'single_frame_requests': 0,
             'analysis_avg_ms': 0.0,
             'analysis_samples': 0,
-            'uptime_start': datetime.now().isoformat()
+            'uptime_start': datetime.now().isoformat(),
         }
+
+    # ------------------------------------------------------------------
+    # Properties (thread-safe accessors for core state)
+    # ------------------------------------------------------------------
+
+    @property
+    def is_ready(self) -> bool:
+        """Return *True* if ``initialize()`` has completed successfully."""
+        with self._core_lock:
+            return self._initialized
+
+    @property
+    def agent(self) -> Optional[StreamlinedAgent]:
+        with self._core_lock:
+            return self._agent
+
+    @agent.setter
+    def agent(self, value: Optional[StreamlinedAgent]) -> None:
+        with self._core_lock:
+            self._agent = value
+
+    @property
+    def publisher(self) -> Optional[Any]:
+        with self._core_lock:
+            return self._publisher
+
+    @publisher.setter
+    def publisher(self, value: Optional[Any]) -> None:
+        with self._core_lock:
+            self._publisher = value
+
+    @property
+    def is_monitoring(self) -> bool:
+        with self._core_lock:
+            return self._is_monitoring
+
+    @is_monitoring.setter
+    def is_monitoring(self, value: bool) -> None:
+        with self._core_lock:
+            self._is_monitoring = value
+
+    # ------------------------------------------------------------------
+    # Dependency resolution helpers
+    # ------------------------------------------------------------------
+
+    def _get_detection_repo(self) -> Any:
+        """Return the detection-log repository (injected or late-imported)."""
+        if self._detection_repo is not None:
+            return self._detection_repo
+        try:
+            from app.database import DetectionLogRepository  # pylint: disable=import-outside-toplevel
+            self._detection_repo = DetectionLogRepository
+            return DetectionLogRepository
+        except Exception:
+            return None
+
+    def _get_inspection_repo(self) -> Any:
+        """Return the PCB-inspection repository (injected or late-imported)."""
+        if self._inspection_repo is not None:
+            return self._inspection_repo
+        try:
+            from app.database import PCBInspectionRepository  # pylint: disable=import-outside-toplevel
+            self._inspection_repo = PCBInspectionRepository
+            return PCBInspectionRepository
+        except Exception:
+            return None
+
+    def _get_socketio_emit(self) -> Optional[Callable]:
+        """Return a ``socketio.emit`` callable (injected or late-imported)."""
+        if self._socketio_emit is not None:
+            return self._socketio_emit
+        try:
+            from app import socketio  # pylint: disable=import-outside-toplevel
+            self._socketio_emit = socketio.emit
+            return socketio.emit
+        except Exception:
+            return None
+
+    # ------------------------------------------------------------------
+    # Configuration
+    # ------------------------------------------------------------------
 
     def _apply_configuration_settings(self, config: Dict[str, Any]) -> None:
         """Apply configuration settings to runtime parameters."""
         camera_cfg = config.get("camera", {})
         advanced_cfg = config.get("advanced", {})
-        
+
         self.capture_interval = float(camera_cfg.get("capture_interval", self.capture_interval))
         self.analysis_workers = int(advanced_cfg.get("max_concurrent_analyses", self.analysis_workers))
         self.max_pending_analyses = int(advanced_cfg.get("max_pending_analyses", self.max_pending_analyses))
 
-    def _ensure_analysis_executor(self) -> None:
-        """Ensure the analysis executor is running."""
-        if self._analysis_executor is None:
-            self._analysis_executor = ThreadPoolExecutor(max_workers=self.analysis_workers)
+    # ------------------------------------------------------------------
+    # Initialization
+    # ------------------------------------------------------------------
 
     def initialize(self) -> bool:
-        """Initialize the monitoring service."""
+        """Initialize the monitoring service (VLM client, publisher, config).
+
+        Safe to call multiple times; subsequent calls are no-ops if the
+        service is already initialized.
+        """
+        with self._core_lock:
+            if self._initialized:
+                return True
+
         try:
             config = load_camera_config()
+            self._cached_config = config
             vlm_client = create_vlm_client_from_config(config)
             circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=120.0)
             self._proactive_config = config.get("proactive", {}) or {}
-            
-            self.agent = StreamlinedAgent(
+
+            agent = StreamlinedAgent(
                 config=config,
                 vlm_client=vlm_client,
                 circuit_breaker=circuit_breaker,
             )
-            
-            # Initialize publisher
-            self.publisher = self._publisher_getter()
-            if self.auto_start_publisher and not self.publisher.is_running:
-                self.publisher.start()
-            
+
+            pub = self._publisher_getter()
+            if self.auto_start_publisher and not pub.is_running:
+                pub.start()
+
+            with self._core_lock:
+                self._agent = agent
+                self._publisher = pub
+                self._initialized = True
+
+            self._apply_configuration_settings(config)
             logger.info("Monitoring service initialized")
             return True
-            
+
         except Exception as e:
             self.last_error = str(e)
             logger.error("Failed to initialize monitoring service: %s", e)
             return False
+
+    def _ensure_initialized(self) -> bool:
+        """Lazily initialize if needed.  Returns *True* on success."""
+        if self.is_ready:
+            return True
+        return self.initialize()
+
+    # ------------------------------------------------------------------
+    # Start / stop (public API)
+    # ------------------------------------------------------------------
 
     def start_monitoring(
         self,
@@ -270,8 +432,13 @@ class StreamlinedMonitoringService:
         instruction: str = "",
         config: Optional[Dict[str, Any]] = None,
     ) -> bool:
-        """Start monitoring in proactive mode only."""
-        requested_mode = _parse_monitoring_mode(mode)
+        """Start proactive monitoring.
+
+        This is the single entry-point for callers that want to begin
+        monitoring.  The ``mode`` parameter is accepted for API
+        compatibility but the runtime is always proactive.
+        """
+        _parse_monitoring_mode(mode)  # validates; currently always proactive
 
         if self.is_monitoring:
             self.last_error = "Monitoring already active"
@@ -281,19 +448,22 @@ class StreamlinedMonitoringService:
         if self.proactive_agent and self.proactive_agent.is_running:
             self.last_error = "Proactive monitoring is currently active"
             return False
-        
-        if not self.agent:
-            if not self.initialize():
-                return False
+
+        if not self._ensure_initialized():
+            return False
+
         agent = self.agent
         if agent is None:
             self.last_error = "Agent initialization failed"
             return False
 
-        if self.publisher is None:
-            self.publisher = self._publisher_getter()
-        if self.auto_start_publisher and self.publisher and not self.publisher.is_running:
-            self.publisher.start()
+        # Ensure publisher is alive
+        pub = self.publisher
+        if pub is None:
+            pub = self._publisher_getter()
+            self.publisher = pub
+        if self.auto_start_publisher and pub and not pub.is_running:
+            pub.start()
 
         proactive_cfg: Dict[str, Any] = {}
         try:
@@ -303,22 +473,6 @@ class StreamlinedMonitoringService:
 
         if config:
             proactive_cfg = {**proactive_cfg, **config}
-
-        with self._prompt_lock:
-            task_type = self._current_task_type
-            custom_prompt = self._custom_prompt
-
-        decision = self._mode_selector.choose_mode(
-            requested_mode,
-            proactive_config=proactive_cfg,
-            instruction=instruction,
-            task_type=task_type,
-            custom_prompt=custom_prompt,
-            proactive_running=bool(
-                self.proactive_agent and self.proactive_agent.is_running
-            ),
-        )
-        self._last_mode_decision_reason = decision.reason
 
         chosen_instruction = (
             (instruction or "").strip()
@@ -338,29 +492,31 @@ class StreamlinedMonitoringService:
             return False
 
         self._active_mode = MonitoringMode.PROACTIVE
-        self._last_mode_decision_reason = decision.reason
+        self._last_mode_decision_reason = "proactive_only_runtime"
         logger.info(
             "Monitoring started in %s mode (%s)",
             self._active_mode.value,
-            decision.reason,
+            self._last_mode_decision_reason,
         )
         return True
 
     def stop_monitoring(self) -> None:
         """Stop monitoring (proactive runtime and any legacy reactive loop)."""
         self.is_monitoring = False
-        
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=5.0)
 
-        if self.publisher:
+        thread = self._thread
+        if thread and thread.is_alive():
+            thread.join(timeout=5.0)
+
+        pub = self.publisher
+        if pub:
             try:
-                self.publisher.unsubscribe(self.subscriber_id)
+                pub.unsubscribe(self.subscriber_id)
             except Exception:
                 pass
 
         self.stop_proactive_monitoring()
-        
+        self._active_mode = MonitoringMode.IDLE
         logger.info("Monitoring stopped")
 
     # ------------------------------------------------------------------
@@ -372,31 +528,48 @@ class StreamlinedMonitoringService:
         instruction: str,
         config: Optional[Dict[str, Any]] = None,
     ) -> bool:
-        """Start or update the proactive monitoring agent."""
+        """Start or update the proactive monitoring agent.
+
+        If proactive monitoring is already running, the instruction is
+        updated in-place without restarting the loop.  If a legacy
+        reactive loop is active it will be stopped cleanly first
+        *without* tearing down the proactive agent.
+        """
         if not instruction or not instruction.strip():
             self.last_error = "Instruction is required"
             return False
 
         # Scope enforcement: proactive mode is intentionally PCB-defect-only.
-        # Non-PCB requests are refused explicitly at the service boundary.
         try:
             MonitoringLoop.validate_instruction_scope(instruction)
         except ValueError as exc:
             self.last_error = str(exc)
             return False
 
-        if not self.agent:
-            if not self.initialize():
-                return False
+        if not self._ensure_initialized():
+            return False
 
         agent = self.agent
         if agent is None:
             self.last_error = "Agent initialization failed"
             return False
 
+        # Stop only the legacy reactive loop if it is running,
+        # WITHOUT touching the proactive agent (avoids circular teardown
+        # that previously occurred when stop_monitoring() called
+        # stop_proactive_monitoring()).
         if self.is_monitoring:
-            logger.info("Pausing reactive monitoring while proactive mode is active")
-            self.stop_monitoring()
+            logger.info("Stopping reactive loop before starting proactive mode")
+            self.is_monitoring = False
+            thread = self._thread
+            if thread and thread.is_alive():
+                thread.join(timeout=5.0)
+            pub = self.publisher
+            if pub:
+                try:
+                    pub.unsubscribe(self.subscriber_id)
+                except Exception:
+                    pass
 
         with self._proactive_lock:
             merged_config = {**self._proactive_config, **(config or {})}
@@ -431,14 +604,16 @@ class StreamlinedMonitoringService:
             if agent and agent.is_running:
                 agent.stop()
             self._proactive_instruction = ""
-            if not self.is_monitoring:
-                self._active_mode = MonitoringMode.PROACTIVE
 
     def get_active_monitoring_mode(self) -> str:
-        """Return the currently active runtime monitoring mode."""
+        """Return the currently active runtime monitoring mode.
+
+        Returns a ``MonitoringMode`` *value* string (``"proactive"``
+        or ``"idle"``).
+        """
         if self.proactive_agent and self.proactive_agent.is_running:
             return MonitoringMode.PROACTIVE.value
-        return "idle"
+        return MonitoringMode.IDLE.value
 
     def get_proactive_snapshot(self) -> Dict[str, Any]:
         with self._proactive_lock:
@@ -448,6 +623,10 @@ class StreamlinedMonitoringService:
                 snapshot = {"running": False, "context": None}
             snapshot["instruction"] = self._proactive_instruction
             return snapshot
+
+    # ------------------------------------------------------------------
+    # Board-ready callback (called from MonitoringLoop thread)
+    # ------------------------------------------------------------------
 
     def _on_board_ready(
         self, frame: Any, observation_context: Dict[str, Any]
@@ -482,6 +661,12 @@ class StreamlinedMonitoringService:
         if event is None:
             return
 
+        # Update stats counters for proactive detections
+        with self._stats_lock:
+            self.stats['processed_frames'] += 1
+            if event.detected:
+                self.stats['detections'] += 1
+
         # Enrich with observation context
         event.decision_trace.setdefault("proactive_context", {})
         event.decision_trace["proactive_context"].update(observation_context)
@@ -512,15 +697,21 @@ class StreamlinedMonitoringService:
                 ctx.no_defect_count += 1
                 ctx.board_decisions[board_sig] = "NO_DEFECT"
 
+    # ------------------------------------------------------------------
+    # Persistence helpers (use injected repos, fall back to lazy import)
+    # ------------------------------------------------------------------
+
     def _persist_inspection(
         self, event: DetectionEvent, board_signature: str
     ) -> None:
         """Persist pass/fail as first-class PCB records for analytics."""
+        repo = self._get_inspection_repo()
+        if repo is None:
+            logger.warning("PCBInspectionRepository unavailable; skipping persist")
+            return
         try:
-            from app.database import PCBInspectionRepository  # pylint: disable=import-outside-toplevel
-
             result = "FAIL" if event.detected else "PASS"
-            PCBInspectionRepository.create(
+            repo.create(
                 board_signature=board_signature,
                 result=result,
                 confidence=float(event.confidence),
@@ -533,20 +724,76 @@ class StreamlinedMonitoringService:
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Failed to persist inspection: %s", exc)
 
+    def _record_detection(self, event: DetectionEvent, metadata: Dict[str, Any]) -> None:
+        """Record detection to database and emit websocket event."""
+        repo = self._get_detection_repo()
+        emit_fn = self._get_socketio_emit()
+
+        if repo is None:
+            logger.warning("DetectionLogRepository unavailable; skipping record")
+            return
+
+        try:
+            log_id = repo.create(
+                timestamp=event.timestamp,
+                confidence=event.confidence,
+                response=event.full_response,
+                image_path=event.image_path or "",
+                frame_number=metadata.get("frame_number"),
+                reason=str(metadata.get("reason") or ""),
+                vision_description=getattr(event, "vision_description", ""),
+                decision_details=event.decision_trace,
+                tool_trace=getattr(event, "tool_trace", []),
+            )
+
+            # Emit real-time events via SocketIO
+            if log_id and emit_fn:
+                log_entry = {
+                    "id": log_id,
+                    "timestamp": event.timestamp,
+                    "confidence": event.confidence,
+                    "response": event.full_response,
+                    "image_path": event.image_path or "",
+                    "frame_number": metadata.get("frame_number"),
+                    "detected": getattr(event, "detected", False),
+                    "agentic_mode": (event.decision_trace or {}).get("classification") == "AGENTIC_ANALYSIS",
+                }
+                emit_fn("new_log", log_entry)
+
+                # Emit detection_event with current stats for dashboard/chat
+                detection_payload = {
+                    "event": log_entry,
+                    "stats": self._serialize_stats(),
+                }
+                emit_fn("detection_event", detection_payload)
+
+        except Exception as exc:
+            logger.error("Failed to record detection: %s", exc)
+
+    # ------------------------------------------------------------------
+    # Prompt configuration
+    # ------------------------------------------------------------------
+
     def set_active_prompt(
         self,
         task_type: TaskType,
-        custom_prompt: str = "",
+        custom_prompt: Optional[str] = None,
         alerts_enabled: bool = False,
         agentic_mode: bool = False,
     ) -> None:
-        """Set the active task type and prompt for monitoring."""
+        """Set the active task type and prompt for monitoring.
+
+        ``custom_prompt`` semantics:
+        * ``None`` (default) — use the built-in default prompt.
+        * Non-empty string — use it as the custom prompt.
+        * ``""`` (empty string) — treated the same as ``None``.
+        """
         with self._prompt_lock:
             prompt_changed = (
-                self._current_task_type != task_type or
-                self._custom_prompt != custom_prompt
+                self._current_task_type != task_type
+                or self._custom_prompt != custom_prompt
             )
-            
+
             if prompt_changed:
                 self._prompt_version += 1
                 logger.info(
@@ -554,12 +801,12 @@ class StreamlinedMonitoringService:
                     self._prompt_version
                 )
                 self._clear_pending_queue()
-            
+
             self._current_task_type = task_type
             self._custom_prompt = custom_prompt
             self._alerts_enabled = alerts_enabled
             self._agentic_mode = agentic_mode
-        
+
         logger.info(
             "Active prompt updated: task=%s, alerts=%s, agentic=%s",
             task_type.value,
@@ -576,7 +823,7 @@ class StreamlinedMonitoringService:
                 if not future.done():
                     future.cancel()
                     cancelled_count += 1
-        
+
         if cancelled_count > 0:
             logger.info("Cleared %d pending analyses", cancelled_count)
 
@@ -591,33 +838,43 @@ class StreamlinedMonitoringService:
                 "prompt_version": self._prompt_version,
             }
 
+    # ------------------------------------------------------------------
+    # Single-frame analysis
+    # ------------------------------------------------------------------
+
     def analyze_single_frame(
         self,
         task_type: Optional[TaskType] = None,
         custom_prompt: Optional[str] = None,
     ) -> Optional[DetectionEvent]:
         """Analyze the latest frame immediately."""
-        if not self.agent:
+        if not self._ensure_initialized():
             self.last_error = "Agent not initialized"
             return None
-        
+
         with self._stats_lock:
             self.stats['single_frame_requests'] += 1
-        
-        # Get latest frame
-        publisher = self._publisher_getter()
-        latest = publisher.get_latest_frame()
-        
+
+        # Use self.publisher (consistent with rest of service); auto-start
+        pub = self.publisher
+        if pub is None:
+            pub = self._publisher_getter()
+            self.publisher = pub
+        if self.auto_start_publisher and not pub.is_running:
+            pub.start()
+
+        latest = pub.get_latest_frame()
+
         if not latest or latest.raw_frame is None:
             self.last_error = "No frames available"
             return None
-        
+
         # Use provided or active config
         with self._prompt_lock:
             effective_task = task_type or self._current_task_type
             effective_prompt = custom_prompt if custom_prompt is not None else self._custom_prompt
             use_agentic = self._agentic_mode
-        
+
         try:
             event = self._run_analysis(
                 frame=latest.raw_frame,
@@ -648,40 +905,57 @@ class StreamlinedMonitoringService:
             logger.error("Single frame analysis failed: %s", e)
             return None
 
+    # ------------------------------------------------------------------
+    # Configuration refresh
+    # ------------------------------------------------------------------
+
     def refresh_configuration(self, config: Optional[Dict[str, Any]] = None) -> None:
         """Refresh service configuration.
-        
+
         If no config is provided, loads from agent's config or disk.
+        Also refreshes the cached config used by ``_run_analysis``.
         """
         if config is None and self.agent:
             config = self.agent.config
         if config is None:
             config = load_camera_config()
-        
+
+        self._cached_config = config
         self._apply_configuration_settings(config)
         if self.agent and hasattr(self.agent, "apply_config"):
             self.agent.apply_config(config)
+
+    # ------------------------------------------------------------------
+    # Core analysis
+    # ------------------------------------------------------------------
 
     def _run_analysis(
         self,
         frame: Any,
         task_type: TaskType,
-        custom_prompt: str,
+        custom_prompt: Optional[str],
         agentic: bool,
     ) -> Optional[DetectionEvent]:
-        """Run a single analysis pass (agentic or standard)."""
+        """Run a single analysis pass (agentic or standard).
+
+        ``custom_prompt`` semantics:
+        * ``None`` → use the built-in ``DEFAULT_MONITORING_DEFECT_PROMPT``.
+        * Non-empty string → use it as-is.
+        * Empty string ``""`` → treated as *None* (fall back to default).
+        """
         agent = self.agent
         if agent is None:
             raise RuntimeError("Agent not initialized")
 
-        effective_prompt = (
-            custom_prompt.strip()
-            if isinstance(custom_prompt, str) and custom_prompt.strip()
-            else DEFAULT_MONITORING_DEFECT_PROMPT
-        )
+        effective_prompt: str
+        if isinstance(custom_prompt, str) and custom_prompt.strip():
+            effective_prompt = custom_prompt.strip()
+        else:
+            effective_prompt = DEFAULT_MONITORING_DEFECT_PROMPT
 
         if agentic:
-            config = load_camera_config()
+            # Use cached config instead of re-reading from disk every call
+            config = self._cached_config or {}
             recipients = (
                 config.get("notifications", {})
                 .get("email", {})
@@ -699,48 +973,68 @@ class StreamlinedMonitoringService:
             custom_prompt=effective_prompt,
         )
 
+    # ------------------------------------------------------------------
+    # Stats
+    # ------------------------------------------------------------------
+
     def _serialize_stats(self) -> Dict[str, Any]:
         """Get a copy of current stats."""
         with self._stats_lock:
             payload = self.stats.copy()
+
+        # Sync frame counts from the proactive monitoring loop so the
+        # dashboard / chat stats widgets reflect actual activity.
+        with self._proactive_lock:
+            if self.proactive_agent and hasattr(self.proactive_agent, 'context'):
+                ctx = self.proactive_agent.context
+                # Use the larger of in-memory counter vs proactive loop counter
+                payload['total_frames'] = max(
+                    payload['total_frames'],
+                    getattr(ctx, 'frames_processed', 0),
+                )
+
         payload["proactive"] = self.get_proactive_snapshot()
         payload["monitoring_mode"] = self.get_active_monitoring_mode()
         payload["mode_decision_reason"] = self._last_mode_decision_reason
         return payload
 
-    def _monitoring_loop(self) -> None:
-        """Main monitoring loop."""
-        publisher = self.publisher or self._publisher_getter()
-        self.publisher = publisher
+    # ------------------------------------------------------------------
+    # Legacy reactive monitoring loop (retained for backward compat)
+    # ------------------------------------------------------------------
 
-        if not publisher:
+    def _monitoring_loop(self) -> None:
+        """Main monitoring loop (legacy reactive mode)."""
+        pub = self.publisher or self._publisher_getter()
+        self.publisher = pub
+
+        if not pub:
             logger.error("Monitoring loop has no publisher")
             self.is_monitoring = False
             return
-        
+
         try:
             while self.is_monitoring:
                 try:
-                    frame_obj = publisher.get_frame(self.subscriber_id, timeout=1.0)
+                    frame_obj = pub.get_frame(self.subscriber_id, timeout=1.0)
                     if not frame_obj:
                         continue
-                    
+
                     with self._stats_lock:
                         self.stats['total_frames'] += 1
-                    
+
                     # Check if enough time has passed
                     current_time = time.time()
                     if current_time - self.last_processed_time < self.capture_interval:
                         continue
-                    
+
                     self.last_processed_time = current_time
-                    
+
                     # Get current prompt config
                     with self._prompt_lock:
                         task_type = self._current_task_type
                         custom_prompt = self._custom_prompt
                         agentic = self._agentic_mode
-                    
+
                     # Run analysis
                     try:
                         event = self._run_analysis(
@@ -752,59 +1046,24 @@ class StreamlinedMonitoringService:
                     except Exception as e:
                         logger.error("Analysis error: %s", e)
                         continue
-                    
+
                     if event:
                         with self._stats_lock:
                             self.stats['processed_frames'] += 1
                             if event.detected:
                                 self.stats['detections'] += 1
-                        
+
                         self._record_detection(event, {
                             'frame_number': frame_obj.frame_number,
                             'reason': 'scheduled_analysis',
                         })
-                    
+
                 except Exception as e:
                     logger.error("Monitoring loop error: %s", e)
                     time.sleep(1.0)
-                    
+
         finally:
             try:
-                publisher.unsubscribe(self.subscriber_id)
+                pub.unsubscribe(self.subscriber_id)
             except Exception:
                 pass
-
-    def _record_detection(self, event: DetectionEvent, metadata: Dict[str, Any]) -> None:
-        """Record detection to database and emit websocket event."""
-        from app.database import DetectionLogRepository
-        from app import socketio
-        
-        try:
-            log_id = DetectionLogRepository.create(
-                timestamp=event.timestamp,
-                confidence=event.confidence,
-                response=event.full_response,
-                image_path=event.image_path or "",
-                frame_number=metadata.get("frame_number"),
-                reason=str(metadata.get("reason") or ""),
-                vision_description=getattr(event, "vision_description", ""),
-                decision_details=event.decision_trace,
-                tool_trace=getattr(event, "tool_trace", []),
-            )
-            
-            # Emit real-time event
-            if log_id:
-                log_entry = {
-                    "id": log_id,
-                    "timestamp": event.timestamp,
-                    "confidence": event.confidence,
-                    "response": event.full_response,
-                    "image_path": event.image_path or "",
-                    "frame_number": metadata.get("frame_number"),
-                    "detected": getattr(event, "detected", False),
-                    "agentic_mode": (event.decision_trace or {}).get("classification") == "AGENTIC_ANALYSIS",
-                }
-                socketio.emit("new_log", log_entry)
-                
-        except Exception as exc:
-            logger.error("Failed to record detection: %s", exc)

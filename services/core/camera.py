@@ -268,52 +268,14 @@ class CameraFeedPublisher:
                 time.sleep(0.1)
 
     def _build_overlay_frame(self, frame: Any) -> tuple[Any, Dict[str, Any]]:
-        """Render PCB presence overlay for UI without mutating raw analysis frame."""
+        """Compute PCB presence metadata without burning overlay into the frame.
+
+        The overlay is now rendered as HTML elements in the browser so the
+        live-preview image stays clean and unobstructed.
+        """
         try:
             result = self._presence_detector.process_frame(frame)
             detected = bool(result.pcb_present)
-            label = "DETECTED" if detected else "NOT DETECTED"
-            color = (0, 200, 0) if detected else (0, 0, 255)
-
-            overlay_frame = frame.copy()
-            cv2.rectangle(overlay_frame, (10, 10), (710, 120), (20, 20, 20), -1)
-            cv2.addWeighted(overlay_frame, 0.45, frame, 0.55, 0, overlay_frame)
-            cv2.putText(
-                overlay_frame,
-                f"PCB: {label}",
-                (24, 48),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1.0,
-                color,
-                3,
-                cv2.LINE_AA,
-            )
-            cv2.putText(
-                overlay_frame,
-                (
-                    f"raw={'YES' if result.pcb_present_raw else 'NO'}  "
-                    f"motion={result.motion_score:.2f}  edge={result.edge_density:.2f}"
-                ),
-                (24, 82),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.66,
-                (255, 255, 255),
-                2,
-                cv2.LINE_AA,
-            )
-            cv2.putText(
-                overlay_frame,
-                (
-                    f"area={result.candidate_area_ratio:.3f}  "
-                    f"extent={result.candidate_extent:.3f}"
-                ),
-                (24, 110),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.60,
-                (230, 230, 230),
-                2,
-                cv2.LINE_AA,
-            )
 
             metadata = {
                 "pcb_present": detected,
@@ -324,7 +286,7 @@ class CameraFeedPublisher:
                 "candidate_extent": float(result.candidate_extent),
                 "overlay_enabled": True,
             }
-            return overlay_frame, metadata
+            return frame, metadata
         except Exception as exc:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Overlay build failed; using raw frame: %s", exc)

@@ -129,6 +129,59 @@ def config_reset():
     )
 
 
+@api_bp.route("/config/inspection-prompt", methods=["GET", "PUT"])
+def inspection_prompt_config():
+    """Get or update the PCB defect inspection prompt.
+
+    GET  — returns the current inspection prompt (from config or default).
+    PUT  — persists a new inspection prompt to config.yaml.
+    """
+    if request.method == "GET":
+        try:
+            config = load_camera_config()
+        except Exception as exc:
+            return (
+                jsonify({"success": False, "error": f"Failed to load config: {exc}"}),
+                500,
+            )
+        detection = config.get("detection") or {}
+        custom = (detection.get("inspection_prompt") or "").strip()
+
+        from agents.tools.pcb import DEFAULT_PCB_DEFECT_INSPECTION_PROMPT
+
+        return jsonify({
+            "success": True,
+            "prompt": custom if custom else DEFAULT_PCB_DEFECT_INSPECTION_PROMPT,
+            "is_default": not bool(custom),
+        })
+
+    # PUT
+    payload = request.get_json(silent=True) or {}
+    new_prompt = payload.get("prompt", "")
+    if not isinstance(new_prompt, str):
+        return jsonify({"success": False, "error": "prompt must be a string"}), 400
+
+    try:
+        config = load_camera_config()
+    except Exception as exc:
+        return (
+            jsonify({"success": False, "error": f"Failed to load config: {exc}"}),
+            500,
+        )
+
+    detection = config.setdefault("detection", {})
+    detection["inspection_prompt"] = new_prompt.strip()
+    persisted = save_camera_config(config)
+
+    saved_prompt = (persisted.get("detection") or {}).get("inspection_prompt", "")
+    return jsonify({
+        "success": True,
+        "message": "Inspection prompt updated",
+        "prompt": saved_prompt,
+        "is_default": not bool(saved_prompt.strip()),
+    })
+
+
 @api_bp.route("/notifications/recipients", methods=["GET", "PUT"])
 def notification_recipients():
     """Manage notification email recipients."""

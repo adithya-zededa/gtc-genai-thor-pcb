@@ -19,6 +19,8 @@ import threading
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+import json as _json
+
 from flask import request
 from flask_socketio import emit, join_room, leave_room
 
@@ -1155,11 +1157,54 @@ def _deterministic_tool_summary(tool_name: str, output_message: str, output_data
             )
         return output_message or "No defects have been recorded yet."
     if tool_name == "get_defect_summary" and isinstance(output_data, dict):
+        sev = output_data.get("severity_breakdown", {})
         return (
             f"Defect summary ({output_data.get('time_window', 'all time')}): "
             f"{output_data.get('total', 0)} total — "
-            f"{output_data.get('high', 0)} high, {output_data.get('medium', 0)} medium, "
-            f"{output_data.get('low', 0)} low severity."
+            f"{sev.get('high', 0)} high, {sev.get('medium', 0)} medium, "
+            f"{sev.get('low', 0)} low severity."
+        )
+    if tool_name == "get_defect_trend" and isinstance(output_data, dict):
+        return (
+            f"Defect trend over the last {output_data.get('window_hours', '?')}h: "
+            f"{output_data.get('trend', 'unknown').upper()}. "
+            f"First half rate: {output_data.get('first_half_rate', '?')}/period, "
+            f"second half rate: {output_data.get('second_half_rate', '?')}/period. "
+            f"Total: {output_data.get('total_defects', 0)} defect(s)."
+        )
+    if tool_name == "get_top_defect_sources" and isinstance(output_data, dict):
+        sources = output_data.get("sources", [])
+        if sources:
+            parts = [f"{s.get('board_type', '?')}: {s.get('count', 0)}" for s in sources[:5]]
+            return f"Top defect sources ({output_data.get('time_window', 'all time')}): {'; '.join(parts)}."
+        return "No defect sources recorded yet."
+    if tool_name == "generate_summary_report" and isinstance(output_data, dict):
+        return (
+            f"{output_data.get('period', 'Summary').capitalize()} report: "
+            f"{output_data.get('total_defects', 0)} defect(s), "
+            f"trend: {(output_data.get('trend') or {}).get('trend', 'unknown')}."
+        )
+    if tool_name == "check_threshold_alerts" and isinstance(output_data, dict):
+        if output_data.get("threshold_exceeded"):
+            alerts = output_data.get("alerts", [])
+            msgs = [a.get("message", "") for a in alerts]
+            return "THRESHOLD EXCEEDED: " + "; ".join(msgs)
+        return (
+            f"All thresholds OK. {output_data.get('total_defects', 0)} defect(s) "
+            f"in the last {output_data.get('window_hours', '?')}h."
+        )
+    if tool_name == "get_defect_insights" and isinstance(output_data, dict):
+        recommendations = output_data.get("recommendations", [])
+        risk = output_data.get("risk_level", "unknown")
+        trend = output_data.get("trend_direction", "unknown")
+        rec_str = " ".join(recommendations[:3]) if recommendations else "No recommendations."
+        return f"Risk level: {risk.upper()}. Trend: {trend}. {rec_str}"
+    if tool_name == "get_monitoring_status" and isinstance(output_data, dict):
+        active = "active" if output_data.get("monitoring_active") else "inactive"
+        return (
+            f"Monitoring is {active}. "
+            f"{output_data.get('defects_last_24h', 0)} defect(s) in the last 24h, "
+            f"{output_data.get('total_defects', 0)} total."
         )
     if tool_name in ("inspect_pcb", "inspect_pcb_frame") and isinstance(output_data, dict):
         detected = bool(output_data.get("detected", False))
@@ -1231,7 +1276,7 @@ def _generate_tool_followup_response(
                     "content": (
                         f"I ran the `{tool_name}` tool. Here is the result:\n\n"
                         f"**Message:** {output_message}\n"
-                        f"**Data:** {str(output_data)[:3000]}"
+                        f"**Data:** {_json.dumps(output_data, default=str)[:3000]}"
                     ),
                 },
                 # 5. User asks for the summary — forces the model to synthesise from the result above

@@ -41,19 +41,97 @@ logger = get_logger(__name__)
 
 
 DEFAULT_PCB_DEFECT_INSPECTION_PROMPT = (
-    "Inspect this PCB image for manufacturing defects and output only JSON. "
-    "This is a FAIL-focused inspection: if evidence of a defect exists, detected must be true. "
-    "Mandatory connector checks (do these first): "
-    "(1) DC/power barrel jack presence and integrity. Verify the connector body exists where expected and is not bent/deformed. "
-    "Missing connector body, missing black plastic housing, or bent jack = DEFECT. "
-    "(2) UART/header cap presence on both expected sides. Missing cap on one side = DEFECT. "
-    "Do not assume parts are present from prior frames or typical board layout; use only visible evidence in this image. "
-    "If the power jack region is not clearly visible or cannot be positively confirmed intact, treat as defect_suspected and set detected=true. "
-    "Also check solder bridges, missing components, cold solder joints, trace damage, lifted pads, and connector misalignment. "
-    "Return JSON with keys: detected (bool), confidence (0-1), reasoning (string), should_alert (bool), details (object). "
-    "details must include: power_jack_status (present_intact|missing|damaged|uncertain), uart_cap_status (present_both_sides|missing_one_side|missing_both_sides|uncertain), defects (list of {type,severity,location,description}). "
-    "Set should_alert=true for medium/high severity defects."
+    "You are a professional PCB quality control inspector.\n\n"
+    "You will be given ONE image of an Arduino Uno R4 Minima PCB.\n"
+    "Your task is to determine whether the PCB is defective.\n\n"
+    "IMPORTANT:\n"
+    "- Output ONLY valid JSON.\n"
+    "- Do NOT include any extra text outside the JSON.\n"
+    "- Be strict: if a required connector is missing, partially visible, mechanically damaged, or clearly not populated, mark it as defective.\n"
+    "- If image quality prevents certainty, use \"uncertain\" and lower confidence.\n\n"
+    "Inspection Instructions:\n\n"
+    "Q1 – LEFT EDGE (Upper Area – Power Input Region):\n\n"
+    "You MUST visually confirm the presence of a tall black cylindrical barrel jack.\n\n"
+    "Do NOT assume it exists because this is an Arduino board.\n"
+    "Only mark \"present_intact\" if you clearly see:\n"
+    "- A black cylindrical body\n"
+    "- Significant vertical height relative to surrounding components\n"
+    "- A hollow circular opening at the end\n\n"
+    "If the barrel jack is not clearly visible as a tall cylindrical connector,\n"
+    "even if mounting holes are present,\n"
+    "then classify it as \"missing\".\n\n"
+    "If you are unsure due to image angle or blur, classify as \"uncertain\".\n\n"
+    "Never infer presence from typical board design.\n"
+    "Only report what is directly visible in the image.\n\n"
+    "Q2 – TOP EDGE (USB Connector):\n"
+    "Inspect the top edge of the PCB.\n"
+    "Check for a USB connector.\n\n"
+    "A correct USB connector should:\n"
+    "- Be metallic (silver)\n"
+    "- Rectangular\n"
+    "- Protrude from the board edge\n"
+    "- Have a visible port opening\n\n"
+    "Classify as:\n"
+    "- present_intact\n"
+    "- missing\n"
+    "- damaged\n"
+    "- uncertain\n\n"
+    "Q3 – Header Pins (Plastic Base Presence):\n"
+    "Inspect:\n"
+    "- LEFT EDGE header row (below power area)\n"
+    "- BOTTOM EDGE header row\n\n"
+    "Check whether both header strips have black plastic spacer bases.\n\n"
+    "Classify as:\n"
+    "- present_both_sides\n"
+    "- missing_one_side\n"
+    "- missing_both_sides\n"
+    "- damaged\n"
+    "- uncertain\n\n"
+    "Q4 – Additional Defects:\n"
+    "Inspect entire PCB for:\n"
+    "- Missing components\n"
+    "- Misaligned components\n"
+    "- Solder bridges\n"
+    "- Cold solder joints\n"
+    "- Burn marks\n"
+    "- Lifted pads\n"
+    "- Trace damage\n"
+    "- Mechanical cracks\n"
+    "- Bent connectors\n\n"
+    "List all observed issues.\n\n"
+    "Final Decision Rule:\n"
+    "Set \"detected\" to true if ANY of the following:\n"
+    "- A required connector is missing or damaged\n"
+    "- Header bases missing/damaged\n"
+    "- Any additional defect observed\n\n"
+    "Set \"should_alert\" equal to detected.\n\n"
+    "Return JSON: {detected: true/false, confidence: 0-1, "
+    "reasoning: your observations, should_alert: true/false, "
+    "details: {power_jack_status: present_intact|missing|damaged|uncertain, "
+    "usb_connector_status: present_intact|missing|damaged|uncertain, "
+    "header_pin_status: present_both_sides|missing_one_side|missing_both_sides|damaged|uncertain, "
+    "defects: [{type, severity, location, description}]}}"
 )
+
+
+def get_inspection_prompt() -> str:
+    """Return the active PCB defect inspection prompt.
+
+    Reads from ``config.yaml`` (``detection.inspection_prompt``).  If that
+    field is empty or missing, falls back to the hardcoded default above.
+    This allows users to customise the prompt from the Settings UI without
+    redeploying.
+    """
+    try:
+        from services.infrastructure.config import load_camera_config
+
+        cfg = load_camera_config()
+        custom = (cfg.get("detection") or {}).get("inspection_prompt", "") or ""
+        if isinstance(custom, str) and custom.strip():
+            return custom.strip()
+    except Exception:  # pylint: disable=broad-exception-caught
+        pass
+    return DEFAULT_PCB_DEFECT_INSPECTION_PROMPT
 
 
 # ---------------------------------------------------------------------------
@@ -75,8 +153,13 @@ def _auto_log_defect(
     via the explicit ``tool_log_defect`` tool.
 
     Also triggers email notifications if enabled in notification preferences.
+
+    Every individual defect discovered is logged as a separate record so
+    that counts, trends, and breakdowns reflect the actual number of
+    distinct issues — not just "one row per inspection".
     """
     if not detected:
+        logger.debug("_auto_log_defect: no defect detected, skipping")
         return  # Nothing to log for clean inspections
 
     import json as _json
@@ -91,7 +174,23 @@ def _auto_log_defect(
             analysis = {}
 
     board_type = analysis.get("board_type", "unknown")
+
+    # Also try to extract board type from nested details
+    details = analysis.get("details", {})
+    if board_type == "unknown" and isinstance(details, dict):
+        board_type = details.get("board_type", "unknown")
+
     defect_list = analysis.get("defects", [])
+    # Fallback: extract defects from details.defects if top-level is empty
+    if not defect_list and isinstance(details, dict):
+        defect_list = details.get("defects", [])
+
+    # Build a rich description from the VLM output rather than a generic string
+    rich_description = description or ""
+    if not rich_description and analysis.get("reasoning"):
+        rich_description = str(analysis["reasoning"])
+
+    # Determine overall severity and defect type
     defect_type = "general_defect"
     severity = "medium"
 
@@ -109,26 +208,76 @@ def _auto_log_defect(
                 severity = "high"
                 break
 
-    try:
-        from services.domains.pcb.service import record_defect
-        record_defect(
-            board_type=board_type,
-            defect_type=defect_type,
-            severity=severity,
-            confidence=confidence,
-            image_path=image_path,
-            description=description or "Auto-logged from VLM inspection",
-        )
-        logger.info("Auto-logged defect: type=%s severity=%s board=%s", defect_type, severity, board_type)
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        logger.warning("Auto-log defect failed (non-fatal): %s", exc)
+    # Also infer severity from component statuses in details
+    if isinstance(details, dict):
+        for status_key in ("power_jack_status", "usb_connector_status", "header_pin_status"):
+            status_val = details.get(status_key, "")
+            if status_val in ("missing", "damaged"):
+                severity = "high"
+                if defect_type == "general_defect":
+                    defect_type = f"{status_key.replace('_status', '')}_{status_val}"
+                break
+
+    logged_count = 0
+    from services.domains.pcb.service import record_defect
+
+    # Log each individual defect as a separate record
+    if defect_list and isinstance(defect_list, list) and len(defect_list) > 0:
+        for idx, defect_item in enumerate(defect_list):
+            if not isinstance(defect_item, dict):
+                continue
+            d_type = defect_item.get("type", defect_type)
+            d_sev = defect_item.get("severity", severity).lower()
+            if d_sev not in ("low", "medium", "high"):
+                d_sev = severity
+            d_loc = defect_item.get("location", "")
+            d_desc = defect_item.get("description", "")
+            combined_desc = f"{d_desc}" if d_desc else rich_description
+            if d_loc:
+                combined_desc = f"[{d_loc}] {combined_desc}"
+            try:
+                record_defect(
+                    board_type=board_type,
+                    defect_type=d_type,
+                    severity=d_sev,
+                    confidence=confidence,
+                    image_path=image_path,
+                    description=combined_desc or rich_description or "Auto-logged from VLM inspection",
+                )
+                logged_count += 1
+                logger.info(
+                    "Auto-logged defect %d/%d: type=%s severity=%s board=%s location=%s",
+                    idx + 1, len(defect_list), d_type, d_sev, board_type, d_loc,
+                )
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                logger.warning("Auto-log defect %d failed (non-fatal): %s", idx + 1, exc)
+    else:
+        # No structured defect list — log a single record with best-available data
+        try:
+            record_defect(
+                board_type=board_type,
+                defect_type=defect_type,
+                severity=severity,
+                confidence=confidence,
+                image_path=image_path,
+                description=rich_description or "Auto-logged from VLM inspection",
+            )
+            logged_count = 1
+            logger.info("Auto-logged defect: type=%s severity=%s board=%s", defect_type, severity, board_type)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.warning("Auto-log defect failed (non-fatal): %s", exc)
+
+    logger.info(
+        "Auto-log summary: %d defect(s) persisted for board=%s (confidence=%.2f, image=%s)",
+        logged_count, board_type, confidence, bool(image_path),
+    )
 
     # Trigger notification if preferences allow
     _auto_notify_defect(
         board_type=board_type,
         defect_type=defect_type,
         severity=severity,
-        description=description,
+        description=rich_description or description,
         confidence=confidence,
     )
 
@@ -208,16 +357,28 @@ def tool_inspect_pcb(
     try:
         event = service.analyze_single_frame(
             task_type=TaskType.CUSTOM,
-            custom_prompt=query or DEFAULT_PCB_DEFECT_INSPECTION_PROMPT,
+            custom_prompt=query or get_inspection_prompt(),
         )
     except Exception as exc:
+        logger.error("VLM PCB inspection failed: %s", exc)
         return _safe_error("VLM PCB inspection failed", exc=exc)
 
     if not event:
+        logger.warning("PCB inspection returned no event: %s", service.last_error)
         return {
             "success": False,
             "message": service.last_error or "PCB inspection failed — no frame available",
         }
+
+    # Resolve the saved image path so auto-logged defects can reference it
+    inspection_image_path = ""
+    if hasattr(event, "image_path") and event.image_path:
+        inspection_image_path = event.image_path
+
+    logger.info(
+        "PCB inspection result: detected=%s confidence=%.2f should_alert=%s image=%s",
+        event.detected, event.confidence, event.should_alert, bool(inspection_image_path),
+    )
 
     # Auto-log defect if detected (no LLM round-trip needed)
     _auto_log_defect(
@@ -225,6 +386,7 @@ def tool_inspect_pcb(
         full_response=event.full_response,
         description=event.vision_description or "",
         confidence=event.confidence,
+        image_path=inspection_image_path,
     )
 
     return {
@@ -237,6 +399,7 @@ def tool_inspect_pcb(
             "should_alert": event.should_alert,
             "full_response": event.full_response,
             "auto_logged": event.detected,  # Inform LLM defect was auto-logged
+            "image_path": inspection_image_path,
         },
     }
 
@@ -401,7 +564,7 @@ def tool_inspect_pcb_frame(
         event = service.agent.analyze_with_prompt(
             frame=frame_img,
             task_type=TaskType.CUSTOM,
-            custom_prompt=query or DEFAULT_PCB_DEFECT_INSPECTION_PROMPT,
+            custom_prompt=query or get_inspection_prompt(),
         )
     except Exception as exc:
         return _safe_error("VLM analysis of stored frame failed", exc=exc)
@@ -545,7 +708,7 @@ def tool_log_defect(
     from services.domains.pcb.service import record_defect
 
     try:
-        return record_defect(
+        result = record_defect(
             board_type=board_type,
             defect_type=defect_type,
             severity=severity,
@@ -553,22 +716,71 @@ def tool_log_defect(
             image_path=image_path,
             description=description,
         )
+        if result.get("success"):
+            logger.info(
+                "Defect logged: id=%s type=%s severity=%s board=%s confidence=%.2f",
+                result.get("defect_id"), defect_type, severity, board_type, confidence,
+            )
+        else:
+            logger.warning("Defect log returned failure: %s", result.get("error"))
+        return result
     except Exception as exc:
+        logger.error("Failed to log defect (type=%s, board=%s): %s", defect_type, board_type, exc)
         return _safe_error("Failed to log defect", exc=exc)
 
 
 def tool_generate_defect_report(
     board_type: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Generate a summary report of all logged PCB defects."""
+    """Generate a comprehensive summary report of all logged PCB defects.
+
+    Includes severity breakdown, type breakdown, trend analysis, and
+    recent defect list for complete reporting.
+    """
     logger.info("tool_generate_defect_report invoked (board_type=%s)", board_type)
 
     from services.domains.pcb.service import generate_defect_report
+    from services.domains.pcb.defect_store import (
+        count_defects,
+        get_defect_trend,
+        get_defect_type_breakdown,
+        get_defect_insights,
+    )
 
     try:
-        return generate_defect_report(board_type=board_type)
+        report = generate_defect_report(board_type=board_type)
     except Exception as exc:
+        logger.error("Failed to generate defect report: %s", exc)
         return _safe_error("Failed to generate defect report", exc=exc)
+
+    # Enrich with trend and insight data
+    try:
+        total_all = count_defects()
+        total_24h = count_defects(hours=24)
+        total_week = count_defects(hours=168)
+        trend = get_defect_trend(window_hours=168.0)
+        type_breakdown = get_defect_type_breakdown()
+        insights = get_defect_insights()
+
+        report["enriched"] = {
+            "total_all_time": total_all,
+            "total_last_24h": total_24h,
+            "total_last_week": total_week,
+            "trend": trend,
+            "type_breakdown": type_breakdown,
+            "risk_level": insights.get("risk_level", "unknown"),
+            "recommendations": insights.get("recommendations", []),
+        }
+        logger.info(
+            "Defect report generated: total=%d, 24h=%d, week=%d, trend=%s, risk=%s",
+            total_all, total_24h, total_week,
+            trend.get("trend", "unknown"),
+            insights.get("risk_level", "unknown"),
+        )
+    except Exception as exc:
+        logger.warning("Failed to enrich defect report with analytics: %s", exc)
+
+    return report
 
 
 # ---------------------------------------------------------------------------
@@ -661,10 +873,23 @@ def tool_query_pcb_inspections(
     pass_count = sum(1 for r in records if r.get("result") == "PASS")
     fail_count = sum(1 for r in records if r.get("result") == "FAIL")
 
+    # Collect defect types from failed inspections
+    fail_types: Dict[str, int] = {}
+    for r in records:
+        if r.get("result") == "FAIL" and r.get("defect_type"):
+            dt = r["defect_type"]
+            fail_types[dt] = fail_types.get(dt, 0) + 1
+
     summary = (
         f"Found {total} total inspection(s). "
         f"Showing {len(records)} most recent. "
         f"Pass: {pass_count}, Fail: {fail_count}."
+    )
+
+    logger.info(
+        "PCB inspections query: total=%d, showing=%d, pass=%d, fail=%d, "
+        "fail_types=%s, filter=%s",
+        total, len(records), pass_count, fail_count, fail_types, result_filter,
     )
 
     return {
@@ -676,6 +901,7 @@ def tool_query_pcb_inspections(
             "showing": len(records),
             "pass_count": pass_count,
             "fail_count": fail_count,
+            "fail_defect_types": fail_types,
         },
     }
 
@@ -688,11 +914,17 @@ def tool_get_monitoring_status() -> Dict[str, Any]:
     """Get current and historical monitoring status including defect counts.
 
     Returns agent state, session info, total defects, and recent activity.
+    Also includes trend direction and threshold status for quick overview.
     """
     logger.info("tool_get_monitoring_status invoked")
 
     from services.core.monitoring import get_monitoring_service
-    from services.domains.pcb.defect_store import count_defects, get_latest_defect
+    from services.domains.pcb.defect_store import (
+        count_defects,
+        get_latest_defect,
+        get_defect_trend,
+        check_threshold_alerts,
+    )
 
     service = get_monitoring_service()
     monitoring_active = False
@@ -706,6 +938,33 @@ def tool_get_monitoring_status() -> Dict[str, Any]:
     defects_1h = count_defects(hours=1)
     latest = get_latest_defect()
 
+    # Add trend and threshold status
+    trend_info = None
+    threshold_info = None
+    try:
+        trend = get_defect_trend(window_hours=168.0)
+        trend_info = {
+            "direction": trend.get("trend", "unknown"),
+            "total_in_window": trend.get("total_defects", 0),
+        }
+    except Exception:
+        pass
+
+    try:
+        threshold = check_threshold_alerts(window_hours=24.0)
+        threshold_info = {
+            "exceeded": threshold.get("threshold_exceeded", False),
+            "alerts": [a["message"] for a in threshold.get("alerts", [])],
+        }
+    except Exception:
+        pass
+
+    logger.info(
+        "Monitoring status: active=%s mode=%s total_defects=%d 24h=%d 1h=%d trend=%s",
+        monitoring_active, monitoring_mode, total_defects, defects_24h, defects_1h,
+        trend_info.get("direction") if trend_info else "N/A",
+    )
+
     return {
         "success": True,
         "message": f"Monitoring is {'active' if monitoring_active else 'inactive'}. "
@@ -717,6 +976,8 @@ def tool_get_monitoring_status() -> Dict[str, Any]:
             "defects_last_24h": defects_24h,
             "defects_last_1h": defects_1h,
             "latest_defect": latest,
+            "trend": trend_info,
+            "threshold_status": threshold_info,
         },
     }
 
@@ -805,6 +1066,8 @@ def tool_get_defect_summary(
     from services.domains.pcb.defect_store import (
         get_defects_in_range,
         _time_window,
+        count_defects,
+        get_defect_trend,
     )
 
     start_time = None
@@ -836,10 +1099,39 @@ def tool_get_defect_summary(
     ]
 
     # Severity counts
-    sev_counts = {}
+    sev_counts: Dict[str, int] = {}
     for d in defects:
         s = d.get("severity", "unknown")
         sev_counts[s] = sev_counts.get(s, 0) + 1
+
+    # Include trend data for context
+    trend_info = None
+    try:
+        trend_data = get_defect_trend(window_hours=hours or 168.0)
+        trend_info = {
+            "direction": trend_data.get("trend", "unknown"),
+            "first_half_rate": trend_data.get("first_half_rate", 0),
+            "second_half_rate": trend_data.get("second_half_rate", 0),
+        }
+    except Exception:
+        pass
+
+    # Compare to previous period for delta
+    delta_info = None
+    if hours:
+        try:
+            prev_count = count_defects(hours=hours * 2) - len(defects)
+            if prev_count > 0:
+                change_pct = round(((len(defects) - prev_count) / prev_count) * 100, 1)
+            else:
+                change_pct = 100.0 if len(defects) > 0 else 0.0
+            delta_info = {
+                "current_period": len(defects),
+                "previous_period": prev_count,
+                "change_percent": change_pct,
+            }
+        except Exception:
+            pass
 
     time_desc = f"last {hours}h" if hours else "all time"
     filters = []
@@ -849,6 +1141,11 @@ def tool_get_defect_summary(
         filters.append(f"severity={severity}")
     filter_str = f" ({', '.join(filters)})" if filters else ""
 
+    logger.info(
+        "Defect summary: %d defect(s) for %s%s, severities=%s, types=%d",
+        len(defects), time_desc, filter_str, sev_counts, len(type_counts),
+    )
+
     return {
         "success": True,
         "message": f"{len(defects)} defect(s) found for {time_desc}{filter_str}.",
@@ -857,6 +1154,8 @@ def tool_get_defect_summary(
             "time_window": time_desc,
             "severity_breakdown": sev_counts,
             "defect_types": type_breakdown,
+            "trend": trend_info,
+            "period_comparison": delta_info,
             "recent_defects": [d for d in defects[:10]],
         },
     }
@@ -882,6 +1181,12 @@ def tool_count_defective_pcbs(
     low = count_defects(hours=hours, severity="low")
 
     time_desc = f"last {hours}h" if hours else "all time"
+
+    logger.info(
+        "Defect count (%s): total=%d, high=%d, medium=%d, low=%d",
+        time_desc, total, high, medium, low,
+    )
+
     return {
         "success": True,
         "message": f"{total} defective PCB(s) detected ({time_desc}): "
@@ -904,11 +1209,21 @@ def tool_get_latest_defect() -> Dict[str, Any]:
 
     defect = get_latest_defect()
     if not defect:
+        logger.info("No defects recorded yet")
         return {
             "success": True,
             "message": "No defects have been recorded yet.",
             "data": None,
         }
+
+    logger.info(
+        "Latest defect: type=%s severity=%s board=%s confidence=%.2f timestamp=%s",
+        defect.get("defect_type", "unknown"),
+        defect.get("severity", "unknown"),
+        defect.get("board_type", "unknown"),
+        defect.get("confidence", 0.0),
+        defect.get("timestamp", "unknown"),
+    )
 
     return {
         "success": True,
@@ -934,6 +1249,7 @@ def tool_get_defect_type_breakdown(
 
     breakdown = get_defect_type_breakdown(hours=hours)
     if not breakdown:
+        logger.info("Defect type breakdown: no defects recorded")
         return {
             "success": True,
             "message": "No defects recorded yet.",
@@ -942,11 +1258,17 @@ def tool_get_defect_type_breakdown(
 
     time_desc = f"last {hours}h" if hours else "all time"
     summary_parts = [f"{t['defect_type']}: {t['count']} ({t['percentage']}%)" for t in breakdown[:5]]
+    total_types = len(breakdown)
+
+    logger.info(
+        "Defect type breakdown (%s): %d type(s), top=%s",
+        time_desc, total_types, summary_parts[:3],
+    )
 
     return {
         "success": True,
         "message": f"Defect type breakdown ({time_desc}): {'; '.join(summary_parts)}.",
-        "data": {"types": breakdown, "time_window": time_desc},
+        "data": {"types": breakdown, "time_window": time_desc, "total_types": total_types},
     }
 
 
@@ -966,6 +1288,14 @@ def tool_get_defect_trend(
 
     window = hours or 168.0
     trend = get_defect_trend(window_hours=window)
+
+    logger.info(
+        "Defect trend (%sh window): direction=%s, total=%d, "
+        "first_half_rate=%.2f, second_half_rate=%.2f, buckets=%d",
+        window, trend["trend"], trend["total_defects"],
+        trend["first_half_rate"], trend["second_half_rate"],
+        len(trend.get("buckets", [])),
+    )
 
     return {
         "success": True,
@@ -994,11 +1324,20 @@ def tool_get_most_severe_defect(
     defect = get_most_severe_defect(hours=hours)
     if not defect:
         time_desc = f"last {hours}h" if hours else "all time"
+        logger.info("No defects found (%s)", time_desc)
         return {
             "success": True,
             "message": f"No defects found ({time_desc}).",
             "data": None,
         }
+
+    logger.info(
+        "Most severe defect: type=%s severity=%s confidence=%.2f board=%s",
+        defect.get("defect_type", "unknown"),
+        defect.get("severity", "unknown"),
+        defect.get("confidence", 0.0),
+        defect.get("board_type", "unknown"),
+    )
 
     return {
         "success": True,
@@ -1025,6 +1364,7 @@ def tool_get_top_defect_sources(
 
     sources = get_top_defect_sources(hours=hours)
     if not sources:
+        logger.info("No defect sources recorded")
         return {
             "success": True,
             "message": "No defect sources recorded yet.",
@@ -1033,6 +1373,11 @@ def tool_get_top_defect_sources(
 
     time_desc = f"last {hours}h" if hours else "all time"
     summary_parts = [f"{s['board_type']}: {s['count']} defects" for s in sources[:5]]
+
+    logger.info(
+        "Top defect sources (%s): %d source(s), top=%s",
+        time_desc, len(sources), summary_parts[:3],
+    )
 
     return {
         "success": True,
@@ -1061,14 +1406,34 @@ def tool_generate_summary_report(
     try:
         report = generate_summary_report(period=period, board_type=board_type)
     except Exception as exc:
+        logger.error("Failed to generate summary report: %s", exc)
         return _safe_error("Failed to generate summary report", exc=exc)
 
     total = report.get("total_defects", 0)
     trend = report.get("trend", {}).get("trend", "unknown")
+    sev_breakdown = report.get("severity_breakdown", {})
+    threshold_exceeded = report.get("threshold_check", {}).get("threshold_exceeded", False)
+
+    logger.info(
+        "Summary report (%s): total=%d, trend=%s, severities=%s, "
+        "threshold_exceeded=%s, board_type=%s",
+        period, total, trend, sev_breakdown, threshold_exceeded, board_type,
+    )
+
+    # Build a richer message for the LLM
+    sev_parts = [f"{k}: {v}" for k, v in sev_breakdown.items() if v > 0]
+    sev_summary = ", ".join(sev_parts) if sev_parts else "none"
+
+    msg = (
+        f"{period.capitalize()} report: {total} defect(s), "
+        f"trend: {trend}, severity: [{sev_summary}]"
+    )
+    if threshold_exceeded:
+        msg += " ⚠️ THRESHOLD EXCEEDED"
 
     return {
         "success": True,
-        "message": f"{period.capitalize()} report: {total} defect(s), trend: {trend}.",
+        "message": msg,
         "data": report,
     }
 
@@ -1101,8 +1466,18 @@ def tool_check_threshold_alerts(
     if check["threshold_exceeded"]:
         alert_msgs = [a["message"] for a in check["alerts"]]
         msg = "THRESHOLD EXCEEDED: " + "; ".join(alert_msgs)
+        logger.warning(
+            "Threshold exceeded! total=%d, high=%d, window=%.1fh, alerts=%s",
+            check["total_defects"], check["high_severity_count"],
+            check["window_hours"], alert_msgs,
+        )
     else:
         msg = f"All thresholds OK. {check['total_defects']} defect(s) in the last {check['window_hours']}h."
+        logger.info(
+            "Threshold check OK: total=%d, high=%d, window=%.1fh",
+            check["total_defects"], check["high_severity_count"],
+            check["window_hours"],
+        )
 
     return {
         "success": True,
@@ -1128,16 +1503,27 @@ def tool_get_defect_insights(
     try:
         insights = get_defect_insights(hours=hours)
     except Exception as exc:
+        logger.error("Failed to generate defect insights: %s", exc)
         return _safe_error("Failed to generate defect insights", exc=exc)
 
     recommendations = insights.get("recommendations", [])
     risk = insights.get("risk_level", "unknown")
+    trend_direction = insights.get("trend_direction", "unknown")
+    total_analyzed = insights.get("total_defects_analyzed", 0)
+
+    logger.info(
+        "Defect insights: risk=%s, trend=%s, total_analyzed=%d, "
+        "recommendations=%d, threshold_exceeded=%s",
+        risk, trend_direction, total_analyzed,
+        len(recommendations), insights.get("threshold_exceeded", False),
+    )
 
     return {
         "success": True,
         "message": f"Risk level: {risk.upper()}. "
                    f"{len(recommendations)} recommendation(s). "
-                   f"Trend: {insights.get('trend_direction', 'unknown')}.",
+                   f"Trend: {trend_direction}. "
+                   f"Total analyzed: {total_analyzed}.",
         "data": insights,
     }
 
@@ -1151,6 +1537,11 @@ def tool_get_notification_preferences() -> Dict[str, Any]:
     prefs = get_notification_preferences()
     status = "enabled" if prefs.email_enabled else "disabled"
 
+    logger.info(
+        "Notification preferences: %s, min_severity=%s, recipients=%d",
+        status, prefs.min_severity, len(prefs.email_recipients),
+    )
+
     return {
         "success": True,
         "message": f"Email notifications: {status}, "
@@ -1158,3 +1549,121 @@ def tool_get_notification_preferences() -> Dict[str, Any]:
                    f"recipients: {len(prefs.email_recipients)}.",
         "data": prefs.to_dict(),
     }
+
+
+# ---------------------------------------------------------------------------
+# Unified detection & defect log query tool
+# ---------------------------------------------------------------------------
+
+def tool_query_detection_logs(
+    limit: int = 20,
+    hours: Optional[float] = None,
+    detected_only: bool = False,
+    include_defects: bool = True,
+) -> Dict[str, Any]:
+    """Query detection logs enriched with defect information.
+
+    Returns a unified view of detection events from ``detection_logs``
+    combined with defect-specific data from ``pcb_defects``, giving a
+    complete picture of what was inspected and what defects were found.
+
+    Parameters
+    ----------
+    limit : int
+        Maximum number of records to return (default 20).
+    hours : float, optional
+        Time window in hours. Omit for all records.
+    detected_only : bool
+        Only return detections with confidence > 0.
+    include_defects : bool
+        If True (default), also return recent defect records.
+    """
+    logger.info(
+        "tool_query_detection_logs invoked (limit=%d, hours=%s, "
+        "detected_only=%s, include_defects=%s)",
+        limit, hours, detected_only, include_defects,
+    )
+
+    from app.database import DetectionLogRepository
+
+    try:
+        limit = max(1, min(100, int(limit)))
+    except (TypeError, ValueError):
+        return {"success": False, "message": "limit must be an integer"}
+
+    try:
+        logs, total_logs = DetectionLogRepository.get_paginated(
+            page=1,
+            per_page=limit,
+            detected_only=detected_only,
+        )
+    except Exception as exc:
+        logger.error("Failed to query detection logs: %s", exc)
+        return _safe_error("Failed to query detection logs", exc=exc)
+
+    log_entries = [log.to_dict() for log in logs]
+
+    # Filter by time window if requested
+    if hours is not None and hours > 0:
+        from services.domains.pcb.defect_store import _time_window
+        cutoff, _ = _time_window(hours)
+        log_entries = [
+            e for e in log_entries
+            if e.get("timestamp", "") >= cutoff
+        ]
+
+    result: Dict[str, Any] = {
+        "success": True,
+        "message": f"Retrieved {len(log_entries)} detection log(s) (total: {total_logs}).",
+        "data": {
+            "detection_logs": log_entries,
+            "total_detection_logs": total_logs,
+            "showing": len(log_entries),
+        },
+    }
+
+    if include_defects:
+        try:
+            from services.domains.pcb.defect_store import (
+                get_defects_in_range,
+                count_defects,
+                get_latest_defect,
+                get_defect_type_breakdown,
+                _time_window,
+            )
+
+            start_time = None
+            if hours is not None and hours > 0:
+                start_time, _ = _time_window(hours)
+
+            recent_defects = get_defects_in_range(
+                start_time=start_time,
+                limit=limit,
+            )
+            total_defects = count_defects(hours=hours)
+            latest_defect = get_latest_defect()
+            type_breakdown = get_defect_type_breakdown(hours=hours)
+
+            # Severity breakdown from recent defects
+            sev_counts: Dict[str, int] = {}
+            for d in recent_defects:
+                s = d.get("severity", "unknown")
+                sev_counts[s] = sev_counts.get(s, 0) + 1
+
+            result["data"]["defects"] = {
+                "recent_defects": recent_defects,
+                "total_defects": total_defects,
+                "latest_defect": latest_defect,
+                "severity_breakdown": sev_counts,
+                "type_breakdown": type_breakdown,
+            }
+
+            logger.info(
+                "Detection logs enriched: %d logs, %d defects, severities=%s",
+                len(log_entries), total_defects, sev_counts,
+            )
+        except Exception as exc:
+            logger.warning("Failed to enrich detection logs with defect data: %s", exc)
+            result["data"]["defects"] = {"error": str(exc)}
+
+    return result

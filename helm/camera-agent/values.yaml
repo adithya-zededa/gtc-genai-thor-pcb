@@ -5,7 +5,7 @@ replicaCount: 1
 image:
   repository: adithyazededa/gtc-genai-thor-pcb
   pullPolicy: Always
-  tag: "v23"
+  tag: "v37"
 
 imagePullSecrets: []
 nameOverride: ""
@@ -76,7 +76,7 @@ speaker:
   # To find your USB speaker: run 'aplay -l' or 'cat /proc/asound/cards'
   device: "hw:2,0"
   # Speaker volume level (0-100, where 100 is maximum volume)
-  # Set to an appropriate level to ensure audio is audible during invoice playback
+  # Set to an appropriate level to ensure audio is audible
   volume: 85
 
 # Environment variables

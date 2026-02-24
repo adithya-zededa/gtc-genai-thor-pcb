@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import threading
 import time
+import re
 from typing import Any, Dict, FrozenSet, List, Optional
 
 from agents.mcp.audit import AuditEventType, AuditLogEntry
@@ -324,6 +325,21 @@ TOOL_GET_NOTIFICATION_PREFERENCES = MCPToolDefinition(
     allowed_in_states=tuple(AgentState),
 )
 
+TOOL_QUERY_DETECTION_LOGS = MCPToolDefinition(
+    name="query_detection_logs",
+    description="Query detection logs enriched with defect information. Provides a unified view of detection events and defect records. Use when user asks to see logs, detection history, or what was inspected.",
+    category="pcb_reporting",
+    input_schema=[
+        MCPParameterSchema(name="limit", type=MCPSchemaType.INTEGER, description="Max records to return (default 20)", required=False, default=20, min_value=1, max_value=100),
+        MCPParameterSchema(name="hours", type=MCPSchemaType.NUMBER, description="Time window in hours", required=False),
+        MCPParameterSchema(name="detected_only", type=MCPSchemaType.BOOLEAN, description="Only return detections with confidence > 0", required=False, default=False),
+        MCPParameterSchema(name="include_defects", type=MCPSchemaType.BOOLEAN, description="Include defect records alongside detection logs", required=False, default=True),
+    ],
+    output_schema=standard_output_schema(),
+    requires_confirmation=False,
+    allowed_in_states=_ANALYTICS_STATES,
+)
+
 
 # ── Registry ──────────────────────────────────────────────────────────────
 
@@ -357,6 +373,7 @@ class PCBToolRegistry(MCPToolRegistry):
             TOOL_CHECK_THRESHOLD_ALERTS,
             TOOL_GET_DEFECT_INSIGHTS,
             TOOL_GET_NOTIFICATION_PREFERENCES,
+            TOOL_QUERY_DETECTION_LOGS,
         ]:
             self.register(tool)
 
@@ -388,7 +405,59 @@ _TOOL_PARAM_ALLOWLIST: Dict[str, FrozenSet[str]] = {
     "check_threshold_alerts": frozenset(["rate_threshold", "window_hours"]),
     "get_defect_insights": frozenset(["hours"]),
     "get_notification_preferences": frozenset(),
+    "query_detection_logs": frozenset(["limit", "hours", "detected_only", "include_defects"]),
 }
+
+_HOURS_AWARE_TOOLS: FrozenSet[str] = frozenset({
+    "get_defect_summary",
+    "count_defective_pcbs",
+    "get_defect_type_breakdown",
+    "get_defect_trend",
+    "get_most_severe_defect",
+    "get_top_defect_sources",
+    "get_defect_insights",
+    "query_detection_logs",
+})
+
+
+def _infer_hours_from_message(user_message: str) -> Optional[float]:
+    """Infer a time window in hours from natural-language temporal phrases.
+
+    This is a deterministic fallback used when the LLM classifier does not
+    provide ``hours`` for analytics tools that support time windows.
+    """
+    if not user_message:
+        return None
+
+    text = user_message.strip().lower()
+    if not text:
+        return None
+
+    # Common natural-language shorthands.
+    if "today" in text:
+        return 24.0
+    if "last hour" in text or "past hour" in text:
+        return 1.0
+    if "last day" in text or "past day" in text or "daily" in text:
+        return 24.0
+    if "last week" in text or "past week" in text or "weekly" in text:
+        return 168.0
+
+    # Numeric windows: "last 6 hours", "past 2 days", etc.
+    match = re.search(r"(?:last|past)\s+(\d+(?:\.\d+)?)\s*(hour|hours|hr|hrs|day|days|week|weeks)", text)
+    if not match:
+        return None
+
+    quantity = float(match.group(1))
+    unit = match.group(2)
+
+    if unit in ("hour", "hours", "hr", "hrs"):
+        return quantity
+    if unit in ("day", "days"):
+        return quantity * 24.0
+    if unit in ("week", "weeks"):
+        return quantity * 168.0
+    return None
 
 
 # ── Interpreter ───────────────────────────────────────────────────────────
@@ -446,6 +515,24 @@ class PCBInterpreter:
         for key, value in result.params.items():
             if key in allowed and value is not None:
                 arguments[key] = value
+
+        if result.tool in _HOURS_AWARE_TOOLS:
+            raw_hours = arguments.get("hours")
+            parsed_hours: Optional[float] = None
+            if raw_hours is not None:
+                try:
+                    parsed_hours = float(raw_hours)
+                except (TypeError, ValueError):
+                    parsed_hours = None
+
+            if parsed_hours is not None and parsed_hours > 0:
+                arguments["hours"] = parsed_hours
+            else:
+                inferred_hours = _infer_hours_from_message(user_message)
+                if inferred_hours is not None and inferred_hours > 0:
+                    arguments["hours"] = inferred_hours
+                else:
+                    arguments.pop("hours", None)
 
         if result.tool == "inspect_pcb" and "query" not in arguments:
             arguments["query"] = user_message
@@ -523,6 +610,7 @@ class PCBExecutor(BaseDomainExecutor):
             tool_check_threshold_alerts,
             tool_get_defect_insights,
             tool_get_notification_preferences,
+            tool_query_detection_logs,
         )
 
         handlers = {
@@ -550,6 +638,7 @@ class PCBExecutor(BaseDomainExecutor):
             "check_threshold_alerts": tool_check_threshold_alerts,
             "get_defect_insights": tool_get_defect_insights,
             "get_notification_preferences": tool_get_notification_preferences,
+            "query_detection_logs": tool_query_detection_logs,
         }
 
         handler = handlers.get(tool_name)

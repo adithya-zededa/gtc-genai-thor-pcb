@@ -62,9 +62,18 @@ def record_defect(
             image_path=image_path,
             description=description,
         )
+        logger.info(
+            "Defect recorded: id=%d board=%s type=%s severity=%s "
+            "confidence=%.2f image=%s desc=%s",
+            defect_id, board_type, defect_type, severity,
+            confidence, bool(image_path), description[:80] if description else "",
+        )
         return {"success": True, "defect_id": defect_id}
     except Exception as e:
-        logger.error("Failed to record defect: %s", e)
+        logger.error(
+            "Failed to record defect (board=%s type=%s): %s",
+            board_type, defect_type, e,
+        )
         return {"success": False, "error": str(e)}
 
 

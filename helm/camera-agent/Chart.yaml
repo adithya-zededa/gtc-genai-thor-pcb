@@ -3,10 +3,9 @@ annotations:
   license: Apache-2.0
 apiVersion: v2
 appVersion: 2.11.0
-description: ZEDEDA Camera Monitoring Agent - AI-powered camera monitoring with agentic
-  VLM capabilities using vLLM backend on Jetson Thor. Now with proactive, LLM-driven
-  monitoring that eliminates hardcoded rules.
-home: https://github.com/zededa/camera-agent
+description: ZEDEDA's Reference Agentic Application - AI-powered camera monitoring with agentic
+  VLM capabilities using vLLM backend on Jetson Thor. This application demonstrates an application for the Industrial Edge, showcasing how to leverage AI and vision capabilities for proactive monitoring and insights. It includes features like camera access, PCB defect detection, and integration with vLLM for advanced vision processing.
+home: https://github.com/zededa/zededa-reference-agent-pcb-thor-vllm
 keywords:
 - camera
 - monitoring
@@ -19,12 +18,11 @@ keywords:
 - edge-ai
 - thor
 - agentic
-- proactive
 maintainers:
 - email: adithya@zededa.com
   name: Adithya
-name: camera-agent-thor-vllm
+name: zededa-reference-agent-pcb-thor-vllm
 sources:
-- https://github.com/zededa/camera-agent
+- https://github.com/zededa/zededa-reference-agent-pcb-thor-vllm
 type: application
 version: 2.15.0

@@ -102,7 +102,13 @@ def get_defects_in_range(
     with get_db_connection() as conn:
         rows = conn.execute(query, params).fetchall()
 
-    return [dict(row) for row in rows]
+    result = [dict(row) for row in rows]
+    logger.debug(
+        "get_defects_in_range: %d row(s) returned (start=%s, end=%s, "
+        "severity=%s, defect_type=%s, board_type=%s, limit=%d)",
+        len(result), start_time, end_time, severity, defect_type, board_type, limit,
+    )
+    return result
 
 
 def count_defects(
@@ -128,7 +134,12 @@ def count_defects(
     with get_db_connection() as conn:
         row = conn.execute(f"SELECT COUNT(*) FROM pcb_defects{where}", params).fetchone()
 
-    return int(row[0]) if row else 0
+    count = int(row[0]) if row else 0
+    logger.debug(
+        "count_defects: %d (hours=%s, severity=%s)",
+        count, hours, severity,
+    )
+    return count
 
 
 def get_latest_defect() -> Optional[Dict[str, Any]]:
@@ -299,6 +310,12 @@ def get_defect_trend(
     else:
         trend = "stable"
 
+    logger.info(
+        "Defect trend analysis: %s over %.0fh (total=%d, "
+        "first_half_rate=%.2f, second_half_rate=%.2f)",
+        trend, window_hours, total, first_rate, second_rate,
+    )
+
     return {
         "trend": trend,
         "buckets": buckets,
@@ -396,6 +413,17 @@ def check_threshold_alerts(
             "value": high_count,
             "threshold": high_severity_threshold,
         })
+
+    if alerts:
+        logger.warning(
+            "Threshold alerts triggered: %d alert(s) — total=%d, high=%d, window=%.1fh",
+            len(alerts), total, high_count, window_hours,
+        )
+    else:
+        logger.debug(
+            "Threshold check OK: total=%d, high=%d, window=%.1fh",
+            total, high_count, window_hours,
+        )
 
     return {
         "threshold_exceeded": len(alerts) > 0,
@@ -526,6 +554,13 @@ def get_defect_insights(
 
     if not recommendations:
         recommendations.append("No significant defect patterns detected. System operating normally.")
+
+    logger.info(
+        "Defect insights: risk=%s, trend=%s, total=%d, "
+        "recommendations=%d, threshold_exceeded=%s",
+        risk_level, trend["trend"], total,
+        len(recommendations), threshold["threshold_exceeded"],
+    )
 
     return {
         "success": True,

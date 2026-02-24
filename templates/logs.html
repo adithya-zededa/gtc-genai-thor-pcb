@@ -272,13 +272,13 @@
 
     function renderDecisionDetails(details = {}) {
         if (!details || Object.keys(details).length === 0) {
-            return '<span class="text-gray-500">No decision details recorded.</span>';
+            return '<span class="text-tertiary">No decision details recorded.</span>';
         }
 
         const segments = [];
 
         if (details.classification) {
-            segments.push(`<p><span class="font-semibold text-gray-700">Classification:</span> ${escapeHtml(details.classification)}</p>`);
+            segments.push(`<p><span class="font-semibold text-secondary">Classification:</span> <span class="text-primary">${escapeHtml(details.classification)}</span></p>`);
         }
 
         if (typeof details.confidence !== 'undefined') {
@@ -291,7 +291,7 @@
                     confidenceDisplay = `${numericConfidence}`;
                 }
             }
-            segments.push(`<p><span class="font-semibold text-gray-700">Confidence:</span> ${confidenceDisplay}</p>`);
+            segments.push(`<p><span class="font-semibold text-secondary">Confidence:</span> <span class="text-primary">${confidenceDisplay}</span></p>`);
         }
 
         if (typeof details.pcb_stable !== 'undefined') {
@@ -303,11 +303,11 @@
             } else if (typeof details.pcb_stable === 'string') {
                 stabilityDisplay = escapeHtml(details.pcb_stable);
             }
-            segments.push(`<p><span class="font-semibold text-gray-700">PCB Stability:</span> ${stabilityDisplay}</p>`);
+            segments.push(`<p><span class="font-semibold text-secondary">PCB Stability:</span> <span class="text-primary">${stabilityDisplay}</span></p>`);
         }
 
         if (details.pcb_description) {
-            segments.push(`<p><span class="font-semibold text-gray-700">PCB Details:</span> ${escapeHtml(details.pcb_description)}</p>`);
+            segments.push(`<p><span class="font-semibold text-secondary">PCB Details:</span> <span class="text-primary">${escapeHtml(details.pcb_description)}</span></p>`);
         }
 
         if (details.pcb_stability_analysis) {
@@ -317,7 +317,7 @@
                 ? `${(Math.max(0, Math.min(1, analysis.presence_confidence)) * 100).toFixed(0)}%`
                 : 'n/a';
             const candidates = typeof analysis.candidate_count === 'number' ? analysis.candidate_count : 'n/a';
-            segments.push(`<p><span class="font-semibold text-gray-700">Local Stability Analysis:</span> ${escapeHtml(summaryText)} (confidence ${confidence}, candidates ${candidates})</p>`);
+            segments.push(`<p><span class="font-semibold text-secondary">Local Stability Analysis:</span> <span class="text-primary">${escapeHtml(summaryText)} (confidence ${confidence}, candidates ${candidates})</span></p>`);
         }
 
         if (details.pcb_analysis) {
@@ -327,18 +327,18 @@
                 ? `${(Math.max(0, Math.min(1, pcb.confidence)) * 100).toFixed(0)}%`
                 : 'n/a';
             const candidates = typeof pcb.candidate_count === 'number' ? pcb.candidate_count : 'n/a';
-            segments.push(`<p><span class="font-semibold text-gray-700">Classical PCB Analysis:</span> ${escapeHtml(summaryText)} (confidence ${confidence}, candidates ${candidates})</p>`);
+            segments.push(`<p><span class="font-semibold text-secondary">Classical PCB Analysis:</span> <span class="text-primary">${escapeHtml(summaryText)} (confidence ${confidence}, candidates ${candidates})</span></p>`);
         }
 
         if (Array.isArray(details.tools_used) && details.tools_used.length) {
-            segments.push(`<p><span class="font-semibold text-gray-700">Tools Used:</span> ${escapeHtml(details.tools_used.join(', '))}</p>`);
+            segments.push(`<p><span class="font-semibold text-secondary">Tools Used:</span> <span class="text-primary">${escapeHtml(details.tools_used.join(', '))}</span></p>`);
         }
 
         if (Array.isArray(details.tool_trace) && details.tool_trace.length) {
             segments.push(`
-                <details class="rounded-md border border-gray-200 bg-white">
-                    <summary class="cursor-pointer px-3 py-2 text-sm font-medium text-blue-600">Tool Trace</summary>
-                    <pre class="px-3 py-2 text-xs text-gray-800 whitespace-pre-wrap break-words overflow-auto">${escapeHtml(JSON.stringify(details.tool_trace, null, 2))}</pre>
+                <details class="rounded-md glass-ultra-thin" style="border: 1px solid var(--border-separator);">
+                    <summary class="cursor-pointer px-3 py-2 text-sm font-medium" style="color: var(--system-blue);">Tool Trace</summary>
+                    <pre class="px-3 py-2 text-xs text-primary whitespace-pre-wrap break-words overflow-auto">${escapeHtml(JSON.stringify(details.tool_trace, null, 2))}</pre>
                 </details>
             `);
         }
@@ -346,36 +346,36 @@
         if (details.reasoning) {
             segments.push(`
                 <div>
-                    <p class="font-semibold text-gray-700 mb-1">Reasoning</p>
-                    <div class="whitespace-pre-line break-words bg-white rounded-md border border-gray-200 p-3">${formatMultiline(details.reasoning)}</div>
+                    <p class="font-semibold text-secondary mb-1">Reasoning</p>
+                    <div class="whitespace-pre-line break-words rounded-md p-3 text-primary" style="background: var(--bg-solid); border: 1px solid var(--border-separator);">${formatMultiline(details.reasoning)}</div>
                 </div>
             `);
         }
 
         if (details.tool_arguments) {
             segments.push(`
-                <details class="rounded-md border border-gray-200 bg-white">
-                    <summary class="cursor-pointer px-3 py-2 text-sm font-medium text-blue-600">Tool Arguments</summary>
-                    <pre class="px-3 py-2 text-xs text-gray-800 whitespace-pre-wrap break-words overflow-auto">${escapeHtml(JSON.stringify(details.tool_arguments, null, 2))}</pre>
+                <details class="rounded-md glass-ultra-thin" style="border: 1px solid var(--border-separator);">
+                    <summary class="cursor-pointer px-3 py-2 text-sm font-medium" style="color: var(--system-blue);">Tool Arguments</summary>
+                    <pre class="px-3 py-2 text-xs text-primary whitespace-pre-wrap break-words overflow-auto">${escapeHtml(JSON.stringify(details.tool_arguments, null, 2))}</pre>
                 </details>
             `);
         }
 
         if (details.tool_response) {
             segments.push(`
-                <details class="rounded-md border border-gray-200 bg-white">
-                    <summary class="cursor-pointer px-3 py-2 text-sm font-medium text-blue-600">Raw Tool Response</summary>
-                    <pre class="px-3 py-2 text-xs text-gray-800 whitespace-pre-wrap break-words overflow-auto">${escapeHtml(JSON.stringify(details.tool_response, null, 2))}</pre>
+                <details class="rounded-md glass-ultra-thin" style="border: 1px solid var(--border-separator);">
+                    <summary class="cursor-pointer px-3 py-2 text-sm font-medium" style="color: var(--system-blue);">Raw Tool Response</summary>
+                    <pre class="px-3 py-2 text-xs text-primary whitespace-pre-wrap break-words overflow-auto">${escapeHtml(JSON.stringify(details.tool_response, null, 2))}</pre>
                 </details>
             `);
         }
 
         if (details.error) {
-            segments.push(`<p class="text-red-600 text-sm">Error: ${escapeHtml(details.error)}</p>`);
+            segments.push(`<p class="text-sm" style="color: var(--system-red);">Error: ${escapeHtml(details.error)}</p>`);
         }
 
         if (details.tool_error) {
-            segments.push(`<p class="text-amber-600 text-sm">Tool Warning: ${escapeHtml(details.tool_error)}</p>`);
+            segments.push(`<p class="text-sm" style="color: var(--system-orange);">Tool Warning: ${escapeHtml(details.tool_error)}</p>`);
         }
 
         return segments.join('');
@@ -386,13 +386,13 @@
         const preview = formatPreview(responseSource);
         const visionHtml = formatMultiline(log.vision_description || log.response || '');
         const decisionHtml = renderDecisionDetails(log.decision_details || {});
-        const visionBlock = visionHtml ? visionHtml : '<span class="text-gray-500">No description recorded.</span>';
+        const visionBlock = visionHtml ? visionHtml : '<span class="text-tertiary">No description recorded.</span>';
         
         // Check if this is an agentic mode log
         const isAgentic = log.agentic_mode || 
                           (log.decision_details && log.decision_details.classification === 'AGENTIC_ANALYSIS');
         const agenticBadge = isAgentic ? 
-            '<span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800"><i class="fas fa-robot mr-1"></i>Agentic</span>' : '';
+            '<span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium" style="background: var(--system-purple-glass); color: var(--system-purple);"><i class="fas fa-robot mr-1"></i>Agentic</span>' : '';
         
         // Build tool trace section if available
         let toolTraceHtml = '';
@@ -402,30 +402,30 @@
                 const success = t.success ? '✅' : '❌';
                 return `<div class="flex items-center gap-2 py-1.5 px-2 rounded" style="background: ${t.success ? 'rgba(52, 199, 89, 0.1)' : 'rgba(255, 59, 48, 0.1)'};">
                     <span>${success}</span>
-                    <span class="font-medium text-gray-700">${escapeHtml(t.tool)}</span>
-                    ${t.arguments && t.arguments.email ? `<span class="text-gray-500 text-xs">→ ${escapeHtml(t.arguments.email)}</span>` : ''}
+                    <span class="font-medium text-primary">${escapeHtml(t.tool)}</span>
+                    ${t.arguments && t.arguments.email ? `<span class="text-tertiary text-xs">→ ${escapeHtml(t.arguments.email)}</span>` : ''}
                 </div>`;
             }).join('');
             
             toolTraceHtml = `
                 <div class="mt-3">
-                    <p class="font-semibold text-purple-700 mb-2"><i class="fas fa-tools mr-1"></i>Tool Calls</p>
+                    <p class="font-semibold mb-2" style="color: var(--system-purple);"><i class="fas fa-tools mr-1"></i>Tool Calls</p>
                     <div class="space-y-1">${toolItems}</div>
                 </div>
             `;
         }
 
         return `
-            <details class="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                <summary class="cursor-pointer text-blue-600 font-semibold">${preview}${agenticBadge}</summary>
-                <div class="mt-3 space-y-4 text-sm text-gray-800">
+            <details class="rounded-lg p-3" style="border: 1px solid var(--border-separator); background: var(--bg-solid);">
+                <summary class="cursor-pointer font-semibold" style="color: var(--system-blue);">${preview}${agenticBadge}</summary>
+                <div class="mt-3 space-y-4 text-sm text-primary">
                     <div>
-                        <p class="font-semibold text-gray-700 mb-1">Vision LLM</p>
-                        <div class="whitespace-pre-line break-words bg-white rounded-md border border-gray-200 p-3">${visionBlock}</div>
+                        <p class="font-semibold text-secondary mb-1">Vision LLM</p>
+                        <div class="whitespace-pre-line break-words rounded-md p-3" style="background: var(--bg-solid); border: 1px solid var(--border-separator);">${visionBlock}</div>
                     </div>
                     ${toolTraceHtml}
                     <div>
-                        <p class="font-semibold text-gray-700 mb-1">Decision Details</p>
+                        <p class="font-semibold text-secondary mb-1">Decision Details</p>
                         <div class="space-y-2">${decisionHtml}</div>
                     </div>
                 </div>

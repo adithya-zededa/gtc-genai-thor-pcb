@@ -328,9 +328,9 @@ class MonitoringLoop:
                         # Wait for camera to auto-focus after board stops,
                         # then grab a fresh, sharp frame for inspection.
                         logger.info(
-                            "Board stopped — waiting 3 s for camera focus before inspection"
+                            "Board stopped — waiting 4 s for camera focus before inspection"
                         )
-                        self._stop_event.wait(timeout=3.0)
+                        self._stop_event.wait(timeout=4.0)
                         if self._stop_event.is_set():
                             break
                         # Acquire a fresh frame after the settle delay

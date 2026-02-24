@@ -163,8 +163,8 @@ Defined in `agents/mcp/state_machine.py`. Transitions are thread-safe (RLock) an
 
 | Domain | Interpreter | Executor | Tools |
 |--------|-------------|----------|-------|
-| **general** | `MCPInterpreter` | `MCPExecutor` | Session control, frame analysis, alerts, history |
-| **pcb** | `PCBInterpreter` | `PCBExecutor` | PCB inspection, defect monitoring, reporting |
+| **general** | `MCPInterpreter` | `MCPExecutor` | Session/state control, frame analysis, alerts, evidence, history |
+| **pcb** | `PCBInterpreter` | `PCBExecutor` | PCB inspection, frame-store workflow, defect analytics, reporting, notification preferences |
 
 ### Domain Routing
 
@@ -202,6 +202,19 @@ Defined in `agents/mcp/lifecycle.py`. Every transition is timestamped and audit-
 | `start_defect_monitoring` | No | Deprecated — monitoring loop + LLM handle this |
 | `stop_defect_monitoring` | No | Deprecated — see above |
 | `query_pcb_inspections` | No | Query past inspection history (PASS/FAIL) |
+| `get_monitoring_status` | No | Monitoring status + recent activity summary |
+| `toggle_email_notifications` | No | Enable/disable notifications and set thresholds/recipients |
+| `get_defect_summary` | No | Defects in a time range (optional filters) |
+| `count_defective_pcbs` | No | Count defective boards over a time window |
+| `get_latest_defect` | No | Most recent recorded defect |
+| `get_defect_type_breakdown` | No | Frequency by defect type |
+| `get_defect_trend` | No | Defect-rate trend analysis |
+| `get_most_severe_defect` | No | Highest-severity defect in range |
+| `get_top_defect_sources` | No | Boards/sources with highest defect volume |
+| `generate_summary_report` | No | Daily/weekly/all-time monitoring report |
+| `check_threshold_alerts` | No | Check if defect thresholds are exceeded |
+| `get_defect_insights` | No | AI-generated recommendations from defect patterns |
+| `get_notification_preferences` | No | Read current notification preferences |
 
 ### General Domain Tools
 
@@ -217,6 +230,7 @@ Defined in `agents/mcp/lifecycle.py`. Every transition is timestamped and audit-
 | `send_alert_email` | **Yes** | Generic alert email |
 | `set_detection_task` | No | Configure detection mode |
 | `shutdown_agent` | **Yes** | Full shutdown |
+| `acknowledge_error` | No | Recover from error state back to idle |
 
 ---
 
@@ -279,7 +293,7 @@ When the user says *"start monitoring for defective PCBs"*, the system:
 1. Starts `MonitoringLoop` which observes the camera feed via CV
 2. When a board stops in zone, fires `on_board_ready(frame, context)`
 3. The `StreamlinedMonitoringService._on_board_ready` calls the VLM
-4. The LLM decides follow-up actions via MCP tools (alert, log, report)
+4. The LLM decides follow-up MCP actions (alerts, analytics queries, reporting, preference updates)
 
 ```
 MonitoringLoop detects board stopped
@@ -291,12 +305,14 @@ on_board_ready(frame, observation_context)
 VLM analysis → DetectionEvent
         │
         ├── Persist to pcb_inspections (PASS/FAIL)
+  ├── Auto-log defect side effects when detection tools are used
         ├── Emit SocketIO event → Chat UI
-        └── LLM decides: call send_defect_alert? log_defect?
+  └── LLM decides: call send_defect_alert / analytics tools?
 ```
 
-The LLM chains tools together naturally. There is no separate background
-loop — the monitoring loop + LLM tool calls handle everything.
+The LLM chains tools together naturally. Runtime monitoring is proactive-only:
+`StreamlinedMonitoringService.start_monitoring()` always selects
+`MonitoringMode.PROACTIVE`.
 
 ---
 
@@ -311,9 +327,10 @@ SQLite with connection pooling. 8 models, 9 repositories.
 | `pcb_frame_store` | Auto-captured PCB frames | timestamp, image_path, motion_score, board_signature, consumed |
 | `pcb_inspections` | VLM inspection outcomes | board_signature, result (PASS/FAIL), confidence, defect_type, image_path, decision_trace |
 | `pcb_defects` | Logged defect records | board_type, defect_type, severity, confidence, description |
-| `detection_logs` | General detection events | event_type, detected, confidence, description |
+| `detection_logs` | General detection events | timestamp, confidence, response, image_path, decision_details |
 | `users` | Email recipients + settings | email, name, active |
-| `chat_history` | Persisted conversations | client_session_id, message JSON |
+| `chat_messages` | Persisted conversations | client_session_id, message_id, role, content, metadata |
+| `notification_preferences` | Alert policy configuration | email_enabled, min_severity, recipients_json, quiet_hours |
 
 ### Data Flow
 
@@ -342,10 +359,10 @@ Frame captured → pcb_frame_store (image + metadata)
 ```json
 {
   "domain": "pcb",
-  "tool": "start_defect_monitoring",
+  "tool": "count_defective_pcbs",
   "confidence": 0.95,
-  "params": {"recipients": ["user@example.com"]},
-  "rationale": "User wants continuous defect monitoring"
+  "params": {"hours": 24},
+  "rationale": "User asked how many defective boards were found today"
 }
 ```
 
@@ -374,7 +391,7 @@ Used for frame analysis: encodes images as base64, sends with task-specific prom
 3. User emits **`approve_proposal`** or **`reject_proposal`**.
 4. Server emits **`proposal_result`**, **`chat_message`**, and (when needed) **`agent_state_changed`**.
 
-Session management uses `ChatSessionManager` with persisted message history (`chat_history` table) keyed by stable `client_session_id`.
+Session management uses `ChatSessionManager` with persisted message history (`chat_messages` table) keyed by stable `client_session_id`.
 
 ### Frontend runtime (`templates/base.html` + `templates/chat.html`)
 

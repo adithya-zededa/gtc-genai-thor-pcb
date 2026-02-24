@@ -185,63 +185,6 @@ class LogSettings:
 
 
 @dataclass
-class Invoice:  # pylint: disable=too-many-instance-attributes
-    """Invoice model representing a generated inspection summary invoice."""
-
-    id: Optional[int] = None
-    timestamp: Optional[str] = None
-    recipient_email: str = ""
-    items_json: str = "[]"
-    subtotal: float = 0.0
-    tax: float = 0.0
-    total: float = 0.0
-    status: str = "draft"
-    pdf_path: Optional[str] = None
-    created_at: Optional[str] = None
-
-    @classmethod
-    def from_row(cls, row) -> Optional["Invoice"]:
-        """Create Invoice from database row."""
-        if row is None:
-            return None
-        return cls(
-            id=row["id"],
-            timestamp=row["timestamp"],
-            recipient_email=row["recipient_email"],
-            items_json=row["items_json"],
-            subtotal=float(row["subtotal"]),
-            tax=float(row["tax"]),
-            total=float(row["total"]),
-            status=row["status"],
-            pdf_path=row.get("pdf_path"),
-            created_at=row["created_at"],
-        )
-
-    @property
-    def items(self) -> List[Dict[str, Any]]:
-        """Parse items from JSON string."""
-        try:
-            return json.loads(self.items_json)
-        except (json.JSONDecodeError, TypeError):
-            return []
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return {
-            "id": self.id,
-            "timestamp": self.timestamp,
-            "recipient_email": self.recipient_email,
-            "items": self.items,
-            "subtotal": self.subtotal,
-            "tax": self.tax,
-            "total": self.total,
-            "status": self.status,
-            "pdf_path": self.pdf_path,
-            "created_at": self.created_at,
-        }
-
-
-@dataclass
 class PCBDefect:  # pylint: disable=too-many-instance-attributes
     """PCB defect record from inspection analysis."""
 

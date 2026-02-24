@@ -1,0 +1,229 @@
+/**
+ * ZEDEDA Design System - CSS Variables
+ * Cyan/Teal color system with light and dark themes
+ */
+
+:root {
+    /* Primary Brand Colors */
+    --zededa-cyan: #00B8C3;
+    --zededa-cyan-hover: #00A5AF;
+    --zededa-cyan-light: rgba(0, 184, 195, 0.1);
+    --zededa-cyan-border: rgba(0, 184, 195, 0.3);
+
+    --zededa-teal: #00B8C3;
+    --zededa-teal-hover: #00A5AF;
+    --zededa-teal-light: rgba(0, 184, 195, 0.1);
+    --zededa-teal-border: rgba(0, 184, 195, 0.3);
+
+    /* Backward-compatible aliases used by existing styles */
+    --zededa-orange: var(--zededa-cyan);
+    --zededa-orange-light: var(--zededa-cyan-hover);
+    --zededa-orange-dark: var(--zededa-cyan-hover);
+    --zededa-orange-subtle: var(--zededa-cyan-light);
+    --zededa-orange-border: var(--zededa-cyan-border);
+    
+    /* Light Theme Palette */
+    --zededa-light-bg-primary: #F9FAFB;
+    --zededa-light-bg-secondary: #FFFFFF;
+    --zededa-light-bg-tertiary: #F3F4F6;
+    --zededa-light-bg-hover: #E5E7EB;
+
+    --zededa-light-text-primary: #111827;
+    --zededa-light-text-secondary: #374151;
+    --zededa-light-text-tertiary: #6B7280;
+    --zededa-light-text-muted: #9CA3AF;
+
+    /* Dark Theme Palette */
+    --zededa-bg-primary: #030712;
+    --zededa-bg-secondary: #111827;
+    --zededa-bg-tertiary: #1F2937;
+    --zededa-bg-hover: #374151;
+
+    --zededa-text-primary: #FFFFFF;
+    --zededa-text-secondary: #D1D5DB;
+    --zededa-text-tertiary: #9CA3AF;
+    --zededa-text-muted: #6B7280;
+
+    --zededa-border-dark: #374151;
+    --zededa-border-medium: #4B5563;
+    --zededa-border-light: #D1D5DB;
+
+    --zededa-tag-blue: #5B8DEF;
+    --zededa-tag-green: #10B981;
+    --zededa-tag-teal: #14B8A6;
+    --zededa-tag-amber: #F59E0B;
+    --zededa-tag-pink: #EC4899;
+    --zededa-tag-red: #EF4444;
+    --zededa-tag-cyan: #06B6D4;
+    --zededa-tag-purple: #A855F7;
+    --zededa-tag-indigo: #6366F1;
+
+    /* Active (light by default) gray scale aliases */
+    --gray-50: var(--zededa-light-bg-primary);
+    --gray-100: var(--zededa-light-bg-tertiary);
+    --gray-200: var(--zededa-light-bg-hover);
+    --gray-300: #D1D5DB;
+    --gray-400: var(--zededa-light-text-muted);
+    --gray-500: var(--zededa-light-text-tertiary);
+    --gray-600: #4B5563;
+    --gray-700: var(--zededa-light-text-secondary);
+    --gray-800: #1F2937;
+    --gray-900: var(--zededa-light-text-primary);
+    
+    /* Semantic Colors */
+    --color-success: #10B981;
+    --color-success-light: rgba(16, 185, 129, 0.1);
+    --color-error: #EF4444;
+    --color-error-light: rgba(239, 68, 68, 0.1);
+    --color-warning: #F59E0B;
+    --color-warning-light: rgba(245, 158, 11, 0.1);
+    --color-info: #3B82F6;
+    --color-info-light: rgba(59, 130, 246, 0.1);
+    
+    /* Typography */
+    --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    --font-mono: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Consolas', monospace;
+    
+    --font-size-xs: 0.75rem;
+    --font-size-sm: 0.875rem;
+    --font-size-base: 1rem;
+    --font-size-lg: 1.125rem;
+    --font-size-xl: 1.25rem;
+    --font-size-2xl: 1.5rem;
+    
+    --line-height-tight: 1.25;
+    --line-height-normal: 1.5;
+    --line-height-relaxed: 1.75;
+    
+    /* Spacing */
+    --spacing-1: 0.25rem;
+    --spacing-2: 0.5rem;
+    --spacing-3: 0.75rem;
+    --spacing-4: 1rem;
+    --spacing-5: 1.25rem;
+    --spacing-6: 1.5rem;
+    --spacing-8: 2rem;
+    --spacing-10: 2.5rem;
+    --spacing-12: 3rem;
+    
+    /* Border Radius - Material UI inspired, softer corners */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-xl: 20px;
+    --radius-2xl: 24px;
+    --radius-full: 9999px;
+    --radius-btn: 10px;    /* Standardized button radius */
+    --radius-card: 14px;   /* Card/panel radius */
+    --radius-input: 12px;  /* Input field radius */
+    --radius-bubble: 20px; /* Chat bubble radius */
+    
+    /* Shadows - Material UI elevation */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    --shadow-focus: 0 0 0 3px var(--zededa-cyan-light);
+    --shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.08);
+    
+    /* Transitions */
+    --transition-fast: 150ms ease;
+    --transition-normal: 200ms ease;
+    --transition-slow: 300ms ease;
+    
+    /* Layout */
+    --header-height: 56px;
+    --chat-max-width: 800px;
+    --sidebar-width: 320px;
+    
+    /* Floating Islands Layout */
+    --viewport-padding: 16px;           /* Outer padding from viewport edges */
+    --island-gap: 12px;                 /* Gap between floating islands */
+    --island-padding: var(--spacing-4); /* Internal padding within islands */
+    --island-border: 1px solid var(--gray-200);
+    --island-radius: var(--radius-card);
+    --island-bg: var(--zededa-light-bg-secondary);
+    --island-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+:root[data-theme='dark'] {
+    --gray-50: var(--zededa-bg-secondary);
+    --gray-100: var(--zededa-bg-tertiary);
+    --gray-200: var(--zededa-bg-hover);
+    --gray-300: #4B5563;
+    --gray-400: var(--zededa-text-tertiary);
+    --gray-500: var(--zededa-text-secondary);
+    --gray-600: #E5E7EB;
+    --gray-700: #F3F4F6;
+    --gray-800: #F9FAFB;
+    --gray-900: var(--zededa-text-primary);
+
+    --island-bg: var(--zededa-bg-secondary);
+    --island-border: 1px solid var(--zededa-border-dark, #374151);
+    --island-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    --shadow-hover: 0 8px 18px rgba(0, 0, 0, 0.35);
+
+    color-scheme: dark;
+}
+
+:root[data-theme='dark'] .btn-secondary,
+:root[data-theme='dark'] .card,
+:root[data-theme='dark'] .new-chat-btn,
+:root[data-theme='dark'] .sidebar-expand-btn,
+:root[data-theme='dark'] .sidebar-footer-btn,
+:root[data-theme='dark'] .session-rename-input,
+:root[data-theme='dark'] .form-input,
+:root[data-theme='dark'] .form-select,
+:root[data-theme='dark'] .form-textarea,
+:root[data-theme='dark'] .chat-message.assistant .chat-bubble,
+:root[data-theme='dark'] .chat-result-caption,
+:root[data-theme='dark'] .attachment-menu,
+:root[data-theme='dark'] .attachment-menu-item,
+:root[data-theme='dark'] .chat-input-container,
+:root[data-theme='dark'] .chat-textarea {
+    background: var(--zededa-bg-secondary);
+    color: var(--zededa-text-primary);
+    border-color: var(--gray-200);
+}
+
+:root[data-theme='dark'] .form-input::placeholder,
+:root[data-theme='dark'] .form-textarea::placeholder {
+    color: var(--zededa-text-tertiary);
+}
+
+:root[data-theme='dark'] .form-input:hover,
+:root[data-theme='dark'] .form-select:hover,
+:root[data-theme='dark'] .form-textarea:hover,
+:root[data-theme='dark'] .chat-input-container:hover,
+:root[data-theme='dark'] .chat-message.assistant .chat-bubble:hover,
+:root[data-theme='dark'] .attachment-item:hover,
+:root[data-theme='dark'] .credential-item:hover,
+:root[data-theme='dark'] .status-card:hover {
+    border-color: var(--zededa-cyan-border);
+}
+
+:root[data-theme='dark'] .form-input:focus,
+:root[data-theme='dark'] .form-select:focus,
+:root[data-theme='dark'] .form-textarea:focus {
+    border-color: var(--zededa-cyan);
+    box-shadow: 0 0 0 3px var(--zededa-cyan-light);
+}
+
+:root[data-theme='dark'] .btn-primary,
+:root[data-theme='dark'] .chat-send-btn,
+:root[data-theme='dark'] .config-btn {
+    background: var(--zededa-cyan);
+    border-color: var(--zededa-cyan);
+    color: #000000;
+}
+
+:root[data-theme='dark'] .btn-primary:hover:not(:disabled),
+:root[data-theme='dark'] .chat-send-btn:hover:not(:disabled),
+:root[data-theme='dark'] .config-btn:hover {
+    background: var(--zededa-cyan-hover);
+    border-color: var(--zededa-cyan-hover);
+}
+
+:root[data-theme='dark'] #cred-supports-tools {
+    accent-color: var(--zededa-cyan);
+}

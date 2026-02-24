@@ -151,6 +151,42 @@
         </div>
     </section>
 
+    <!-- PCB Defect Inspection Prompt (Liquid Glass) -->
+    <section class="glass rounded-2xl overflow-hidden animate-slide-up" style="animation-delay: 125ms;">
+        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator);">
+            <div class="flex items-center gap-3">
+                <div class="h-10 w-10 rounded-xl flex items-center justify-center glass-orange">
+                    <i class="fas fa-microscope" style="color: var(--system-orange);"></i>
+                </div>
+                <div>
+                    <h3 class="text-headline">PCB Defect Inspection Prompt</h3>
+                    <p class="text-footnote mt-0.5">Customise the prompt sent to the VLM for defect inspection. Changes take effect when monitoring is restarted.</p>
+                </div>
+            </div>
+        </div>
+        <div class="p-5 space-y-3">
+            <textarea id="inspection-prompt" rows="16" class="input-glass font-mono text-sm" style="line-height: 1.5;" placeholder="Enter the PCB defect inspection prompt..."></textarea>
+            <div class="flex items-center justify-between">
+                <div class="flex gap-2">
+                    <button id="save-inspection-prompt" class="btn btn-primary text-xs">
+                        <i class="fas fa-save mr-1"></i>
+                        <span>Save Prompt</span>
+                    </button>
+                    <button id="reset-inspection-prompt" class="btn btn-secondary text-xs">
+                        <i class="fas fa-undo mr-1"></i>
+                        <span>Reset to Default</span>
+                    </button>
+                </div>
+                <div class="flex items-center gap-3">
+                    <span id="inspection-prompt-status" class="text-footnote hidden" style="color: var(--system-green);">
+                        <i class="fas fa-check-circle mr-1"></i>Saved
+                    </span>
+                    <span class="text-footnote">Characters: <span id="inspection-prompt-length" class="font-semibold" style="color: var(--system-orange);">0</span></span>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <!-- Email Recipients (Liquid Glass) -->
     <section class="glass rounded-2xl overflow-hidden animate-slide-up" style="animation-delay: 150ms;">
         <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator);">
@@ -1298,6 +1334,75 @@ async function _doSaveNotificationPrefs() {
     }
 }
 
+// =================================================================
+// PCB Defect Inspection Prompt
+// =================================================================
+
+let _inspectionPromptDefault = '';
+
+function updateInspectionPromptLength() {
+    const prompt = (document.getElementById('inspection-prompt') || { value: '' }).value;
+    const el = document.getElementById('inspection-prompt-length');
+    if (el) el.textContent = prompt.length;
+}
+
+async function loadInspectionPrompt() {
+    try {
+        const result = await apiCall('/api/config/inspection-prompt');
+        if (result && result.success) {
+            const el = document.getElementById('inspection-prompt');
+            if (el) el.value = result.prompt || '';
+            if (result.is_default) {
+                _inspectionPromptDefault = result.prompt || '';
+            }
+            updateInspectionPromptLength();
+        }
+    } catch (error) {
+        console.error('Failed to load inspection prompt:', error);
+    }
+}
+
+async function saveInspectionPrompt() {
+    const prompt = (document.getElementById('inspection-prompt') || { value: '' }).value;
+    try {
+        const result = await apiCall('/api/config/inspection-prompt', {
+            method: 'PUT',
+            body: JSON.stringify({ prompt: prompt }),
+        });
+        if (result && result.success) {
+            showToast('Inspection prompt saved. Restart monitoring for changes to take effect.', 'success');
+            const statusEl = document.getElementById('inspection-prompt-status');
+            if (statusEl) {
+                statusEl.classList.remove('hidden');
+                setTimeout(() => statusEl.classList.add('hidden'), 3000);
+            }
+        } else {
+            showToast(result ? result.error : 'Failed to save inspection prompt', 'error');
+        }
+    } catch (error) {
+        showToast('Failed to save inspection prompt', 'error');
+    }
+}
+
+async function resetInspectionPrompt() {
+    // Save empty string to reset to default
+    try {
+        const result = await apiCall('/api/config/inspection-prompt', {
+            method: 'PUT',
+            body: JSON.stringify({ prompt: '' }),
+        });
+        if (result && result.success) {
+            // Reload to get the default prompt displayed
+            await loadInspectionPrompt();
+            showToast('Inspection prompt reset to default.', 'success');
+        } else {
+            showToast(result ? result.error : 'Failed to reset prompt', 'error');
+        }
+    } catch (error) {
+        showToast('Failed to reset inspection prompt', 'error');
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     loadSystemStatus();
     setInterval(loadSystemStatus, 30000);
@@ -1311,6 +1416,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updatePromptLength();
     initVLLMSection();
     loadNotificationPreferences();
+    loadInspectionPrompt();
 
     const refreshBtn = document.getElementById('refresh-system-status');
     if (refreshBtn) refreshBtn.addEventListener('click', loadSystemStatus);
@@ -1373,6 +1479,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const saveAllBtn = document.getElementById('save-all-settings');
     if (saveAllBtn) saveAllBtn.addEventListener('click', saveAllSettings);
+
+    const saveInspectionBtn = document.getElementById('save-inspection-prompt');
+    if (saveInspectionBtn) saveInspectionBtn.addEventListener('click', saveInspectionPrompt);
+    const resetInspectionBtn = document.getElementById('reset-inspection-prompt');
+    if (resetInspectionBtn) resetInspectionBtn.addEventListener('click', resetInspectionPrompt);
+    const inspectionPromptInput = document.getElementById('inspection-prompt');
+    if (inspectionPromptInput) inspectionPromptInput.addEventListener('input', updateInspectionPromptLength);
 });
 </script>
 {% endblock %}

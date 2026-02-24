@@ -67,6 +67,7 @@ detection:
     \ 1.0,\n  \"reasoning\": \"Brief description of PCB state and quality\",\n  \"pcb_count\"\
     : number,\n  \"pcb_stable\": true or false or null,\n  \"should_alert\": true\
     \ or false\n}\n"
+  inspection_prompt: ""
 analysis: {}
 notifications:
   desktop:

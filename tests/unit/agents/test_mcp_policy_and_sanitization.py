@@ -102,3 +102,29 @@ def test_pcb_interpreter_param_allowlist_filters_untrusted_fields(monkeypatch):
     assert proposal.arguments["defect_type"] == "bridge"
     assert "shutdown_agent" not in proposal.arguments
     assert "arbitrary" not in proposal.arguments
+
+
+def test_pcb_interpreter_infers_today_hours_for_analytics_tool(monkeypatch):
+    expected = ClassificationResult(
+        domain="pcb",
+        tool="count_defective_pcbs",
+        confidence=0.95,
+        params={},
+        rationale="matched count query",
+    )
+
+    monkeypatch.setattr(
+        "agents.classifiers.llm_classifier.get_classifier",
+        lambda: _DummyClassifier(expected),
+    )
+
+    interpreter = PCBInterpreter(registry=PCBToolRegistry())
+    proposal = interpreter.interpret(
+        user_message="How many defects were found today?",
+        agent_state=AgentState.MONITORING,
+        session_id="session_test",
+    )
+
+    assert proposal is not None
+    assert proposal.tool_name == "count_defective_pcbs"
+    assert proposal.arguments.get("hours") == 24.0

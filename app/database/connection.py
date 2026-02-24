@@ -311,44 +311,6 @@ def init_db() -> None:
     # Seed default log settings
     _seed_log_settings(cursor)
 
-    # Invoices table
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS invoices (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            recipient_email TEXT,
-            items_json TEXT DEFAULT '[]',
-            subtotal REAL NOT NULL DEFAULT 0.0,
-            tax REAL NOT NULL DEFAULT 0.0,
-            total REAL NOT NULL DEFAULT 0.0,
-            status TEXT DEFAULT 'draft',
-            pdf_path TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """
-    )
-
-    # Add pdf_path column if it doesn't exist (migration for existing databases)
-    try:
-        cursor.execute("ALTER TABLE invoices ADD COLUMN pdf_path TEXT")
-        logger.info("Added pdf_path column to invoices table")
-    except sqlite3.OperationalError:
-        # Column already exists
-        pass
-    cursor.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_invoices_status
-        ON invoices(status)
-    """
-    )
-    cursor.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_invoices_timestamp
-        ON invoices(timestamp DESC)
-    """
-    )
-
     # PCB defects table
     cursor.execute(
         """

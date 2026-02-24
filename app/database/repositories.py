@@ -17,7 +17,6 @@ from core.logging import get_logger
 from .connection import get_db_connection
 from .models import (
     DetectionLog,
-    Invoice,
     PCBFrameStore,
     PCBInspection,
     LogSettings,
@@ -398,96 +397,6 @@ class LogSettingsRepository:
             )
             conn.commit()
         return settings
-
-
-class InvoiceRepository:
-    """Repository for Invoice data operations."""
-
-    @staticmethod
-    # pylint: disable=too-many-arguments
-    def create(
-        recipient_email: str,
-        items_json: str,
-        subtotal: float,
-        tax: float,
-        total: float,
-        *,
-        status: str = "draft",
-        pdf_path: Optional[str] = None,
-    ) -> int:
-        """Create a new invoice and return the ID."""
-        with get_db_connection() as conn:
-            cursor = conn.execute(
-                """
-                INSERT INTO invoices (
-                    timestamp, recipient_email, items_json,
-                    subtotal, tax, total, status, pdf_path
-                )
-                VALUES (CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (recipient_email, items_json, subtotal, tax, total, status, pdf_path),
-            )
-            conn.commit()
-            return int(cursor.lastrowid or 0)
-
-    @staticmethod
-    def get_by_id(invoice_id: int) -> Optional[Invoice]:
-        """Get an invoice by ID."""
-        with get_db_connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM invoices WHERE id = ?", (invoice_id,)
-            ).fetchone()
-        return Invoice.from_row(row)
-
-    @staticmethod
-    def get_paginated(
-        page: int = 1,
-        per_page: int = 50,
-        status: Optional[str] = None,
-    ) -> tuple:
-        """Get paginated invoices. Returns (invoices, total_count)."""
-        offset = (page - 1) * per_page
-
-        with get_db_connection() as conn:
-            count_query = "SELECT COUNT(*) FROM invoices"
-            data_query = "SELECT * FROM invoices"
-
-            if status:
-                count_query += " WHERE status = ?"
-                data_query += " WHERE status = ?"
-                params_count = (status,)
-                params_data = (status, per_page, offset)
-            else:
-                params_count = ()
-                params_data = (per_page, offset)
-
-            total = conn.execute(count_query, params_count).fetchone()[0]
-            data_query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
-            rows = conn.execute(data_query, params_data).fetchall()
-
-        return [Invoice.from_row(row) for row in rows], total
-
-    @staticmethod
-    def update_status(invoice_id: int, status: str) -> bool:
-        """Update an invoice's status."""
-        with get_db_connection() as conn:
-            conn.execute(
-                "UPDATE invoices SET status = ? WHERE id = ?",
-                (status, invoice_id),
-            )
-            conn.commit()
-        return True
-
-    @staticmethod
-    def update_pdf_path(invoice_id: int, pdf_path: str) -> bool:
-        """Update an invoice's PDF path."""
-        with get_db_connection() as conn:
-            conn.execute(
-                "UPDATE invoices SET pdf_path = ? WHERE id = ?",
-                (pdf_path, invoice_id),
-            )
-            conn.commit()
-        return True
 
 
 class PCBDefectRepository:
