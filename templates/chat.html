@@ -29,6 +29,8 @@
         --chat-send-fg: #ffffff;
         --chat-send-disabled-bg: var(--graphite-100, rgba(142, 142, 147, 0.24));
         --chat-send-disabled-fg: var(--text-quaternary, rgba(107, 114, 128, 0.35));
+        --chat-user-bubble-bg: color-mix(in srgb, var(--glass-dark) 90%, black);
+        --chat-user-bubble-fg: #ffffff;
         --chat-link-on-dark: var(--system-teal);
         --chat-inline-code-on-dark-bg: rgba(255, 255, 255, 0.15);
         --chat-inline-code-bg: var(--graphite-50);
@@ -243,8 +245,8 @@
 
     /* User bubble — dark, speech-bubble style */
     .message.user .message-content {
-        background: var(--text-primary, #111827);
-        color: white;
+        background: var(--chat-user-bubble-bg);
+        color: var(--chat-user-bubble-fg);
         padding: 0.75rem 1rem;
         border-radius: 20px 20px 6px 20px;
         box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
@@ -254,7 +256,7 @@
     }
 
     .message.user .message-content a { color: var(--chat-link-on-dark); }
-    .message.user .message-content code { background: var(--chat-inline-code-on-dark-bg); color: var(--chat-send-fg); }
+    .message.user .message-content code { background: var(--chat-inline-code-on-dark-bg); color: var(--chat-user-bubble-fg); }
 
     /* Assistant bubble — light, bordered, speech-bubble style */
     .message.assistant .message-content {
