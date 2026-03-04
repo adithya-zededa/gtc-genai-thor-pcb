@@ -396,6 +396,9 @@
         <div class="glass rounded-2xl p-5 animate-slide-up" style="--animation-order: 7;">
             <h3 class="text-base font-semibold mb-3 text-primary">Quick Actions</h3>
             <div class="space-y-2">
+                <a href="{{ url_for('views.log_diagnostics', log_id=log.id) }}" class="btn block text-center text-white" style="background: linear-gradient(135deg, var(--system-purple) 0%, var(--system-indigo) 100%);">
+                    <i class="fas fa-microscope mr-2"></i>Full Diagnostics
+                </a>
                 {% if image_url %}
                     <a href="{{ image_url }}" download class="btn block text-center text-white" style="background: linear-gradient(135deg, var(--system-green) 0%, var(--system-teal) 100%);">
                         <i class="fas fa-download mr-2"></i>Download Image
@@ -406,6 +409,51 @@
                 </a>
             </div>
         </div>
+
+        <!-- Token Usage Card -->
+        {% if token_usage and token_usage.total_tokens is defined and token_usage.total_tokens > 0 %}
+        <div class="glass rounded-2xl p-5 animate-slide-up" style="--animation-order: 8;">
+            <h3 class="text-base font-semibold mb-3 flex items-center text-primary">
+                <div class="w-7 h-7 rounded-lg flex items-center justify-center mr-2.5" style="background: var(--system-orange-glass);">
+                    <i class="fas fa-coins text-sm" style="color: var(--system-orange);"></i>
+                </div>
+                Token Usage
+            </h3>
+            <div class="space-y-3">
+                <div class="flex justify-between items-center">
+                    <span class="text-xs text-secondary">Prompt</span>
+                    <span class="text-sm font-semibold text-primary">{{ '{:,}'.format(token_usage.prompt_tokens|default(0)) }}</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-xs text-secondary">Completion</span>
+                    <span class="text-sm font-semibold text-primary">{{ '{:,}'.format(token_usage.completion_tokens|default(0)) }}</span>
+                </div>
+                <div style="border-top: 0.5px solid var(--border-separator); padding-top: 0.5rem;">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs font-semibold text-secondary">Total</span>
+                        <span class="text-sm font-bold" style="color: var(--system-orange);">{{ '{:,}'.format(token_usage.total_tokens|default(0)) }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Tools Used Card -->
+        {% if tools_used and tools_used|length > 0 %}
+        <div class="glass rounded-2xl p-5 animate-slide-up" style="--animation-order: 9;">
+            <h3 class="text-base font-semibold mb-3 flex items-center text-primary">
+                <div class="w-7 h-7 rounded-lg flex items-center justify-center mr-2.5" style="background: var(--system-cyan-glass, var(--system-teal-glass));">
+                    <i class="fas fa-tools text-sm" style="color: var(--system-teal);"></i>
+                </div>
+                Tools Used
+            </h3>
+            <div class="flex flex-wrap gap-1.5">
+                {% for tool in tools_used %}
+                <span class="text-xs px-2 py-1 rounded-lg font-medium glass-ultra-thin text-primary">{{ tool }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

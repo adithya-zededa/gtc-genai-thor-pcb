@@ -27,10 +27,17 @@ import requests
 
 from core.logging import get_logger
 from .task_types import TaskType
-from .prompts import TASK_PROMPTS, DEFAULT_DETECTION_PROMPT, CUSTOM_QUERY_TEMPLATE
+from .prompts import (
+    DEFAULT_DETECTION_PROMPT,
+    build_prompt,
+    build_agentic_prompt,
+    build_tool_continuation_prompt,
+    build_tools_prompt,
+)
+
 
 if TYPE_CHECKING:
-    from agents.tools.base import ToolExecutor, ToolCall
+    from agents.tools.base import ToolCall
 
 logger = get_logger(__name__)
 
@@ -52,6 +59,7 @@ class AnalysisResult:
     should_alert: bool
     raw_response: str
     details: Dict[str, Any] = field(default_factory=dict)
+    token_usage: Dict[str, int] = field(default_factory=dict)
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -62,6 +70,7 @@ class AnalysisResult:
             "should_alert": self.should_alert,
             "raw_response": self.raw_response,
             "details": self.details,
+            "token_usage": self.token_usage,
         }
     
     @property
@@ -93,6 +102,7 @@ class AgenticResult:
     tool_calls: List[Dict[str, Any]] = field(default_factory=list)
     tool_results: List[Dict[str, Any]] = field(default_factory=list)
     raw_response: str = ""
+    total_token_usage: Dict[str, int] = field(default_factory=dict)
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -100,6 +110,7 @@ class AgenticResult:
             "tool_calls": self.tool_calls,
             "tool_results": self.tool_results,
             "raw_response": self.raw_response,
+            "total_token_usage": self.total_token_usage,
         }
     
     @property
@@ -153,19 +164,7 @@ class DetectionResult:
         )
 
 
-# =============================================================================
-# ALERT CONDITION
-# =============================================================================
 
-def _default_alert_condition(parsed: Dict[str, Any]) -> bool:
-    """Trigger alert when the VLM explicitly sets should_alert."""
-    return bool(parsed.get("should_alert", False))
-
-
-# Single alert condition used for every task type.
-ALERT_CONDITIONS: Dict[TaskType, Callable[[Dict[str, Any]], bool]] = {
-    TaskType.CUSTOM: _default_alert_condition,
-}
 
 
 class UnifiedVLMClient:
@@ -209,6 +208,7 @@ class UnifiedVLMClient:
             "last_error": None,
             "last_error_at": None,
         }
+        self._last_token_usage: Dict[str, int] = {}
         
         # Configure session with optimized connection pooling
         self.session = self._create_optimized_session()
@@ -494,45 +494,14 @@ class UnifiedVLMClient:
                 return None
         return None
 
+    @staticmethod
     def _build_prompt(
-        self,
         task_type: TaskType,
         cv_context: Optional[Dict[str, Any]] = None,
         user_query: Optional[str] = None,
     ) -> str:
-        """Build the prompt — always uses the custom query template."""
-        effective_query = user_query or "Describe what you see in this image in detail."
-        prompt = CUSTOM_QUERY_TEMPLATE.format(user_query=effective_query)
-
-        if cv_context:
-            context_parts = []
-            
-            pcb_count = cv_context.get("pcb_count", 0)
-            rfdet_hint = cv_context.get("rfdet_hint", "")
-            if pcb_count > 0:
-                context_parts.append(f"Object detector found approximately {pcb_count} potential PCB(s).")
-            if rfdet_hint:
-                context_parts.append(rfdet_hint)
-            
-            person_count = cv_context.get("person_count", 0)
-            if person_count > 0:
-                context_parts.append(f"Person detector found {person_count} person(s).")
-            
-            helmet_count = cv_context.get("helmet_count", 0)
-            no_helmet_count = cv_context.get("no_helmet_count", 0)
-            if helmet_count > 0 or no_helmet_count > 0:
-                context_parts.append(
-                    f"PPE detector found {helmet_count} with helmet, {no_helmet_count} without."
-                )
-            
-            ml_confidence = cv_context.get("ml_confidence")
-            if ml_confidence is not None:
-                context_parts.append(f"ML confidence: {ml_confidence:.2f}")
-            
-            if context_parts:
-                prompt = prompt + "\n\nNote: " + " ".join(context_parts)
-        
-        return prompt
+        """Delegate to prompts.build_prompt (kept as method for API compat)."""
+        return build_prompt(task_type, cv_context, user_query)
 
     def _send_vlm_request(
         self,
@@ -606,6 +575,17 @@ class UnifiedVLMClient:
         
         response.raise_for_status()
         result = response.json()
+
+        # Extract token usage from vLLM response
+        usage = result.get("usage", {})
+        if usage:
+            self._last_token_usage = {
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+                "total_tokens": usage.get("total_tokens", 0),
+            }
+        else:
+            self._last_token_usage = {}
         
         choices = result.get("choices", [])
         if choices:
@@ -651,6 +631,19 @@ class UnifiedVLMClient:
         
         response.raise_for_status()
         result = response.json()
+
+        # Extract token usage from Ollama response
+        eval_count = result.get("eval_count", 0)
+        prompt_eval_count = result.get("prompt_eval_count", 0)
+        if eval_count or prompt_eval_count:
+            self._last_token_usage = {
+                "prompt_tokens": prompt_eval_count,
+                "completion_tokens": eval_count,
+                "total_tokens": prompt_eval_count + eval_count,
+            }
+        else:
+            self._last_token_usage = {}
+
         return result.get("response", "")
 
     def run_structured_prompt(
@@ -706,33 +699,11 @@ class UnifiedVLMClient:
             confidence = float(parsed.get("confidence", 0.5))
             reasoning = str(parsed.get("reasoning", raw_response[:200]))
 
-            # ── Safety net: enforce detected/alert when status fields
-            #    indicate a defect, even if the model forgot to set them.
-            details_block = parsed.get("details", {})
-            _pj = str(details_block.get("power_jack_status", "")).lower()
-            _uc = str(details_block.get("uart_cap_status", "")).lower()
-            status_defect = _pj in ("missing", "damaged") or _uc in (
-                "missing_one_side", "missing_both_sides",
-            )
-            if status_defect:
-                if not detected:
-                    logger.warning(
-                        "Overriding detected=false→true (power_jack=%s, uart_cap=%s)",
-                        _pj, _uc,
-                    )
-                detected = True
-                confidence = max(confidence, 0.85)
-
+            # ── Alert condition — trust the VLM's structured output
             if custom_alert_condition:
                 should_alert = custom_alert_condition(parsed)
             else:
-                alert_fn = ALERT_CONDITIONS.get(effective_task_type, _default_alert_condition)
-                should_alert = alert_fn(parsed)
-
-            # Also force alert when status fields show defects
-            if status_defect and not should_alert:
-                logger.warning("Overriding should_alert=false→true due to status fields")
-                should_alert = True
+                should_alert = bool(parsed.get("should_alert", False))
             
             details = {k: v for k, v in parsed.items() 
                       if k not in ("detected", "confidence", "reasoning")}
@@ -741,9 +712,26 @@ class UnifiedVLMClient:
                 if bool_field in details:
                     details[bool_field] = self._coerce_bool(details[bool_field])
 
+            # ── Consistency enforcement: detail fields override boolean flags
+            # The VLM sometimes fills in defect details correctly but mis-sets
+            # the top-level detected/should_alert booleans.  Re-derive from
+            # the structured detail fields when they are present.
+            detected, should_alert = self._enforce_detail_consistency(
+                detected, should_alert, details, custom_alert_condition is not None,
+            )
+
             self._metrics["successful_requests"] += 1
             self._metrics["last_error"] = None
-            
+
+            token_usage = dict(self._last_token_usage) if self._last_token_usage else {}
+            if token_usage:
+                logger.info(
+                    "Token usage: prompt=%d, completion=%d, total=%d",
+                    token_usage.get("prompt_tokens", 0),
+                    token_usage.get("completion_tokens", 0),
+                    token_usage.get("total_tokens", 0),
+                )
+
             return AnalysisResult(
                 task_type=effective_task_type.value,
                 detected=detected,
@@ -752,6 +740,7 @@ class UnifiedVLMClient:
                 should_alert=should_alert,
                 raw_response=raw_response,
                 details=details,
+                token_usage=token_usage,
             )
             
         except requests.exceptions.Timeout:
@@ -773,6 +762,50 @@ class UnifiedVLMClient:
             self._metrics["last_error_at"] = datetime.now().isoformat()
             logger.error("VLM analysis failed: %s", exc)
             raise
+
+    @staticmethod
+    def _enforce_detail_consistency(
+        detected: bool,
+        should_alert: bool,
+        details: Dict[str, Any],
+        has_custom_condition: bool,
+    ) -> tuple:
+        """Re-derive ``detected`` / ``should_alert`` from structured detail fields.
+
+        When the VLM correctly fills in component-status fields (e.g.
+        ``power_jack_status: "missing"``) but erroneously sets the
+        top-level ``detected`` to *false*, the detail fields take
+        precedence because they are the direct observational evidence.
+        """
+        inner = details.get("details", details)  # handles nested or flat
+
+        _DEFECT_STATUSES = {"missing", "damaged"}
+
+        defect_signals = []
+        for key in ("power_jack_status", "usb_port_status"):
+            val = str(inner.get(key, "")).lower()
+            if val in _DEFECT_STATUSES:
+                defect_signals.append(f"{key}={val}")
+
+        uart = str(inner.get("uart_cap_status", "")).lower()
+        if "missing" in uart:
+            defect_signals.append(f"uart_cap_status={uart}")
+
+        defect_list = inner.get("defects", [])
+        if isinstance(defect_list, list) and len(defect_list) > 0:
+            defect_signals.append(f"defects={defect_list}")
+
+        if defect_signals and not detected:
+            logger.warning(
+                "Consistency fix: detail fields indicate defects (%s) "
+                "but detected was false — overriding to true",
+                ", ".join(defect_signals),
+            )
+            detected = True
+            if not has_custom_condition:
+                should_alert = True
+
+        return detected, should_alert
 
     def _create_fallback_analysis_result(
         self,
@@ -824,76 +857,72 @@ class UnifiedVLMClient:
     def analyze_with_tools(
         self,
         frame: np.ndarray,
-        tool_executor: "ToolExecutor",
+        tool_dispatch: Callable[[str, Dict[str, Any]], Dict[str, Any]],
+        tool_schemas: List[Dict[str, Any]],
         task_type: Optional[TaskType] = None,
-        cv_context: Optional[Dict[str, Any]] = None,
         user_query: Optional[str] = None,
         max_tool_rounds: int = 3,
-        recipients: Optional[List[str]] = None,
     ) -> AgenticResult:
-        """Analyze a frame with tool-calling capability."""
-        from agents.tools.base import ToolCall
-        
+        """Analyze a frame with tool-calling capability.
+
+        Parameters
+        ----------
+        tool_dispatch:
+            Callable that executes a tool by name and returns a result dict.
+            Signature: ``(tool_name, arguments) -> result_dict``
+        tool_schemas:
+            List of tool schema dicts (name, description, parameters) for
+            the VLM prompt.
+        """
+        from agents.tools.base import ToolCall, ToolResult
+        import time as _time
+
         if user_query:
             effective_task_type = TaskType.CUSTOM
         else:
             effective_task_type = task_type or self.default_task_type
-        
+
         base64_image = self._encode_frame(frame)
-        image_bytes = self._frame_to_bytes(frame)
-        
-        tool_executor.context["image_data"] = image_bytes
-        tool_executor.context["recipients"] = recipients or []
-        
-        effective_query = user_query or "Describe what you see in this image in detail."
-        agentic_base = f"""Analyze this image based on the following instructions:
 
-{effective_query}
+        tools_prompt = self._get_tools_prompt(tool_schemas)
+        agentic_prompt = build_agentic_prompt(
+            user_query=user_query,
+            tools_prompt=tools_prompt,
+        )
 
-First, provide your analysis as JSON:
-{{
-  "detected": boolean (true if the condition in the instructions is met),
-  "confidence": number between 0.0 and 1.0,
-  "reasoning": "Your analysis and findings",
-  "should_alert": boolean (true if action should be taken),
-  "details": {{any additional structured data}}
-}}
-
-Then, if the user's instructions require an action (like sending an email), you MUST use the tools below to complete that action."""
-        
-        tools_prompt = self._get_tools_prompt(tool_executor)
-        
-        agentic_prompt = f"""{agentic_base}
-
----
-
-{tools_prompt}
-
-IMPORTANT: Follow the user's instructions exactly. If they ask you to send an email to a specific address, use THAT EXACT address in the tool call.
-
-After your JSON analysis, if the condition in the user's instructions is met, call the appropriate tools to complete the action.
-"""
-        
         all_tool_calls: List[ToolCall] = []
         all_tool_results: List[Dict[str, Any]] = []
         analysis_result: Optional[AnalysisResult] = None
         raw_response = ""
-        
+
+        # Accumulate token usage across all VLM rounds
+        total_token_usage: Dict[str, int] = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
+
         for round_num in range(max_tool_rounds):
             raw_response = self._send_vlm_request(agentic_prompt, base64_image)
-            
+
+            # Accumulate token usage from this round
+            if self._last_token_usage:
+                total_token_usage["prompt_tokens"] += self._last_token_usage.get("prompt_tokens", 0)
+                total_token_usage["completion_tokens"] += self._last_token_usage.get("completion_tokens", 0)
+                total_token_usage["total_tokens"] += self._last_token_usage.get("total_tokens", 0)
+
             if round_num == 0:
                 parsed = self._parse_json_response(raw_response)
                 if parsed:
                     detected = bool(parsed.get("detected", False))
                     confidence = float(parsed.get("confidence", 0.5))
                     reasoning = str(parsed.get("reasoning", raw_response[:200]))
-                    
+
                     should_alert = bool(parsed.get("should_alert", detected))
-                    
-                    details = {k: v for k, v in parsed.items() 
+
+                    details = {k: v for k, v in parsed.items()
                               if k not in ("detected", "confidence", "reasoning")}
-                    
+
                     analysis_result = AnalysisResult(
                         task_type=effective_task_type.value,
                         detected=detected,
@@ -902,59 +931,88 @@ After your JSON analysis, if the condition in the user's instructions is met, ca
                         should_alert=should_alert,
                         raw_response=raw_response,
                         details=details,
+                        token_usage=dict(self._last_token_usage) if self._last_token_usage else {},
                     )
                 else:
                     analysis_result = self._create_fallback_analysis_result(
                         effective_task_type, raw_response
                     )
-            
+
             tool_calls = self._parse_tool_calls(raw_response)
-            
+
             if not tool_calls:
                 break
-            
-            results = tool_executor.execute_many(tool_calls)
+
+            # Log the tool call sequence for this round
+            tool_names = [tc.tool_name for tc in tool_calls]
+            logger.info(
+                "Tool call sequence (round %d/%d): %s",
+                round_num + 1, max_tool_rounds,
+                " -> ".join(tool_names),
+            )
+
+            results: List[ToolResult] = []
+            for tc in tool_calls:
+                tool_start = _time.time()
+                try:
+                    result = tool_dispatch(tc.tool_name, tc.arguments)
+                    tool_duration_ms = round((_time.time() - tool_start) * 1000, 1)
+                    logger.info(
+                        "Tool '%s' completed in %.1fms (success=%s)",
+                        tc.tool_name, tool_duration_ms, result.get("success", True),
+                    )
+                    results.append(ToolResult(
+                        tool_name=tc.tool_name,
+                        call_id=tc.call_id,
+                        success=result.get("success", True),
+                        result=result,
+                        error=result.get("error"),
+                    ))
+                except Exception as e:
+                    tool_duration_ms = round((_time.time() - tool_start) * 1000, 1)
+                    logger.error(
+                        "Tool '%s' failed in %.1fms: %s",
+                        tc.tool_name, tool_duration_ms, e,
+                    )
+                    results.append(ToolResult(
+                        tool_name=tc.tool_name,
+                        call_id=tc.call_id,
+                        success=False,
+                        result=None,
+                        error=str(e),
+                    ))
+
             all_tool_calls.extend(tool_calls)
             all_tool_results.extend([r.to_dict() for r in results])
-            
+
             results_text = "\n".join([
                 f"Tool '{r.tool_name}' result: {json.dumps(r.result)}"
                 for r in results
             ])
-            
-            agentic_prompt = f"""Previous tool calls completed:
 
-{results_text}
+            agentic_prompt = build_tool_continuation_prompt(results_text)
 
-Based on these results, do you need to take any additional actions?
-If yes, make more tool calls. If no, summarize what was done.
-"""
-        
+        # Log total token usage summary for agentic analysis
+        if total_token_usage.get("total_tokens", 0) > 0:
+            logger.info(
+                "Agentic token usage (all rounds): prompt=%d, completion=%d, total=%d",
+                total_token_usage["prompt_tokens"],
+                total_token_usage["completion_tokens"],
+                total_token_usage["total_tokens"],
+            )
+
         return AgenticResult(
             analysis=analysis_result,
             tool_calls=[{"tool": tc.tool_name, "arguments": tc.arguments} for tc in all_tool_calls],
             tool_results=all_tool_results,
             raw_response=raw_response,
+            total_token_usage=total_token_usage,
         )
 
-    def _get_tools_prompt(self, tool_executor: "ToolExecutor") -> str:
-        """Get the tools prompt from the executor."""
-        from agents.tools.base import TOOL_REGISTRY
-        
-        tools_desc = []
-        for name, tool in TOOL_REGISTRY.items():
-            params_desc = json.dumps(tool.parameters, indent=2)
-            tools_desc.append(f"Tool: {name}\nDescription: {tool.description}\nParameters: {params_desc}")
-        
-        return """You have access to the following tools:
-
-""" + "\n\n".join(tools_desc) + """
-
-To call a tool, use this format:
-```tool_call
-{"tool": "tool_name", "arguments": {"param1": "value1"}}
-```
-"""
+    @staticmethod
+    def _get_tools_prompt(tool_schemas: List[Dict[str, Any]]) -> str:
+        """Build the tools prompt from schema dicts."""
+        return build_tools_prompt(tool_schemas)
 
     def _parse_tool_calls(self, response: str) -> List["ToolCall"]:
         """Parse tool calls from LLM response."""
@@ -980,73 +1038,3 @@ To call a tool, use this format:
         """Convert numpy frame to JPEG bytes."""
         _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
         return buffer.tobytes()
-
-
-# =============================================================================
-# Concurrent VLM Client Pool for Multi-Camera Scenarios
-# =============================================================================
-
-class VLMClientPool:
-    """Thread pool wrapper for concurrent VLM analysis.
-    
-    Enables parallel processing of multiple frames for multi-camera setups
-    or concurrent proactive monitoring + interactive chat scenarios.
-    
-    Performance gain: 3-4x throughput for concurrent requests.
-    
-    Example:
-        pool = VLMClientPool(vlm_client, max_workers=4)
-        future1 = pool.analyze_frame_async(frame1)
-        future2 = pool.analyze_frame_async(frame2)
-        result1 = future1.result()
-        result2 = future2.result()
-    """
-    
-    def __init__(self, client: UnifiedVLMClient, max_workers: int = 4):
-        """Initialize VLM client pool.
-        
-        Args:
-            client: Base VLM client instance to use.
-            max_workers: Maximum number of concurrent analysis threads.
-        """
-        from concurrent.futures import ThreadPoolExecutor
-        
-        self.client = client
-        self.executor = ThreadPoolExecutor(
-            max_workers=max_workers,
-            thread_name_prefix="VLMPool"
-        )
-        logger.info("VLM client pool initialized with %d workers", max_workers)
-    
-    def analyze_frame_async(self, frame: np.ndarray, **kwargs):
-        """Submit frame analysis to thread pool.
-        
-        Args:
-            frame: Frame to analyze.
-            **kwargs: Arguments to pass to client.analyze_frame().
-            
-        Returns:
-            Future object that will contain the analysis result.
-        """
-        return self.executor.submit(self.client.analyze_frame, frame, **kwargs)
-    
-    def analyze_async(self, frame: np.ndarray, **kwargs):
-        """Submit generic analysis to thread pool.
-        
-        Args:
-            frame: Frame to analyze.
-            **kwargs: Arguments to pass to client.analyze().
-            
-        Returns:
-            Future object that will contain the analysis result.
-        """
-        return self.executor.submit(self.client.analyze, frame, **kwargs)
-    
-    def shutdown(self, wait: bool = True):
-        """Shutdown the thread pool.
-        
-        Args:
-            wait: If True, wait for all pending tasks to complete.
-        """
-        self.executor.shutdown(wait=wait)
-        logger.info("VLM client pool shutdown")

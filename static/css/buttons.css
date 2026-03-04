@@ -1,0 +1,167 @@
+/* ===================================================================
+   Buttons — All button variants and states
+   Consistent interactive controls with glass & solid styles.
+   =================================================================== */
+
+/* -------------------------------------------------- */
+/* Base Button                                         */
+/* -------------------------------------------------- */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    letter-spacing: var(--tracking-normal);
+    transition:
+        transform var(--duration-fast) var(--ease-spring),
+        background var(--duration-fast) var(--ease-liquid),
+        box-shadow var(--duration-fast) var(--ease-liquid),
+        opacity var(--duration-fast);
+    cursor: pointer;
+    border: none;
+    outline: none;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.btn:active {
+    transform: scale(0.97);
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* -------------------------------------------------- */
+/* Primary (filled)                                    */
+/* -------------------------------------------------- */
+.btn-primary {
+    background: var(--system-blue);
+    color: white;
+    box-shadow:
+        0 1px 0 0 rgba(255, 255, 255, 0.15) inset,
+        0 2px 8px -2px rgba(0, 122, 255, 0.4);
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: var(--system-blue-vibrant);
+    box-shadow:
+        0 1px 0 0 rgba(255, 255, 255, 0.2) inset,
+        0 4px 16px -4px rgba(0, 122, 255, 0.5);
+}
+
+/* -------------------------------------------------- */
+/* Secondary (glass)                                   */
+/* -------------------------------------------------- */
+.btn-secondary {
+    background: var(--material-thin);
+    backdrop-filter: blur(var(--blur-sm));
+    color: var(--text-primary);
+    border: 0.5px solid var(--border-glass);
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background: var(--material-regular);
+    border-color: var(--border-glass-inner);
+}
+
+/* Material override */
+.btn-secondary {
+    background: var(--bg-solid);
+    border: 1px solid var(--border-separator);
+}
+
+/* -------------------------------------------------- */
+/* Tertiary (ghost)                                    */
+/* -------------------------------------------------- */
+.btn-tertiary {
+    background: transparent;
+    color: var(--system-blue);
+    padding: 0.5rem 0.75rem;
+}
+
+.btn-tertiary:hover:not(:disabled) {
+    background: var(--system-blue-glass);
+}
+
+/* -------------------------------------------------- */
+/* Floating Action Button (FAB)                        */
+/* -------------------------------------------------- */
+.btn-fab {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--material-thick);
+    backdrop-filter: blur(var(--blur-lg)) saturate(var(--saturate-glass));
+    -webkit-backdrop-filter: blur(var(--blur-lg)) saturate(var(--saturate-glass));
+    border: 0.5px solid var(--border-glass);
+    box-shadow: var(--shadow-glass-lg);
+    color: var(--system-blue);
+    font-size: 20px;
+    padding: 0;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Refraction highlight — purely decorative */
+.btn-fab::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 10%;
+    right: 10%;
+    height: 50%;
+    background: radial-gradient(ellipse at center top,
+        rgba(255, 255, 255, 0.4) 0%,
+        transparent 70%);
+    pointer-events: none !important;
+    z-index: 0;
+}
+
+.btn-fab:hover:not(:disabled) {
+    transform: scale(1.08) translateY(-2px);
+    box-shadow: var(--shadow-glass-glow);
+}
+
+/* -------------------------------------------------- */
+/* Icon Button                                         */
+/* -------------------------------------------------- */
+.btn-icon {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+}
+
+.btn-icon:hover:not(:disabled) {
+    background: var(--graphite-50);
+    color: var(--text-primary);
+}
+
+/* Material override */
+.btn {
+    border-radius: var(--radius-md);
+}
+
+.btn-icon {
+    border-radius: var(--radius-sm);
+}
+
+.btn-icon:hover:not(:disabled) {
+    background: var(--graphite-50);
+}
+
+/* Ensure buttons aren't disabled when they shouldn't be */
+.btn:not(:disabled),
+.quick-action-btn:not(:disabled),
+.chat-send-btn:not(:disabled) {
+    cursor: pointer;
+}

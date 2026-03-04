@@ -16,17 +16,11 @@ from .monitoring_loop import MonitoringLoop
 from .state import AgentMemory, AgentSnapshot, DetectionEvent
 from core.resilience import CircuitBreaker
 
-# Backward-compat aliases
-AgentState = AgentSnapshot
-ProactiveMonitoringAgent = MonitoringLoop  # old name
-
 __all__ = [
     "StreamlinedAgent",
     "MonitoringLoop",
-    "ProactiveMonitoringAgent",  # backward-compat alias
     "CircuitBreaker",
     "AgentMemory",
     "AgentSnapshot",
-    "AgentState",
     "DetectionEvent",
 ]

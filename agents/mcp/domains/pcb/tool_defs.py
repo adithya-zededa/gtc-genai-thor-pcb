@@ -1,38 +1,16 @@
-"""PCB Inspection domain MCP — registry, interpreter, and executor.
+"""PCB Inspection domain MCP — tool definitions.
 
-Provides a self-contained MCP for PCB defect detection workflows.
-Reuses the core MCP infrastructure via ``BaseDomainExecutor`` and
-registers only PCB-specific tools and intent phrases.
-
-Capabilities
-~~~~~~~~~~~~
-- **PCB analysis**: get/inspect stored frames, live inspection, board classification.
-- **Defect management**: log, report, and query defects.
-- **Monitoring analytics**: status, trends, severity ranking, source analysis.
-- **Notification control**: enable/disable/configure email notifications via chat.
-- **Reporting**: daily/weekly/on-demand summary reports with threshold checking.
-- **Insights**: AI-driven recommendations based on observed defect patterns.
+Defines all PCB-specific MCP tool schemas, the ``PCBToolRegistry``,
+and supporting constants (parameter allowlists, hours-aware tool sets).
 """
 
 from __future__ import annotations
 
-import threading
-import time
-import re
-from typing import Any, Dict, FrozenSet, List, Optional
+from typing import Dict, FrozenSet
 
-from agents.mcp.audit import AuditEventType, AuditLogEntry
-from agents.mcp.email_arg_utils import resolve_recipients
-from agents.mcp.executor_base import BaseDomainExecutor
-from agents.mcp.globals import get_agent_state_machine, get_audit_log
-from agents.mcp.lifecycle import MCPToolCallProposal
 from agents.mcp.registry import MCPToolDefinition, MCPToolRegistry
 from agents.mcp.schema import MCPSchemaType, MCPParameterSchema, MCPOutputSchema, standard_output_schema
 from agents.mcp.state_machine import AgentState
-
-from core.logging import get_logger
-
-logger = get_logger(__name__)
 
 
 # ── Tool definitions ──────────────────────────────────────────────────────
@@ -93,7 +71,7 @@ TOOL_SEND_DEFECT_ALERT = MCPToolDefinition(
     input_schema=[
         MCPParameterSchema(name="recipients", type=MCPSchemaType.ARRAY, description="List of email addresses to alert", required=True, items_type=MCPSchemaType.STRING),
         MCPParameterSchema(name="board_type", type=MCPSchemaType.STRING, description="Board type (from inspection)", required=False, default="unknown"),
-        MCPParameterSchema(name="defect_summary", type=MCPSchemaType.STRING, description="Description of the defect (from inspection)", required=True, min_length=1, max_length=2000),
+        MCPParameterSchema(name="defect_summary", type=MCPSchemaType.STRING, description="Description of the defect. If omitted, a summary is auto-generated from recent defect logs.", required=False, max_length=5000),
         MCPParameterSchema(name="severity", type=MCPSchemaType.STRING, description="Defect severity", required=False, enum=("low", "medium", "high"), default="medium"),
         MCPParameterSchema(name="include_image", type=MCPSchemaType.BOOLEAN, description="Attach the PCB frame image", required=False, default=True),
     ],
@@ -153,11 +131,12 @@ TOOL_STOP_DEFECT_MONITORING = MCPToolDefinition(
 
 TOOL_QUERY_PCB_INSPECTIONS = MCPToolDefinition(
     name="query_pcb_inspections",
-    description="Query past PCB inspection results from the database. Use this to answer user questions about detected defects, pass rates, board types seen, and inspection history.",
+    description="Query past PCB inspection results from the database. Use this to answer user questions about detected defects, pass rates, board types seen, and inspection history. Supports time-window filtering.",
     category="pcb_reporting",
     input_schema=[
         MCPParameterSchema(name="limit", type=MCPSchemaType.INTEGER, description="Max records to return", required=False, default=10, min_value=1, max_value=50),
         MCPParameterSchema(name="result_filter", type=MCPSchemaType.STRING, description="Filter by result: PASS, FAIL, or omit for all", required=False, enum=("PASS", "FAIL")),
+        MCPParameterSchema(name="hours", type=MCPSchemaType.NUMBER, description="Time window in hours (e.g., 24 for last day, 168 for last week)", required=False),
     ],
     output_schema=standard_output_schema(),
     requires_confirmation=False,
@@ -341,46 +320,51 @@ TOOL_QUERY_DETECTION_LOGS = MCPToolDefinition(
 )
 
 
+# ── All PCB tools list (for registry) ─────────────────────────────────────
+
+ALL_PCB_TOOLS = [
+    # Core PCB analysis
+    TOOL_GET_LATEST_PCB_FRAMES,
+    TOOL_INSPECT_PCB_FRAME,
+    TOOL_INSPECT_PCB,
+    TOOL_CLASSIFY_BOARD,
+    TOOL_SEND_DEFECT_ALERT,
+    TOOL_LOG_DEFECT,
+    TOOL_GENERATE_DEFECT_REPORT,
+    TOOL_START_DEFECT_MONITORING,
+    TOOL_STOP_DEFECT_MONITORING,
+    TOOL_QUERY_PCB_INSPECTIONS,
+    # Monitoring analytics & chat queries
+    TOOL_GET_MONITORING_STATUS,
+    TOOL_TOGGLE_EMAIL_NOTIFICATIONS,
+    TOOL_GET_DEFECT_SUMMARY,
+    TOOL_COUNT_DEFECTIVE_PCBS,
+    TOOL_GET_LATEST_DEFECT,
+    TOOL_GET_DEFECT_TYPE_BREAKDOWN,
+    TOOL_GET_DEFECT_TREND,
+    TOOL_GET_MOST_SEVERE_DEFECT,
+    TOOL_GET_TOP_DEFECT_SOURCES,
+    TOOL_GENERATE_SUMMARY_REPORT,
+    TOOL_CHECK_THRESHOLD_ALERTS,
+    TOOL_GET_DEFECT_INSIGHTS,
+    TOOL_GET_NOTIFICATION_PREFERENCES,
+    TOOL_QUERY_DETECTION_LOGS,
+]
+
+
 # ── Registry ──────────────────────────────────────────────────────────────
 
 class PCBToolRegistry(MCPToolRegistry):
     """Registry containing only PCB-domain tools."""
 
     def _register_default_tools(self) -> None:
-        for tool in [
-            # Core PCB analysis
-            TOOL_GET_LATEST_PCB_FRAMES,
-            TOOL_INSPECT_PCB_FRAME,
-            TOOL_INSPECT_PCB,
-            TOOL_CLASSIFY_BOARD,
-            TOOL_SEND_DEFECT_ALERT,
-            TOOL_LOG_DEFECT,
-            TOOL_GENERATE_DEFECT_REPORT,
-            TOOL_START_DEFECT_MONITORING,
-            TOOL_STOP_DEFECT_MONITORING,
-            TOOL_QUERY_PCB_INSPECTIONS,
-            # Monitoring analytics & chat queries
-            TOOL_GET_MONITORING_STATUS,
-            TOOL_TOGGLE_EMAIL_NOTIFICATIONS,
-            TOOL_GET_DEFECT_SUMMARY,
-            TOOL_COUNT_DEFECTIVE_PCBS,
-            TOOL_GET_LATEST_DEFECT,
-            TOOL_GET_DEFECT_TYPE_BREAKDOWN,
-            TOOL_GET_DEFECT_TREND,
-            TOOL_GET_MOST_SEVERE_DEFECT,
-            TOOL_GET_TOP_DEFECT_SOURCES,
-            TOOL_GENERATE_SUMMARY_REPORT,
-            TOOL_CHECK_THRESHOLD_ALERTS,
-            TOOL_GET_DEFECT_INSIGHTS,
-            TOOL_GET_NOTIFICATION_PREFERENCES,
-            TOOL_QUERY_DETECTION_LOGS,
-        ]:
+        for tool in ALL_PCB_TOOLS:
             self.register(tool)
 
 
 # ── Context allowlist ─────────────────────────────────────────────────────
 
-_TOOL_PARAM_ALLOWLIST: Dict[str, FrozenSet[str]] = {
+TOOL_PARAM_ALLOWLIST: Dict[str, FrozenSet[str]] = {
     "get_latest_pcb_frames": frozenset(["limit", "unconsumed_only"]),
     "inspect_pcb_frame": frozenset(["frame_id", "query", "auto_log"]),
     "inspect_pcb": frozenset(["query"]),
@@ -390,7 +374,7 @@ _TOOL_PARAM_ALLOWLIST: Dict[str, FrozenSet[str]] = {
     "generate_defect_report": frozenset(["board_type"]),
     "start_defect_monitoring": frozenset(),
     "stop_defect_monitoring": frozenset(),
-    "query_pcb_inspections": frozenset(["limit", "result_filter"]),
+    "query_pcb_inspections": frozenset(["limit", "result_filter", "hours"]),
     # Monitoring analytics & chat queries
     "get_monitoring_status": frozenset(),
     "toggle_email_notifications": frozenset(["enabled", "min_severity", "recipients"]),
@@ -408,7 +392,7 @@ _TOOL_PARAM_ALLOWLIST: Dict[str, FrozenSet[str]] = {
     "query_detection_logs": frozenset(["limit", "hours", "detected_only", "include_defects"]),
 }
 
-_HOURS_AWARE_TOOLS: FrozenSet[str] = frozenset({
+HOURS_AWARE_TOOLS: FrozenSet[str] = frozenset({
     "get_defect_summary",
     "count_defective_pcbs",
     "get_defect_type_breakdown",
@@ -417,266 +401,5 @@ _HOURS_AWARE_TOOLS: FrozenSet[str] = frozenset({
     "get_top_defect_sources",
     "get_defect_insights",
     "query_detection_logs",
+    "query_pcb_inspections",
 })
-
-
-def _infer_hours_from_message(user_message: str) -> Optional[float]:
-    """Infer a time window in hours from natural-language temporal phrases.
-
-    This is a deterministic fallback used when the LLM classifier does not
-    provide ``hours`` for analytics tools that support time windows.
-    """
-    if not user_message:
-        return None
-
-    text = user_message.strip().lower()
-    if not text:
-        return None
-
-    # Common natural-language shorthands.
-    if "today" in text:
-        return 24.0
-    if "last hour" in text or "past hour" in text:
-        return 1.0
-    if "last day" in text or "past day" in text or "daily" in text:
-        return 24.0
-    if "last week" in text or "past week" in text or "weekly" in text:
-        return 168.0
-
-    # Numeric windows: "last 6 hours", "past 2 days", etc.
-    match = re.search(r"(?:last|past)\s+(\d+(?:\.\d+)?)\s*(hour|hours|hr|hrs|day|days|week|weeks)", text)
-    if not match:
-        return None
-
-    quantity = float(match.group(1))
-    unit = match.group(2)
-
-    if unit in ("hour", "hours", "hr", "hrs"):
-        return quantity
-    if unit in ("day", "days"):
-        return quantity * 24.0
-    if unit in ("week", "weeks"):
-        return quantity * 168.0
-    return None
-
-
-# ── Interpreter ───────────────────────────────────────────────────────────
-
-class PCBInterpreter:
-    """Intent interpreter for PCB inspection — LLM-first with keyword fallback."""
-
-    # All tools registered in the PCB registry are available to the agent.
-    # No static whitelist — the registry is the single source of truth.
-
-    def __init__(self, registry: Optional[PCBToolRegistry] = None):
-        self.registry = registry or PCBToolRegistry()
-        self.audit_log = get_audit_log()
-
-    def interpret(
-        self,
-        user_message: str,
-        agent_state: AgentState,
-        session_id: Optional[str] = None,
-    ) -> Optional[MCPToolCallProposal]:
-        start_time = time.time()
-
-        self.audit_log.log(AuditLogEntry.create(
-            event_type=AuditEventType.INTENT_DETECTED,
-            details={"message": user_message[:500], "agent_state": agent_state.value, "domain": "pcb"},
-            session_id=session_id,
-        ))
-
-        from agents.classifiers.llm_classifier import get_classifier
-
-        result = get_classifier().classify(user_message)
-        logger.info(
-            "PCB interpreter: LLM classified as domain=%s tool=%s confidence=%.2f source=%s",
-            result.domain, result.tool, result.confidence, result.source,
-        )
-
-        if result.domain != "pcb" or not result.tool:
-            return None
-
-        if result.tool in ("start_defect_monitoring", "stop_defect_monitoring"):
-            logger.info(
-                "PCB interpreter: deprecated tool '%s' suggested; deferring to general session tools",
-                result.tool,
-            )
-            return None
-
-        tool_def = self.registry.get(result.tool)
-        if not tool_def:
-            return None
-
-        # Runtime state policy is enforced by the executor.
-
-        arguments: Dict[str, Any] = {}
-        allowed = _TOOL_PARAM_ALLOWLIST.get(result.tool, frozenset())
-        for key, value in result.params.items():
-            if key in allowed and value is not None:
-                arguments[key] = value
-
-        if result.tool in _HOURS_AWARE_TOOLS:
-            raw_hours = arguments.get("hours")
-            parsed_hours: Optional[float] = None
-            if raw_hours is not None:
-                try:
-                    parsed_hours = float(raw_hours)
-                except (TypeError, ValueError):
-                    parsed_hours = None
-
-            if parsed_hours is not None and parsed_hours > 0:
-                arguments["hours"] = parsed_hours
-            else:
-                inferred_hours = _infer_hours_from_message(user_message)
-                if inferred_hours is not None and inferred_hours > 0:
-                    arguments["hours"] = inferred_hours
-                else:
-                    arguments.pop("hours", None)
-
-        if result.tool == "inspect_pcb" and "query" not in arguments:
-            arguments["query"] = user_message
-
-        if result.tool in ("send_defect_alert", "start_defect_monitoring"):
-            recipients = resolve_recipients(arguments, user_message)
-            if recipients:
-                arguments["recipients"] = recipients
-
-        proposal = MCPToolCallProposal.create(
-            tool_name=result.tool,
-            arguments=arguments,
-            rationale=result.rationale or f"LLM classified as {result.tool}",
-            confidence=result.confidence,
-            requires_confirmation=tool_def.requires_confirmation,
-            session_id=session_id,
-        )
-
-        latency_ms = (time.time() - start_time) * 1000
-        self.audit_log.log(AuditLogEntry.create(
-            event_type=AuditEventType.TOOL_PROPOSED,
-            details={"proposal_id": proposal.id, "tool_name": proposal.tool_name, "arguments": proposal.arguments, "domain": "pcb"},
-            session_id=session_id,
-            latency_ms=latency_ms,
-        ))
-        return proposal
-
-
-# ── Executor ──────────────────────────────────────────────────────────────
-
-class PCBExecutor(BaseDomainExecutor):
-    """Executes approved PCB tool call proposals."""
-
-    _domain_label = "pcb"
-
-    def __init__(
-        self,
-        registry: Optional[PCBToolRegistry] = None,
-        state_machine=None,
-        context: Optional[Dict[str, Any]] = None,
-        invoke_timeout: int = 60,
-    ):
-        reg = registry or PCBToolRegistry()
-        super().__init__(
-            registry=reg,
-            state_machine=state_machine or get_agent_state_machine(),
-            audit_log=get_audit_log(),
-            context=context,
-            invoke_timeout=invoke_timeout,
-        )
-
-    def _invoke(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        from agents.tools.pcb import (
-            tool_get_latest_pcb_frames,
-            tool_inspect_pcb_frame,
-            tool_inspect_pcb,
-            tool_classify_board,
-            tool_send_defect_alert,
-            tool_log_defect,
-            tool_generate_defect_report,
-            tool_start_defect_monitoring,
-            tool_stop_defect_monitoring,
-            tool_query_pcb_inspections,
-            # Monitoring analytics & chat queries
-            tool_get_monitoring_status,
-            tool_toggle_email_notifications,
-            tool_get_defect_summary,
-            tool_count_defective_pcbs,
-            tool_get_latest_defect,
-            tool_get_defect_type_breakdown,
-            tool_get_defect_trend,
-            tool_get_most_severe_defect,
-            tool_get_top_defect_sources,
-            tool_generate_summary_report,
-            tool_check_threshold_alerts,
-            tool_get_defect_insights,
-            tool_get_notification_preferences,
-            tool_query_detection_logs,
-        )
-
-        handlers = {
-            "get_latest_pcb_frames": tool_get_latest_pcb_frames,
-            "inspect_pcb_frame": tool_inspect_pcb_frame,
-            "inspect_pcb": tool_inspect_pcb,
-            "classify_board": tool_classify_board,
-            "send_defect_alert": tool_send_defect_alert,
-            "log_defect": tool_log_defect,
-            "generate_defect_report": tool_generate_defect_report,
-            "start_defect_monitoring": tool_start_defect_monitoring,
-            "stop_defect_monitoring": tool_stop_defect_monitoring,
-            "query_pcb_inspections": tool_query_pcb_inspections,
-            # Monitoring analytics & chat queries
-            "get_monitoring_status": tool_get_monitoring_status,
-            "toggle_email_notifications": tool_toggle_email_notifications,
-            "get_defect_summary": tool_get_defect_summary,
-            "count_defective_pcbs": tool_count_defective_pcbs,
-            "get_latest_defect": tool_get_latest_defect,
-            "get_defect_type_breakdown": tool_get_defect_type_breakdown,
-            "get_defect_trend": tool_get_defect_trend,
-            "get_most_severe_defect": tool_get_most_severe_defect,
-            "get_top_defect_sources": tool_get_top_defect_sources,
-            "generate_summary_report": tool_generate_summary_report,
-            "check_threshold_alerts": tool_check_threshold_alerts,
-            "get_defect_insights": tool_get_defect_insights,
-            "get_notification_preferences": tool_get_notification_preferences,
-            "query_detection_logs": tool_query_detection_logs,
-        }
-
-        handler = handlers.get(tool_name)
-        if not handler:
-            raise ValueError(f"No PCB handler for: {tool_name}")
-
-        allowed = _TOOL_PARAM_ALLOWLIST.get(tool_name, frozenset())
-        filtered = {k: v for k, v in arguments.items() if k in allowed}
-        return handler(**filtered)
-
-
-# ── Singletons ────────────────────────────────────────────────────────────
-
-_pcb_registry: Optional[PCBToolRegistry] = None
-_pcb_interpreter: Optional[PCBInterpreter] = None
-_pcb_executor: Optional[PCBExecutor] = None
-_pcb_lock = threading.RLock()
-
-
-def get_pcb_registry() -> PCBToolRegistry:
-    global _pcb_registry
-    with _pcb_lock:
-        if _pcb_registry is None:
-            _pcb_registry = PCBToolRegistry()
-        return _pcb_registry
-
-
-def get_pcb_interpreter() -> PCBInterpreter:
-    global _pcb_interpreter
-    with _pcb_lock:
-        if _pcb_interpreter is None:
-            _pcb_interpreter = PCBInterpreter(get_pcb_registry())
-        return _pcb_interpreter
-
-
-def get_pcb_executor() -> PCBExecutor:
-    global _pcb_executor
-    with _pcb_lock:
-        if _pcb_executor is None:
-            _pcb_executor = PCBExecutor(get_pcb_registry())
-        return _pcb_executor

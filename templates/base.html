@@ -43,8 +43,18 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-    <!-- iOS 26 / macOS 26 Liquid Glass Design System -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/liquid-glass.css') }}" />
+    <!-- iOS 26 / macOS 26 Liquid Glass Design System (modular) -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/glass.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/navigation.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/buttons.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/forms.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tables.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modals.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/feedback.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/utilities.css') }}" />
 
     {% block extra_head %}{% endblock %}
 </head>
@@ -60,15 +70,6 @@
     <div class="app-shell">
         <aside id="app-sidebar" class="sidebar-glass app-sidebar select-none">
             <div class="sidebar-brand">
-                <img
-                    id="app-logo"
-                    src="{{ url_for('static', filename='logo-light.png') }}"
-                    data-logo-light="{{ url_for('static', filename='logo-light.png') }}"
-                    data-logo-dark="{{ url_for('static', filename='logo-dark.png') }}"
-                    class="h-8 opacity-95"
-                    alt="AI Flows"
-                    style="height: 28px; width: auto; flex-shrink: 0; object-fit: contain;"
-                />
                 <span class="sidebar-label text-subhead font-semibold" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">ZEDEDA Camera Agent</span>
             </div>
 
@@ -108,9 +109,9 @@
                         src="{{ url_for('static', filename='logo-light.png') }}"
                         data-logo-light="{{ url_for('static', filename='logo-light.png') }}"
                         data-logo-dark="{{ url_for('static', filename='logo-dark.png') }}"
-                        class="h-8 opacity-95"
+                        class="h-9 opacity-95"
                         alt="AI Flows"
-                        style="height: 28px; width: auto; object-fit: contain;"
+                        style="height: 32px; width: auto; object-fit: contain;"
                     />
                 </div>
 
@@ -305,6 +306,14 @@
                         <i id="settings-theme-icon" class="fas fa-moon"></i>
                         <span id="settings-theme-label">Enable Dark Theme</span>
                     </button>
+                </section>
+
+                <section class="settings-section">
+                    <h3 class="settings-section-title">Advanced</h3>
+                    <a href="{{ url_for('views.settings') }}" class="btn btn-secondary hover-sweep w-full justify-center">
+                        <i class="fas fa-sliders-h"></i>
+                        <span>Open Settings Page</span>
+                    </a>
                 </section>
             </div>
         </div>

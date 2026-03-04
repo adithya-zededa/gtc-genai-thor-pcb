@@ -4,15 +4,19 @@ from .task_types import TaskType
 from .prompts import (
     TASK_PROMPTS,
     DEFAULT_DETECTION_PROMPT,
+    DEFAULT_MONITORING_DEFECT_PROMPT,
     CUSTOM_QUERY_TEMPLATE,
+    build_prompt,
+    build_agentic_prompt,
+    build_tools_prompt,
 )
+
 from .client import (
     VLMBackend,
     UnifiedVLMClient,
     AnalysisResult,
     DetectionResult,
     AgenticResult,
-    ALERT_CONDITIONS,
 )
 
 __all__ = [
@@ -21,12 +25,16 @@ __all__ = [
     # Prompts
     "TASK_PROMPTS",
     "DEFAULT_DETECTION_PROMPT",
+    "DEFAULT_MONITORING_DEFECT_PROMPT",
     "CUSTOM_QUERY_TEMPLATE",
+    "build_prompt",
+    "build_agentic_prompt",
+    "build_tools_prompt",
+
     # Client
     "VLMBackend",
     "UnifiedVLMClient",
     "AnalysisResult",
     "DetectionResult",
     "AgenticResult",
-    "ALERT_CONDITIONS",
 ]

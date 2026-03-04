@@ -1,0 +1,210 @@
+/* ===================================================================
+   Glass — Core glass material surfaces and card components
+   Provides the frosted-glass visual language for panels and cards.
+   =================================================================== */
+
+/* -------------------------------------------------- */
+/* Base Glass Surface                                  */
+/* -------------------------------------------------- */
+.glass {
+    background:
+        var(--glass-surface-gradient),
+        var(--material-regular);
+    backdrop-filter: blur(var(--blur-xl)) saturate(var(--saturate-glass));
+    -webkit-backdrop-filter: blur(var(--blur-xl)) saturate(var(--saturate-glass));
+    border: 1px solid var(--border-glass-inner);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-glass-glow);
+    position: relative;
+    overflow: hidden;
+}
+
+/* Specular highlight edge (top) — purely decorative */
+.glass::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--specular-edge);
+    opacity: 0.8;
+    pointer-events: none !important;
+    z-index: 0;
+}
+
+/* -------------------------------------------------- */
+/* Glass Variants                                      */
+/* -------------------------------------------------- */
+
+/* Thin glass */
+.glass-thin {
+    background: var(--material-thin);
+    backdrop-filter: blur(var(--blur-md)) saturate(var(--saturate-subtle));
+    -webkit-backdrop-filter: blur(var(--blur-md)) saturate(var(--saturate-subtle));
+    border: 0.5px solid var(--border-glass);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-glass-sm);
+}
+
+/* Ultra-thin glass */
+.glass-ultra-thin {
+    background: var(--material-ultra-thin);
+    backdrop-filter: blur(var(--blur-sm)) saturate(1.1);
+    -webkit-backdrop-filter: blur(var(--blur-sm)) saturate(1.1);
+    border: 0.5px solid var(--glass-ultra-border);
+    border-radius: var(--radius-sm);
+}
+
+/* Thick / prominent glass */
+.glass-thick {
+    background: var(--material-thick);
+    backdrop-filter: blur(var(--blur-xl)) saturate(var(--saturate-glass));
+    -webkit-backdrop-filter: blur(var(--blur-xl)) saturate(var(--saturate-glass));
+    border: 0.5px solid var(--border-glass-inner);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-glass-lg);
+}
+
+/* Chrome (window-like) glass */
+.glass-chrome {
+    background: var(--material-chrome);
+    backdrop-filter: blur(var(--blur-ultra)) saturate(var(--saturate-glass));
+    -webkit-backdrop-filter: blur(var(--blur-ultra)) saturate(var(--saturate-glass));
+    border: 0.5px solid var(--border-glass-inner);
+    border-radius: var(--radius-2xl);
+    box-shadow: var(--shadow-glass-lg);
+}
+
+/* -------------------------------------------------- */
+/* Glass Card (depth-layered)                          */
+/* -------------------------------------------------- */
+.glass-card {
+    background:
+        var(--glass-card-gradient),
+        var(--material-regular);
+    backdrop-filter: blur(var(--blur-xl)) saturate(var(--saturate-glass));
+    -webkit-backdrop-filter: blur(var(--blur-xl)) saturate(var(--saturate-glass));
+    border: 1px solid var(--border-glass-inner);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-glass-glow);
+    padding: 1.25rem;
+    position: relative;
+    overflow: hidden;
+    transition:
+        transform var(--duration-normal) var(--ease-out-expo),
+        box-shadow var(--duration-normal) var(--ease-out-expo);
+}
+
+.glass-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg,
+        transparent 0%,
+        var(--specular-highlight) 50%,
+        transparent 100%);
+    opacity: 0.7;
+    pointer-events: none !important;
+    z-index: 0;
+}
+
+.glass-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background:
+        radial-gradient(160px 160px at 12% 10%, var(--glass-card-bloom-1), transparent 60%),
+        radial-gradient(180px 180px at 88% 0%, var(--glass-card-bloom-2), transparent 62%);
+    opacity: var(--glass-card-bloom-opacity);
+    mix-blend-mode: var(--glass-card-bloom-blend);
+    pointer-events: none !important;
+    z-index: 0;
+}
+
+.glass-card:hover {
+    transform: translateY(-2px) scale(1.005);
+    box-shadow: var(--shadow-glass-lg);
+}
+
+/* -------------------------------------------------- */
+/* Colored Glass Variants                              */
+/* -------------------------------------------------- */
+.glass-blue,
+.glass-green,
+.glass-orange,
+.glass-red,
+.glass-purple {
+    background: var(--material-regular);
+    backdrop-filter: blur(var(--blur-md)) saturate(var(--saturate-subtle));
+    -webkit-backdrop-filter: blur(var(--blur-md)) saturate(var(--saturate-subtle));
+    border: 0.5px solid var(--border-glass);
+    box-shadow: var(--shadow-glass-sm);
+}
+
+/* -------------------------------------------------- */
+/* Material Theme Overrides — flat surfaces            */
+/* Simplifies glass to solid backgrounds for clarity   */
+/* -------------------------------------------------- */
+.glass,
+.glass-card,
+.glass-thin,
+.glass-ultra-thin,
+.glass-thick,
+.glass-chrome {
+    background: var(--bg-solid);
+    border: 1px solid var(--border-separator);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.glass {
+    border-radius: var(--radius-lg);
+}
+
+.glass-card {
+    border-radius: var(--radius-xl);
+}
+
+.glass-card::before,
+.glass-card::after,
+.glass::before {
+    display: none;
+}
+
+.glass-card:hover {
+    transform: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* Stacking context for glass containers */
+.glass-card,
+.glass,
+.glass-thin,
+.glass-thick,
+.glass-ultra-thin,
+.glass-chrome {
+    position: relative;
+    isolation: isolate;
+}
+
+/* Absolute positioned decorative elements inside cards should never block */
+.glass-card > .absolute,
+.glass > .absolute {
+    pointer-events: none;
+}
+
+/* But allow interactive elements inside to work */
+.glass-card > .absolute button,
+.glass-card > .absolute a,
+.glass-card > .absolute input,
+.glass > .absolute button,
+.glass > .absolute a,
+.glass > .absolute input {
+    pointer-events: auto !important;
+}

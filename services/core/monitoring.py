@@ -38,6 +38,7 @@ from agents.core.detection_agent import StreamlinedAgent
 from agents.core.monitoring_loop import MonitoringLoop
 from core.resilience import CircuitBreaker
 from agents.vlm.task_types import TaskType
+from agents.vlm.prompts import DEFAULT_MONITORING_DEFECT_PROMPT
 from agents.core.state import DetectionEvent
 from services.core.camera import get_camera_publisher
 from services.infrastructure.vlm import create_vlm_client_from_config
@@ -45,39 +46,6 @@ from services.infrastructure.config import load_camera_config
 from core.logging import get_logger
 
 logger = get_logger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Default prompt
-# ---------------------------------------------------------------------------
-
-DEFAULT_MONITORING_DEFECT_PROMPT = """You are a PCB quality inspector. Look at this image and answer the questions below. Output ONLY valid JSON.
-
-This is an Arduino Uno R4 Minima PCB on a green surface.
-
-Answer each question by describing ONLY what you see in the image. Do NOT repeat my instructions back. Do NOT guess. If you cannot see a location clearly, say "uncertain".
-
-Q1: Look at the LEFT EDGE of the board, upper area. Is there a tall black cylindrical barrel jack connector there? Describe the shape, color, and height of whatever object is at that location. If you only see flat copper pads or bare solder points with no tall connector, it is missing.
-
-Q2: Look at the TOP EDGE. Is there a USB port? Describe it.
-
-Q3: Look at the header pins along the LEFT EDGE (below the power area) and the BOTTOM EDGE. Do the header pins have small black plastic caps on them? Check both sides.
-
-Q4: Any other defects? (solder bridges, missing parts, cold joints, trace damage, mechanical damage)
-
-Based on your answers, fill in this JSON:
-{
-    "detected": true if ANY connector is missing/damaged or ANY defect found, otherwise false,
-    "confidence": float 0-1,
-    "reasoning": "your observations from Q1-Q4",
-    "should_alert": true if detected is true,
-    "details": {
-        "power_jack_status": "present_intact or missing or damaged or uncertain",
-        "uart_cap_status": "present_both_sides or missing_one_side or missing_both_sides or uncertain",
-        "defects": []
-    }
-}
-"""
 
 
 # ---------------------------------------------------------------------------
@@ -734,6 +702,15 @@ class StreamlinedMonitoringService:
             return
 
         try:
+            # Enrich decision_details with token usage and tool sequence
+            decision_details = dict(event.decision_trace or {})
+            token_usage = getattr(event, "token_usage", {})
+            if token_usage:
+                decision_details["token_usage"] = token_usage
+            tools_used = getattr(event, "tools_used", [])
+            if tools_used:
+                decision_details["tools_used"] = tools_used
+
             log_id = repo.create(
                 timestamp=event.timestamp,
                 confidence=event.confidence,
@@ -742,7 +719,7 @@ class StreamlinedMonitoringService:
                 frame_number=metadata.get("frame_number"),
                 reason=str(metadata.get("reason") or ""),
                 vision_description=getattr(event, "vision_description", ""),
-                decision_details=event.decision_trace,
+                decision_details=decision_details,
                 tool_trace=getattr(event, "tool_trace", []),
             )
 

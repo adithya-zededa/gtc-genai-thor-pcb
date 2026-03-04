@@ -143,7 +143,7 @@ Scope constraint:
 | generate_defect_report | User wants a report or summary of past defects (legacy report tool). |
 | start_defect_monitoring | Deprecated. Avoid selecting this tool; prefer general-domain session controls. |
 | stop_defect_monitoring | Deprecated. Avoid selecting this tool; prefer `end_session` or `go_idle`. |
-| query_pcb_inspections  | User asks about past inspections, how many defects were found, pass/fail rates, PCB history, what PCBs were detected, or any question about previously inspected boards. |
+| query_pcb_inspections  | User asks about past inspections, how many defects were found, pass/fail rates, PCB history, what PCBs were detected, or any question about previously inspected boards. Supports time-window filtering via `hours` parameter. |
 | get_monitoring_status  | User asks about the current monitoring status — is it running, what's been detected so far, how many defects total, recent activity. |
 | toggle_email_notifications | User wants to enable, disable, or configure email notifications for defects. Also use when user sets severity threshold or adds/removes notification recipients. |
 | get_defect_summary     | User wants a summary of defects for a time period, specific log, or board type. "Show me defects from the last hour", "summarize today's defects". |

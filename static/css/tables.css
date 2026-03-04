@@ -1,0 +1,39 @@
+/* ===================================================================
+   Tables — Glass-themed data tables
+   =================================================================== */
+
+.table-glass {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.table-glass thead th {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+    border-bottom: 0.5px solid var(--border-separator);
+}
+
+.table-glass tbody td {
+    padding: 0.875rem 1rem;
+    font-size: var(--text-sm);
+    color: var(--text-primary);
+    border-bottom: 0.5px solid var(--border-subtle);
+}
+
+.table-glass tbody tr {
+    transition: background var(--duration-fast);
+}
+
+.table-glass tbody tr:hover {
+    background: var(--material-ultra-thin);
+}
+
+.table-glass tbody tr:last-child td {
+    border-bottom: none;
+}

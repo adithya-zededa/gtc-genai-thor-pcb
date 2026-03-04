@@ -1,0 +1,138 @@
+/* ===================================================================
+   Layout — App shell, content areas, responsive breakpoints, print
+   Structural containers and responsive behaviour.
+   =================================================================== */
+
+/* -------------------------------------------------- */
+/* App Shell                                           */
+/* -------------------------------------------------- */
+body {
+    background: var(--bg-ambient);
+}
+
+.app-shell {
+    display: flex;
+    min-height: 100vh;
+}
+
+.app-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.content-main {
+    flex: 1;
+    width: 100%;
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+/* Main content area must be above decorative layers */
+main, .main-content, [role="main"] {
+    position: relative;
+    z-index: 10;
+}
+
+/* -------------------------------------------------- */
+/* Responsive Breakpoints                              */
+/* -------------------------------------------------- */
+@media (max-width: 768px) {
+    :root {
+        --blur-lg: 30px;
+        --blur-xl: 40px;
+    }
+
+    .dock-glass {
+        bottom: 12px;
+        padding: 8px 12px;
+        gap: 4px;
+    }
+
+    .dock-item {
+        width: 40px;
+        height: 40px;
+        font-size: 16px;
+    }
+
+    .sidebar-glass {
+        position: fixed;
+        left: 0;
+        top: 0;
+        z-index: var(--z-modal);
+        transform: translateX(-100%);
+        transition: transform var(--duration-normal) var(--ease-out-expo);
+    }
+
+    .sidebar-glass.open {
+        transform: translateX(0);
+    }
+
+    .navbar-floating {
+        width: calc(100% - 24px);
+        top: 8px;
+    }
+}
+
+@media (max-width: 1024px) {
+    .sidebar-glass.app-sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        transform: translateX(-100%);
+        width: 272px;
+        min-width: 272px;
+        z-index: var(--z-modal);
+    }
+
+    .sidebar-glass.app-sidebar.open {
+        transform: translateX(0);
+    }
+
+    .app-sidebar.collapsed {
+        width: 272px;
+        min-width: 272px;
+        padding: 1rem 0.75rem;
+        margin-left: 0;
+        border-right: 1px solid var(--border-separator);
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .content-main,
+    .navbar-glass {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    .settings-panel {
+        width: calc(100% - 1rem);
+        max-width: none;
+        height: calc(100% - 1rem);
+        margin: 0.5rem;
+    }
+}
+
+/* -------------------------------------------------- */
+/* Print Styles                                        */
+/* -------------------------------------------------- */
+@media print {
+    body::before,
+    .dock-glass,
+    .sidebar-glass,
+    .toast-container {
+        display: none !important;
+    }
+
+    .glass,
+    .glass-card {
+        background: white !important;
+        box-shadow: none !important;
+        border: 1px solid #ddd !important;
+    }
+}

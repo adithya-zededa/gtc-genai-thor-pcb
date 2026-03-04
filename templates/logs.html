@@ -398,19 +398,42 @@
         let toolTraceHtml = '';
         const toolTrace = log.tool_trace || (log.decision_details && log.decision_details.tool_trace) || [];
         if (Array.isArray(toolTrace) && toolTrace.length > 0) {
-            const toolItems = toolTrace.map(t => {
+            const toolItems = toolTrace.map((t, idx) => {
                 const success = t.success ? '✅' : '❌';
                 return `<div class="flex items-center gap-2 py-1.5 px-2 rounded" style="background: ${t.success ? 'rgba(52, 199, 89, 0.1)' : 'rgba(255, 59, 48, 0.1)'};">
+                    <span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-[10px] font-bold" style="background: linear-gradient(135deg, var(--system-purple) 0%, var(--system-indigo) 100%);">${idx + 1}</span>
                     <span>${success}</span>
                     <span class="font-medium text-primary">${escapeHtml(t.tool)}</span>
                     ${t.arguments && t.arguments.email ? `<span class="text-tertiary text-xs">→ ${escapeHtml(t.arguments.email)}</span>` : ''}
                 </div>`;
             }).join('');
+
+            // Tool sequence flow
+            const toolFlow = toolTrace.map(t => escapeHtml(t.tool)).join(' → ');
             
             toolTraceHtml = `
                 <div class="mt-3">
                     <p class="font-semibold mb-2" style="color: var(--system-purple);"><i class="fas fa-tools mr-1"></i>Tool Calls</p>
+                    <div class="text-xs mb-2 px-2 py-1.5 rounded" style="background: var(--material-thin); color: var(--text-secondary);">
+                        <i class="fas fa-stream mr-1"></i>${toolFlow}
+                    </div>
                     <div class="space-y-1">${toolItems}</div>
+                </div>
+            `;
+        }
+
+        // Build token usage section if available
+        let tokenUsageHtml = '';
+        const tokenUsage = log.token_usage || (log.decision_details && log.decision_details.token_usage) || {};
+        if (tokenUsage && tokenUsage.total_tokens > 0) {
+            tokenUsageHtml = `
+                <div class="mt-3">
+                    <p class="font-semibold mb-2" style="color: var(--system-orange);"><i class="fas fa-coins mr-1"></i>Token Usage</p>
+                    <div class="flex gap-4 text-xs">
+                        <span class="px-2 py-1 rounded" style="background: var(--material-thin);">Prompt: <strong>${(tokenUsage.prompt_tokens || 0).toLocaleString()}</strong></span>
+                        <span class="px-2 py-1 rounded" style="background: var(--material-thin);">Completion: <strong>${(tokenUsage.completion_tokens || 0).toLocaleString()}</strong></span>
+                        <span class="px-2 py-1 rounded font-semibold" style="background: var(--system-orange-glass); color: var(--system-orange);">Total: ${(tokenUsage.total_tokens || 0).toLocaleString()}</span>
+                    </div>
                 </div>
             `;
         }
@@ -424,25 +447,63 @@
                         <div class="whitespace-pre-line break-words rounded-md p-3" style="background: var(--bg-solid); border: 1px solid var(--border-separator);">${visionBlock}</div>
                     </div>
                     ${toolTraceHtml}
+                    ${tokenUsageHtml}
                     <div>
                         <p class="font-semibold text-secondary mb-1">Decision Details</p>
                         <div class="space-y-2">${decisionHtml}</div>
+                    </div>
+                    <div class="flex gap-2 pt-2" style="border-top: 0.5px solid var(--border-separator);">
+                        <a href="/logs/${log.id}" class="text-xs font-medium px-2.5 py-1 rounded-lg" style="background: var(--system-blue-glass); color: var(--system-blue);">
+                            <i class="fas fa-file-alt mr-1"></i>Details
+                        </a>
+                        <a href="/logs/${log.id}/diagnostics" class="text-xs font-medium px-2.5 py-1 rounded-lg" style="background: var(--system-purple-glass); color: var(--system-purple);">
+                            <i class="fas fa-microscope mr-1"></i>Diagnostics
+                        </a>
                     </div>
                 </div>
             </details>
         `;
     }
     
+    async function fetchAllLogsFromApi() {
+        const statusFilter = document.getElementById('status-filter')?.value || 'all';
+        const detectedOnly = statusFilter === 'detected';
+        const perPage = 200;
+        let page = 1;
+        const allLogs = [];
+
+        while (true) {
+            const result = await apiCall(`/api/logs?page=${page}&per_page=${perPage}&detected_only=${detectedOnly}`);
+            if (!result || result.success === false) {
+                break;
+            }
+
+            const logs = Array.isArray(result.logs) ? result.logs : [];
+            allLogs.push(...logs);
+
+            const hasNext = Boolean(result.pagination && result.pagination.has_next);
+            if (!hasNext) {
+                break;
+            }
+
+            page += 1;
+            if (page > 500) {
+                break;
+            }
+        }
+
+        return allLogs;
+    }
+
     // Load logs
     async function loadLogs() {
         showLoading(true);
-        const result = await apiCall('/api/logs');
-        showLoading(false);
-        
-        if (result) {
-            currentLogs = result.logs || [];
+        try {
+            currentLogs = await fetchAllLogsFromApi();
             applyFilters();
             updateSummaryStats();
+        } finally {
+            showLoading(false);
         }
     }
     
@@ -767,20 +828,66 @@
     
     // Export logs
     async function exportLogs() {
-        const result = await apiCall('/api/logs/export', {
-            method: 'POST',
-            body: JSON.stringify({
-                filters: {
-                    date: document.getElementById('date-filter').value,
-                    status: document.getElementById('status-filter').value,
-                    search: document.getElementById('search-logs').value
+        const requestedFormat = window.prompt('Export format (csv or json):', 'csv');
+        if (requestedFormat === null) {
+            return;
+        }
+
+        const format = (requestedFormat || 'csv').trim().toLowerCase() === 'json' ? 'json' : 'csv';
+
+        showLoading(true);
+        try {
+            const response = await fetch('/api/logs/export', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    format,
+                    filters: {
+                        date: document.getElementById('date-filter').value,
+                        status: document.getElementById('status-filter').value,
+                        search: document.getElementById('search-logs').value
+                    }
+                })
+            });
+
+            if (!response.ok) {
+                let errorMessage = 'Failed to export logs';
+                try {
+                    const errorPayload = await response.json();
+                    if (errorPayload && errorPayload.error) {
+                        errorMessage = errorPayload.error;
+                    }
+                } catch (_err) {
+                    // Ignore JSON parse errors for non-JSON error payloads
                 }
-            })
-        });
-        
-        if (result && result.download_url) {
-            window.open(result.download_url);
-            showToast('Logs exported successfully', 'success');
+                showToast(errorMessage, 'error');
+                return;
+            }
+
+            const contentDisposition = response.headers.get('Content-Disposition') || '';
+            const filenameMatch = contentDisposition.match(/filename=([^;]+)/i);
+            const fallbackExtension = format === 'json' ? 'json' : 'csv';
+            const filename = filenameMatch
+                ? filenameMatch[1].replace(/"/g, '').trim()
+                : `detection_logs_export.${fallbackExtension}`;
+
+            const blob = await response.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = downloadUrl;
+            anchor.download = filename;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            window.URL.revokeObjectURL(downloadUrl);
+
+            showToast(`Logs exported successfully as ${format.toUpperCase()}`, 'success');
+        } catch (error) {
+            showToast(`Failed to export logs: ${error.message}`, 'error');
+        } finally {
+            showLoading(false);
         }
     }
     
@@ -813,7 +920,9 @@
             applyFilters();
         });
         
-        document.getElementById('status-filter').addEventListener('change', applyFilters);
+        document.getElementById('status-filter').addEventListener('change', function() {
+            loadLogs();
+        });
         document.getElementById('search-logs').addEventListener('input', debounce(applyFilters, 300));
         document.getElementById('per-page').addEventListener('change', function() {
             itemsPerPage = parseInt(this.value);

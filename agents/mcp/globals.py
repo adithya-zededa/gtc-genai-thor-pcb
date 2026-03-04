@@ -9,11 +9,11 @@ import threading
 from typing import Optional
 
 from .audit import MCPAuditLog
-from .executor import MCPExecutor
-from .interpreter import MCPInterpreter
+from .domains.general.executor import MCPExecutor
+from .domains.general.interpreter import MCPInterpreter
+from .domains.general.tool_defs import GeneralToolRegistry
 from .registry import MCPToolRegistry
 from .state_machine import AgentStateMachine
-from .tool_defs import GeneralToolRegistry
 
 _agent_state_machine: Optional[AgentStateMachine] = None
 _audit_log: Optional[MCPAuditLog] = None

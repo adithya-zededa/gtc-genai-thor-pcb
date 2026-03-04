@@ -25,6 +25,7 @@ class DetectionEvent:
     should_alert: bool = True
     tools_used: List[str] = field(default_factory=list)
     tool_trace: List[Dict[str, Any]] = field(default_factory=list)
+    token_usage: Dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -41,6 +42,7 @@ class DetectionEvent:
             "should_alert": self.should_alert,
             "tools_used": self.tools_used,
             "tool_trace": self.tool_trace,
+            "token_usage": self.token_usage,
         }
 
 

@@ -57,11 +57,17 @@ spec:
               value: "/root/.cache/huggingface"
             - name: TRANSFORMERS_CACHE
               value: "/root/.cache/huggingface"
-            {{- if .Values.vllmServer.huggingfaceToken }}
+            {{- if or .Values.vllmServer.huggingfaceToken .Values.secrets.existingSecret }}
             - name: HUGGING_FACE_HUB_TOKEN
-              value: "{{ .Values.vllmServer.huggingfaceToken }}"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret | default (printf "%s-tokens" (include "camera-agent.fullname" .)) }}
+                  key: {{ .Values.secrets.huggingfaceTokenKey | default "hf-token" }}
             - name: HF_TOKEN
-              value: "{{ .Values.vllmServer.huggingfaceToken }}"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret | default (printf "%s-tokens" (include "camera-agent.fullname" .)) }}
+                  key: {{ .Values.secrets.huggingfaceTokenKey | default "hf-token" }}
             {{- end }}
             {{- range .Values.vllmServer.env }}
             - name: {{ .name }}

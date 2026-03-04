@@ -1,0 +1,299 @@
+/* ===================================================================
+   Utilities — Helper classes, animations, hover effects,
+   accessibility, and interactivity guarantees.
+   =================================================================== */
+
+/* -------------------------------------------------- */
+/* Color & Background Utilities                        */
+/* -------------------------------------------------- */
+.text-primary { color: var(--text-primary); }
+.text-secondary { color: var(--text-secondary); }
+.text-tertiary { color: var(--text-tertiary); }
+.text-blue { color: var(--system-blue); }
+.text-green { color: var(--system-green); }
+.text-orange { color: var(--system-orange); }
+.text-red { color: var(--system-red); }
+.text-purple { color: var(--system-purple); }
+
+.bg-glass { background: var(--material-regular); }
+.bg-glass-thin { background: var(--material-thin); }
+.bg-glass-thick { background: var(--material-thick); }
+
+.blur-sm { backdrop-filter: blur(var(--blur-sm)); }
+.blur-md { backdrop-filter: blur(var(--blur-md)); }
+.blur-lg { backdrop-filter: blur(var(--blur-lg)); }
+
+.rounded-glass { border-radius: var(--radius-lg); }
+.rounded-glass-xl { border-radius: var(--radius-xl); }
+
+/* Focus ring for accessibility */
+.focus-ring:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--system-blue-glass);
+}
+
+/* Vibrancy mix blend */
+.vibrancy {
+    mix-blend-mode: plus-lighter;
+}
+
+/* -------------------------------------------------- */
+/* Animations                                          */
+/* -------------------------------------------------- */
+
+/* Fade in */
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.animate-fade-in {
+    animation: fadeIn var(--duration-normal) var(--ease-liquid);
+}
+
+/* Slide up */
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-slide-up {
+    animation: slideUp var(--duration-normal) var(--ease-out-expo);
+}
+
+/* Scale in */
+@keyframes scaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.animate-scale-in {
+    animation: scaleIn var(--duration-normal) var(--ease-spring);
+}
+
+/* Glass morphing */
+@keyframes glassMorph {
+    0% {
+        backdrop-filter: blur(var(--blur-sm));
+        transform: scale(0.98);
+    }
+    100% {
+        backdrop-filter: blur(var(--blur-lg));
+        transform: scale(1);
+    }
+}
+
+.animate-glass-morph {
+    animation: glassMorph var(--duration-slow) var(--ease-out-expo);
+}
+
+/* -------------------------------------------------- */
+/* Hover Effects                                       */
+/* -------------------------------------------------- */
+
+/* Light sweep on hover — purely decorative */
+.hover-sweep {
+    position: relative;
+    overflow: hidden;
+}
+
+.hover-sweep::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(90deg,
+        transparent,
+        rgba(255, 255, 255, 0.25),
+        transparent);
+    transition: left var(--duration-slow) var(--ease-liquid);
+    pointer-events: none !important;
+    z-index: 0;
+}
+
+.hover-sweep:hover::after {
+    left: 100%;
+}
+
+/* Subtle parallax */
+.parallax-subtle {
+    transition: transform var(--duration-normal) var(--ease-out-expo);
+}
+
+.parallax-subtle:hover {
+    transform: translateY(-2px);
+}
+
+/* Liquid hover (refraction shift) */
+.liquid-hover {
+    transition:
+        transform var(--duration-normal) var(--ease-spring),
+        filter var(--duration-normal);
+}
+
+.liquid-hover:hover {
+    transform: scale(1.02) translateY(-1px);
+    filter: brightness(1.02);
+}
+
+/* Unified blue hover accent across interactive elements */
+@media (hover: hover) {
+    :where(
+        .btn,
+        .btn-icon,
+        .btn-secondary,
+        .btn-tertiary,
+        .sidebar-item,
+        .settings-panel,
+        .settings-status-card,
+        .glass-card,
+        .glass-thin,
+        .glass-ultra-thin,
+        .input-glass,
+        .modal-sheet,
+        button,
+        a[role="button"],
+        [role="button"],
+        input,
+        textarea,
+        select
+    ) {
+        transition:
+            border-color var(--duration-fast) var(--ease-liquid),
+            box-shadow var(--duration-fast) var(--ease-liquid),
+            background var(--duration-fast) var(--ease-liquid),
+            color var(--duration-fast) var(--ease-liquid),
+            transform var(--duration-fast) var(--ease-spring);
+    }
+
+    :where(
+        .btn,
+        .btn-icon,
+        .btn-secondary,
+        .btn-tertiary,
+        .sidebar-item,
+        .settings-panel,
+        .settings-status-card,
+        .glass-card,
+        .glass-thin,
+        .glass-ultra-thin,
+        .input-glass,
+        .modal-sheet,
+        button,
+        a[role="button"],
+        [role="button"],
+        input,
+        textarea,
+        select
+    ):hover:not(:disabled):not(.active) {
+        border-color: color-mix(in srgb, var(--system-blue) 42%, var(--border-separator));
+        box-shadow: 0 0 0 1px var(--system-blue-glass);
+    }
+}
+
+/* -------------------------------------------------- */
+/* Focus & Accessibility                               */
+/* -------------------------------------------------- */
+
+/* Global focus-visible for keyboard navigation */
+:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--system-blue-glass), 0 0 0 1px var(--system-blue) !important;
+}
+
+/* Button focus states */
+.btn:focus-visible,
+.quick-action-btn:focus-visible,
+.dock-item:focus-visible,
+.tool-item:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--system-blue-glass), 0 0 0 1px var(--system-blue);
+}
+
+/* Input focus enhancement */
+.input-glass:focus-visible,
+.chat-input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+    border-color: var(--system-blue);
+    box-shadow: 0 0 0 3px var(--system-blue-glass), var(--shadow-glass-sm);
+}
+
+/* Toggle focus */
+.toggle-glass:focus-within .toggle-track {
+    box-shadow: 0 0 0 3px var(--system-blue-glass);
+}
+
+/* Card/panel focus for keyboard navigation */
+.glass-card:focus-visible,
+.tool-item:focus-visible {
+    box-shadow: var(--shadow-glass-md), 0 0 0 2px var(--system-blue-glass);
+}
+
+/* -------------------------------------------------- */
+/* Interactivity Guarantees                            */
+/* Ensures all interactive elements remain clickable   */
+/* -------------------------------------------------- */
+
+/* All interactive elements must explicitly allow pointer events */
+button,
+a,
+input,
+textarea,
+select,
+label,
+[role="button"],
+[tabindex],
+.btn,
+.btn-primary,
+.btn-secondary,
+.btn-tertiary,
+.btn-icon,
+.btn-fab,
+.dock-item,
+.sidebar-item,
+.toggle-glass,
+.quick-action-btn,
+.chat-send-btn,
+.tool-item,
+.context-menu-item {
+    pointer-events: auto !important;
+    cursor: pointer;
+    position: relative;
+    z-index: 1;
+}
+
+/* Disabled elements should show not-allowed cursor */
+button:disabled,
+input:disabled,
+textarea:disabled,
+select:disabled,
+.btn:disabled {
+    cursor: not-allowed;
+    pointer-events: auto !important;
+}
+
+/* Input elements need auto cursor */
+input:not([type="button"]):not([type="submit"]):not([type="reset"]),
+textarea,
+select {
+    cursor: text;
+}
+
+select {
+    cursor: pointer;
+}

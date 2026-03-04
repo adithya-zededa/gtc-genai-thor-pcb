@@ -5,7 +5,7 @@ replicaCount: 1
 image:
   repository: adithyazededa/gtc-genai-thor-pcb
   pullPolicy: Always
-  tag: "v38"
+  tag: "v45"
 
 imagePullSecrets: []
 nameOverride: ""
@@ -113,12 +113,14 @@ vllmServer:
   # URL to connect to vLLM server (auto-set when enabled, or override for external vLLM)
   url: ""
   # Model to serve - full Hugging Face model name
-  model: "Qwen/Qwen3-VL-4B-Instruct"
+  model: "nvidia/Cosmos-Reason2-8B"
   # Inference timeout in seconds
   timeout: 300
   # Temperature for generation
   temperature: 0.1
   # Hugging Face token for gated models (optional)
+  # DO NOT commit real tokens here — pass via --set at install time,
+  # or use secrets.existingSecret to reference a pre-created K8s Secret.
   huggingfaceToken: ""
   # RuntimeClassName for GPU access (optional)
   runtimeClassName: "nvidia"
@@ -134,7 +136,7 @@ vllmServer:
     # Tensor parallel size
     tensorParallelSize: 1
     # GPU memory utilization (0.0 - 1.0)
-    gpuMemoryUtilization: 0.65
+    gpuMemoryUtilization: 0.5
     # Maximum model length (needs to be large enough for image tokens + tools prompt)
     maxModelLen: 16000
     # Data type (auto, float16, bfloat16, float32)
@@ -205,6 +207,23 @@ model:
     bearerToken: ""
     # Catalog ID for the model
     catalogId: ""
+
+# ── Secrets management ──────────────────────────────────────────────
+# Option A (recommended): create the secret out-of-band and reference it:
+#   kubectl create secret generic my-tokens --from-literal=hf-token=hf_xxx
+#   Then set secrets.existingSecret: "my-tokens"
+#
+# Option B: pass tokens at install time (chart creates the Secret):
+#   helm install ... --set vllmServer.huggingfaceToken=hf_xxx
+#
+# Option C (GitOps): use Sealed Secrets / External Secrets Operator to
+#   create the K8s secret, then reference it via secrets.existingSecret.
+secrets:
+  # Name of a pre-existing Kubernetes Secret that contains the tokens.
+  # When set, the chart will NOT create its own Secret.
+  existingSecret: ""
+  # Key inside the secret that holds the HuggingFace token
+  huggingfaceTokenKey: "hf-token"
 
 # Persistence configuration
 persistence:

@@ -80,11 +80,12 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
 
         # SSIM caching for efficiency
         self._ssim_threshold = 0.95
-        self._ssim_recheck_seconds = 30.0
+        self._ssim_recheck_seconds = 5.0
         self._last_processed_event: Optional[DetectionEvent] = None
         self._last_similarity_frame: Optional[np.ndarray] = None
         self._last_analysis_time = 0.0
         self._ssim_reference_size = (320, 240)
+        self._last_board_signature: Optional[str] = None
 
         # Image saving config
         camera_cfg = config.get("camera", {})
@@ -172,18 +173,50 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
         except Exception:  # pylint: disable=broad-exception-caught
             return 0.0
 
+    def invalidate_ssim_cache(self, reason: str = "external") -> None:
+        """Invalidate the SSIM frame cache.
+
+        Call this when external context changes (e.g. a new board enters
+        the inspection zone) so that the next ``analyze_frame`` is
+        guaranteed to run a fresh VLM inference.
+        """
+        with self._ssim_lock:
+            self._last_similarity_frame = None
+            self._last_processed_event = None
+            self._last_analysis_time = 0.0
+            self._last_board_signature = None
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("SSIM cache invalidated (reason=%s)", reason)
+
     def _check_ssim_skip(
         self,
         frame: np.ndarray,
         current_time: float,
+        board_signature: Optional[str] = None,
     ) -> tuple[bool, Optional[DetectionEvent]]:
         """Check if we can skip analysis due to scene similarity.
 
         Uses either SSIM (if scikit-image available) or fast template matching.
         Performance: 20% faster with template matching, no external dependency.
+
+        If *board_signature* is provided and differs from the signature
+        of the last analysed frame the cache is automatically
+        invalidated so that a new board is never served a stale result.
         """
         with self._ssim_lock:
             if self._last_similarity_frame is None or self._last_processed_event is None:
+                return False, None
+
+            # Invalidate cache when the board identity changes
+            if (
+                board_signature is not None
+                and self._last_board_signature is not None
+                and board_signature != self._last_board_signature
+            ):
+                self._last_similarity_frame = None
+                self._last_processed_event = None
+                self._last_analysis_time = 0.0
+                self._last_board_signature = None
                 return False, None
 
             # Check time since last analysis
@@ -214,7 +247,8 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
                     # Reuse previous event
                     reused = copy.deepcopy(self._last_processed_event)
                     reused.timestamp = datetime.now().isoformat()
-                    reused.should_alert = False  # Don't re-alert
+                    # Preserve original should_alert so genuinely
+                    # alertable repeat conditions are not silenced.
                     reused.decision_trace["ssim_skip"] = {
                         "similarity": round(similarity, 3),
                         "reused": True,
@@ -287,7 +321,10 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
         metadata = metadata or {}
 
         # 1. SSIM skip check
-        should_skip, cached_event = self._check_ssim_skip(frame, time.time())
+        board_sig = metadata.get("board_signature")
+        should_skip, cached_event = self._check_ssim_skip(
+            frame, time.time(), board_signature=board_sig,
+        )
         if should_skip and cached_event:
             self._remember_event(cached_event, source="ssim_skip")
             return cached_event
@@ -331,13 +368,17 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
                 "pcb_stable": vlm_result.pcb_stable,
                 "should_alert": vlm_result.should_alert,
             },
+            token_usage=getattr(vlm_result, 'token_usage', None)
+                or getattr(self.vlm_client, '_last_token_usage', None)
+                or {},
         )
 
-        # Update cache
+        # Update cache (including board signature for identity tracking)
         with self._ssim_lock:
             self._last_similarity_frame = self._make_similarity_reference(frame)
             self._last_processed_event = event
             self._last_analysis_time = time.time()
+            self._last_board_signature = metadata.get("board_signature")
         self._remember_event(event, source="unified_vlm")
 
         # Log result
@@ -405,6 +446,7 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
                     "should_alert": result.should_alert,
                     "details": result.details if hasattr(result, 'details') else {},
                 },
+                token_usage=getattr(result, 'token_usage', {}),
             )
 
             self._remember_event(event, source=f"{task_type.value}_vlm")
@@ -432,7 +474,8 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
     ) -> Optional[DetectionEvent]:
         """Analyze frame with agentic tool calling."""
         from agents.vlm import TaskType as TT  # pylint: disable=import-outside-toplevel
-        from agents.tools import ToolExecutor  # pylint: disable=import-outside-toplevel
+        from agents.mcp.globals import get_mcp_executor  # pylint: disable=import-outside-toplevel
+        from agents.mcp.tool_defs import get_agentic_tool_schemas  # pylint: disable=import-outside-toplevel
 
         if self.circuit_breaker.is_open:
             logger.warning("Circuit breaker is open - skipping agentic analysis")
@@ -445,17 +488,24 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
             email_cfg = self.config.get("notifications", {}).get("email", {})
             recipients = email_cfg.get("recipients", [])
 
-        # Create tool executor with current context
-        tool_executor = ToolExecutor()
+        # Create MCP-backed tool dispatch
+        mcp_executor = get_mcp_executor()
+        image_bytes = self.vlm_client._frame_to_bytes(frame) if frame is not None else b""
+        tool_schemas = get_agentic_tool_schemas()
+
+        def tool_dispatch(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+            mcp_executor.context["image_data"] = image_bytes
+            mcp_executor.context["recipients"] = recipients or []
+            return mcp_executor._invoke(tool_name, arguments)
 
         try:
             # Run agentic analysis
             agentic_result = self.vlm_client.analyze_with_tools(
                 frame=frame,
-                tool_executor=tool_executor,
+                tool_dispatch=tool_dispatch,
+                tool_schemas=tool_schemas,
                 task_type=effective_task_type,
                 user_query=custom_prompt,
-                recipients=recipients,
             )
 
             if agentic_result is None or agentic_result.analysis is None:
@@ -505,15 +555,38 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
                     "tools_called": len(agentic_result.tool_calls),
                     "all_tools_succeeded": agentic_result.all_tools_succeeded,
                 },
+                token_usage=getattr(agentic_result, 'total_token_usage', {}),
             )
 
             self._remember_event(event, source="agentic")
 
             if agentic_result.any_tools_called:
+                tool_sequence = " -> ".join(agentic_result.tools_used)
                 logger.info(
                     "🤖 Agentic analysis called %d tools: %s",
                     len(agentic_result.tool_calls),
-                    ", ".join(agentic_result.tools_used)
+                    tool_sequence,
+                )
+                # Log individual tool results
+                for i, (call, result) in enumerate(zip(
+                    agentic_result.tool_calls,
+                    agentic_result.tool_results,
+                )):
+                    status = "✅" if result.get("success", False) else "❌"
+                    logger.info(
+                        "  %s Step %d: %s %s",
+                        status, i + 1, call.get("tool", "?"),
+                        "(success)" if result.get("success", False) else f"(error: {result.get('error', 'unknown')})",
+                    )
+
+            # Log token usage
+            usage = getattr(agentic_result, 'total_token_usage', {})
+            if usage and usage.get("total_tokens", 0) > 0:
+                logger.info(
+                    "📊 Token usage: prompt=%d, completion=%d, total=%d",
+                    usage.get("prompt_tokens", 0),
+                    usage.get("completion_tokens", 0),
+                    usage.get("total_tokens", 0),
                 )
 
             return event

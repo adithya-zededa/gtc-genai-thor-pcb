@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import threading
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.logging import get_logger
@@ -39,14 +39,29 @@ def _parse_ts(ts: Optional[str]) -> Optional[datetime]:
         return None
 
 
+# SQLite CURRENT_TIMESTAMP stores UTC in 'YYYY-MM-DD HH:MM:SS' format.
+# We must match both the timezone (UTC) and format (space separator, no
+# fractional seconds) for correct string comparison in queries.
+_SQLITE_TS_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _utcnow() -> datetime:
+    """Return the current UTC time as a naive datetime (matches SQLite)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 def _time_window(hours: Optional[float] = None) -> Tuple[str, str]:
-    """Return (start_iso, end_iso) for the past *hours*.  None → all time."""
-    end = datetime.now()
+    """Return (start, end) for the past *hours* in UTC.
+
+    Timestamps are formatted to match SQLite's ``CURRENT_TIMESTAMP``
+    (``YYYY-MM-DD HH:MM:SS``, UTC, no fractional seconds).
+    """
+    end = _utcnow()
     if hours:
         start = end - timedelta(hours=hours)
     else:
         start = datetime(2000, 1, 1)
-    return start.isoformat(), end.isoformat()
+    return start.strftime(_SQLITE_TS_FMT), end.strftime(_SQLITE_TS_FMT)
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +275,7 @@ def get_defect_trend(
     """
     from app.database.connection import get_db_connection
 
-    end = datetime.now()
+    end = _utcnow()
     start = end - timedelta(hours=window_hours)
     bucket_delta = timedelta(hours=window_hours / bucket_count)
 
@@ -269,15 +284,15 @@ def get_defect_trend(
         b_start = start + bucket_delta * i
         b_end = start + bucket_delta * (i + 1)
         buckets.append({
-            "period_start": b_start.isoformat(),
-            "period_end": b_end.isoformat(),
+            "period_start": b_start.strftime(_SQLITE_TS_FMT),
+            "period_end": b_end.strftime(_SQLITE_TS_FMT),
             "count": 0,
         })
 
     with get_db_connection() as conn:
         rows = conn.execute(
             "SELECT timestamp FROM pcb_defects WHERE timestamp >= ? ORDER BY timestamp ASC",
-            (start.isoformat(),),
+            (start.strftime(_SQLITE_TS_FMT),),
         ).fetchall()
 
     total = 0
@@ -452,7 +467,7 @@ def generate_summary_report(
 
     defects = get_defects_in_range(
         start_time=_time_window(hours)[0] if hours else None,
-        end_time=datetime.now().isoformat(),
+        end_time=_utcnow().strftime(_SQLITE_TS_FMT),
         board_type=board_type,
     )
     total = len(defects)
@@ -472,7 +487,7 @@ def generate_summary_report(
         "success": True,
         "period": period,
         "window_hours": hours,
-        "generated_at": datetime.now().isoformat(),
+        "generated_at": _utcnow().strftime(_SQLITE_TS_FMT),
         "filter_board_type": board_type,
         "total_defects": total,
         "severity_breakdown": dict(severity_counts),

@@ -45,7 +45,6 @@ demo_*.py
 # Environment variables
 .env
 .env.*
-
 # TLS certificates
 *.crt
 *.key

@@ -43,9 +43,6 @@ from .core import (
     DetectionEvent,
 )
 
-# Backward-compat alias kept by core/__init__.py
-from .core import AgentState  # noqa: F811  (alias for AgentSnapshot)
-
 # ── MCP (via façade) ─────────────────────────────────────────────────────
 from .mcp import MCPManager, get_mcp_manager
 
@@ -58,7 +55,6 @@ __all__ = [
     "CircuitBreaker",
     "AgentMemory",
     "AgentSnapshot",
-    "AgentState",
     "DetectionEvent",
     # MCP Manager (entry-point for tool calling)
     "MCPManager",

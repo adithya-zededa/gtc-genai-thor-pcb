@@ -1,0 +1,589 @@
+{% extends "base.html" %}
+
+{% block title %}Diagnostics — Detection {{ log.id }} - ZEDEDA Camera Agent{% endblock %}
+{% block page_title %}Diagnostics — Event #{{ log.id }}{% endblock %}
+
+{% block content %}
+<div class="glass-chrome rounded-2xl px-5 py-3 mb-4 animate-slide-up" style="--animation-order: 0;">
+    <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full" style="background: var(--system-purple);"></span>
+            <span class="w-3 h-3 rounded-full" style="background: var(--system-indigo);"></span>
+            <span class="w-3 h-3 rounded-full" style="background: var(--system-blue);"></span>
+        </div>
+        <p class="text-xs font-semibold tracking-wide text-secondary uppercase">Full Diagnostics</p>
+        <span class="text-xs text-tertiary">Event #{{ log.id }}</span>
+    </div>
+</div>
+
+<!-- Navigation -->
+<div class="mb-5 flex items-center gap-2 animate-slide-up" style="--animation-order: 1;">
+    <a href="{{ url_for('views.log_detail', log_id=log.id) }}" class="btn btn-secondary">
+        <i class="fas fa-arrow-left mr-2"></i>Back to Event
+    </a>
+    <a href="{{ url_for('views.logs') }}" class="btn btn-secondary">
+        <i class="fas fa-list mr-2"></i>All Logs
+    </a>
+</div>
+
+<!-- Overview Cards Row -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5 animate-slide-up" style="--animation-order: 2;">
+    <!-- Detection Status -->
+    <div class="glass rounded-2xl p-4 text-center">
+        {% if log.detected %}
+            <div class="w-10 h-10 rounded-xl mx-auto mb-2 flex items-center justify-center" style="background: var(--system-red-glass);">
+                <i class="fas fa-exclamation-triangle" style="color: var(--system-red);"></i>
+            </div>
+            <p class="text-xs text-secondary">Status</p>
+            <p class="text-sm font-semibold" style="color: var(--system-red);">Defect Detected</p>
+        {% else %}
+            <div class="w-10 h-10 rounded-xl mx-auto mb-2 flex items-center justify-center" style="background: var(--system-green-glass);">
+                <i class="fas fa-check-circle" style="color: var(--system-green);"></i>
+            </div>
+            <p class="text-xs text-secondary">Status</p>
+            <p class="text-sm font-semibold" style="color: var(--system-green);">No Defect</p>
+        {% endif %}
+    </div>
+
+    <!-- Confidence -->
+    <div class="glass rounded-2xl p-4 text-center">
+        <div class="w-10 h-10 rounded-xl mx-auto mb-2 flex items-center justify-center" style="background: var(--system-blue-glass);">
+            <i class="fas fa-percentage" style="color: var(--system-blue);"></i>
+        </div>
+        <p class="text-xs text-secondary">Confidence</p>
+        {% if confidence_percent is not none %}
+            <p class="text-sm font-semibold" style="color: var(--system-blue);">{{ '%.1f'|format(confidence_percent) }}%</p>
+        {% else %}
+            <p class="text-sm font-semibold text-tertiary">N/A</p>
+        {% endif %}
+    </div>
+
+    <!-- Token Usage -->
+    <div class="glass rounded-2xl p-4 text-center">
+        <div class="w-10 h-10 rounded-xl mx-auto mb-2 flex items-center justify-center" style="background: var(--system-orange-glass);">
+            <i class="fas fa-coins" style="color: var(--system-orange);"></i>
+        </div>
+        <p class="text-xs text-secondary">Total Tokens</p>
+        {% if token_usage and token_usage.total_tokens is defined and token_usage.total_tokens > 0 %}
+            <p class="text-sm font-semibold" style="color: var(--system-orange);">{{ '{:,}'.format(token_usage.total_tokens) }}</p>
+        {% else %}
+            <p class="text-sm font-semibold text-tertiary">N/A</p>
+        {% endif %}
+    </div>
+
+    <!-- Tools Called -->
+    <div class="glass rounded-2xl p-4 text-center">
+        <div class="w-10 h-10 rounded-xl mx-auto mb-2 flex items-center justify-center" style="background: var(--system-purple-glass);">
+            <i class="fas fa-tools" style="color: var(--system-purple);"></i>
+        </div>
+        <p class="text-xs text-secondary">Tools Called</p>
+        <p class="text-sm font-semibold" style="color: var(--system-purple);">{{ tool_trace|length if tool_trace else 0 }}</p>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <!-- Main Content Column -->
+    <div class="lg:col-span-2 space-y-4">
+
+        <!-- Token Usage Breakdown -->
+        {% if token_usage and token_usage.total_tokens is defined and token_usage.total_tokens > 0 %}
+        <div class="glass rounded-2xl overflow-hidden animate-slide-up" style="--animation-order: 3;">
+            <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator); background: var(--material-ultra-thin);">
+                <h3 class="text-base font-semibold flex items-center text-primary">
+                    <div class="w-7 h-7 rounded-lg flex items-center justify-center mr-2.5" style="background: var(--system-orange-glass);">
+                        <i class="fas fa-chart-pie text-sm" style="color: var(--system-orange);"></i>
+                    </div>
+                    Token Usage Breakdown
+                </h3>
+            </div>
+            <div class="p-5">
+                <div class="grid grid-cols-3 gap-4 mb-4">
+                    <div class="text-center p-4 rounded-xl glass-ultra-thin">
+                        <p class="text-2xl font-bold" style="color: var(--system-blue);">{{ '{:,}'.format(token_usage.prompt_tokens|default(0)) }}</p>
+                        <p class="text-xs text-secondary mt-1">Prompt Tokens</p>
+                    </div>
+                    <div class="text-center p-4 rounded-xl glass-ultra-thin">
+                        <p class="text-2xl font-bold" style="color: var(--system-green);">{{ '{:,}'.format(token_usage.completion_tokens|default(0)) }}</p>
+                        <p class="text-xs text-secondary mt-1">Completion Tokens</p>
+                    </div>
+                    <div class="text-center p-4 rounded-xl glass-ultra-thin">
+                        <p class="text-2xl font-bold" style="color: var(--system-orange);">{{ '{:,}'.format(token_usage.total_tokens|default(0)) }}</p>
+                        <p class="text-xs text-secondary mt-1">Total Tokens</p>
+                    </div>
+                </div>
+
+                <!-- Token Usage Bar -->
+                {% set prompt_pct = (token_usage.prompt_tokens|default(0) / token_usage.total_tokens * 100) if token_usage.total_tokens else 0 %}
+                {% set completion_pct = (token_usage.completion_tokens|default(0) / token_usage.total_tokens * 100) if token_usage.total_tokens else 0 %}
+                <div class="mb-3">
+                    <div class="flex justify-between text-xs text-secondary mb-1.5">
+                        <span>Prompt ({{ '%.0f'|format(prompt_pct) }}%)</span>
+                        <span>Completion ({{ '%.0f'|format(completion_pct) }}%)</span>
+                    </div>
+                    <div class="h-3 rounded-full overflow-hidden" style="background: var(--material-thin);">
+                        <div class="h-full rounded-full flex">
+                            <div style="width: {{ prompt_pct }}%; background: var(--system-blue);" class="transition-all"></div>
+                            <div style="width: {{ completion_pct }}%; background: var(--system-green);" class="transition-all"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Tool Execution Pipeline -->
+        {% if tool_trace and tool_trace|length > 0 %}
+        <div class="glass rounded-2xl overflow-hidden animate-slide-up" style="--animation-order: 4;">
+            <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator); background: var(--material-ultra-thin);">
+                <h3 class="text-base font-semibold flex items-center text-primary">
+                    <div class="w-7 h-7 rounded-lg flex items-center justify-center mr-2.5" style="background: var(--system-purple-glass);">
+                        <i class="fas fa-stream text-sm" style="color: var(--system-purple);"></i>
+                    </div>
+                    Tool Execution Pipeline
+                    <span class="ml-auto text-xs font-normal text-secondary">{{ tool_trace|length }} step{{ 's' if tool_trace|length != 1 }}</span>
+                </h3>
+            </div>
+            <div class="p-5">
+                <!-- Tool Sequence Flow -->
+                <div class="mb-5 p-3 rounded-xl glass-ultra-thin">
+                    <p class="text-xs font-medium text-secondary mb-2">Execution Order</p>
+                    <div class="flex items-center flex-wrap gap-1">
+                        {% for step in tool_trace %}
+                            {% if not loop.first %}
+                                <i class="fas fa-arrow-right text-xs text-tertiary mx-1"></i>
+                            {% endif %}
+                            <span class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg font-medium {% if step.success is sameas(true) %}text-primary{% else %}text-primary{% endif %}"
+                                  style="{% if step.success is sameas(true) %}background: var(--system-green-glass); border: 0.5px solid rgba(52, 199, 89, 0.3);{% else %}background: var(--system-red-glass); border: 0.5px solid rgba(255, 59, 48, 0.3);{% endif %}">
+                                <span class="w-4 h-4 rounded-full flex items-center justify-center text-white text-[10px] font-bold" style="background: linear-gradient(135deg, var(--system-purple) 0%, var(--system-indigo) 100%);">{{ loop.index }}</span>
+                                {{ step.tool|default('unknown') }}
+                                {% if step.success is sameas(true) %}
+                                    <i class="fas fa-check text-[10px]" style="color: var(--system-green);"></i>
+                                {% else %}
+                                    <i class="fas fa-times text-[10px]" style="color: var(--system-red);"></i>
+                                {% endif %}
+                            </span>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Detailed Step Cards -->
+                <div class="space-y-3">
+                    {% for step in tool_trace %}
+                    <div class="rounded-xl transition" style="border-left: 3px solid {% if step.success is sameas(true) %}var(--system-green){% else %}var(--system-red){% endif %}; background: var(--material-thin);">
+                        <div class="p-4">
+                            <div class="flex items-start justify-between mb-2">
+                                <div class="flex items-center">
+                                    <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-xs font-semibold mr-3" style="background: linear-gradient(135deg, var(--system-purple) 0%, var(--system-indigo) 100%);">
+                                        {{ step.step|default(loop.index) }}
+                                    </span>
+                                    <h5 class="text-sm font-semibold text-primary">{{ step.tool|default('unknown') }}</h5>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    {% if step.duration_ms is defined %}
+                                    <span class="text-xs text-secondary">{{ step.duration_ms }}ms</span>
+                                    {% endif %}
+                                    {% if step.success is sameas(true) %}
+                                        <span class="text-xs px-2 py-0.5 rounded-md font-medium" style="background: var(--system-green-glass); color: var(--system-green);">
+                                            <i class="fas fa-check mr-1"></i>Success
+                                        </span>
+                                    {% elif step.success is sameas(false) %}
+                                        <span class="text-xs px-2 py-0.5 rounded-md font-medium" style="background: var(--system-red-glass); color: var(--system-red);">
+                                            <i class="fas fa-times mr-1"></i>Failed
+                                        </span>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <!-- Tool Result -->
+                            {% if step.result %}
+                            <div class="ml-9 space-y-2">
+                                {% if step.result is mapping %}
+                                    {% if step.result.summary is defined %}
+                                    <p class="text-sm italic text-secondary">{{ step.result.summary }}</p>
+                                    {% endif %}
+
+                                    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                                        {% for key, value in step.result.items() if key != 'summary' %}
+                                        <div class="px-3 py-2 rounded-lg glass-ultra-thin">
+                                            <p class="font-medium uppercase tracking-wide mb-0.5 text-tertiary">{{ key|replace('_', ' ') }}</p>
+                                            <p class="font-semibold text-primary">
+                                                {% if value is number %}
+                                                    {% if value < 1 and value > 0 %}
+                                                        {{ '%.3f'|format(value) }}
+                                                    {% else %}
+                                                        {{ value }}
+                                                    {% endif %}
+                                                {% elif value is sameas(true) %}
+                                                    <i class="fas fa-check" style="color: var(--system-green);"></i> Yes
+                                                {% elif value is sameas(false) %}
+                                                    <i class="fas fa-times" style="color: var(--system-red);"></i> No
+                                                {% elif value is string and value|length > 80 %}
+                                                    {{ value[:80] }}...
+                                                {% else %}
+                                                    {{ value }}
+                                                {% endif %}
+                                            </p>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+
+                            <!-- Tool Arguments -->
+                            {% if step.arguments %}
+                            <details class="ml-9 mt-2">
+                                <summary class="cursor-pointer text-xs font-medium" style="color: var(--system-blue);">
+                                    <i class="fas fa-code mr-1"></i>View Arguments
+                                </summary>
+                                <pre class="mt-2 text-xs p-3 rounded-lg overflow-x-auto" style="background: var(--glass-dark-subtle); color: var(--text-on-glass); border: 0.5px solid var(--border-glass);">{{ step.arguments | tojson(indent=2) }}</pre>
+                            </details>
+                            {% endif %}
+
+                            <!-- Error Info -->
+                            {% if step.error is defined and step.error %}
+                            <div class="ml-9 mt-2 p-2 rounded-lg text-xs" style="background: var(--system-red-glass); color: var(--system-red);">
+                                <i class="fas fa-exclamation-circle mr-1"></i>{{ step.error }}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="glass rounded-2xl overflow-hidden animate-slide-up" style="--animation-order: 4;">
+            <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator); background: var(--material-ultra-thin);">
+                <h3 class="text-base font-semibold flex items-center text-primary">
+                    <div class="w-7 h-7 rounded-lg flex items-center justify-center mr-2.5" style="background: var(--system-purple-glass);">
+                        <i class="fas fa-stream text-sm" style="color: var(--system-purple);"></i>
+                    </div>
+                    Tool Execution Pipeline
+                </h3>
+            </div>
+            <div class="p-5">
+                <p class="text-sm italic text-tertiary">No tool calls were made during this analysis.</p>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Vision Model Analysis -->
+        <div class="glass rounded-2xl overflow-hidden animate-slide-up" style="--animation-order: 5;">
+            <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator); background: var(--material-ultra-thin);">
+                <h3 class="text-base font-semibold flex items-center text-primary">
+                    <div class="w-7 h-7 rounded-lg flex items-center justify-center mr-2.5" style="background: var(--system-teal-glass);">
+                        <i class="fas fa-eye text-sm" style="color: var(--system-teal);"></i>
+                    </div>
+                    Vision Model Analysis
+                </h3>
+            </div>
+            <div class="p-5">
+                {% if log.vision_description %}
+                    <div class="rounded-xl p-4 text-sm glass-ultra-thin">
+                        <pre class="whitespace-pre-wrap font-mono leading-relaxed text-primary">{{ log.vision_description }}</pre>
+                    </div>
+                {% else %}
+                    <p class="text-sm italic text-tertiary">No vision description stored for this event.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Decision Details -->
+        {% set decision = log.decision_details %}
+        {% if decision and decision|length %}
+        <div class="glass rounded-2xl overflow-hidden animate-slide-up" style="--animation-order: 6;">
+            <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator); background: var(--material-ultra-thin);">
+                <h3 class="text-base font-semibold flex items-center text-primary">
+                    <div class="w-7 h-7 rounded-lg flex items-center justify-center mr-2.5" style="background: var(--system-blue-glass);">
+                        <i class="fas fa-project-diagram text-sm" style="color: var(--system-blue);"></i>
+                    </div>
+                    Decision Details
+                </h3>
+            </div>
+            <div class="p-5">
+                <!-- Decision Summary Grid -->
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+                    {% if decision.classification %}
+                    <div class="p-3 rounded-xl glass-ultra-thin">
+                        <p class="text-xs font-medium text-secondary mb-1">Classification</p>
+                        <p class="text-sm font-semibold text-primary">{{ decision.classification }}</p>
+                    </div>
+                    {% endif %}
+
+                    {% if decision.task_type is defined %}
+                    <div class="p-3 rounded-xl glass-ultra-thin">
+                        <p class="text-xs font-medium text-secondary mb-1">Task Type</p>
+                        <p class="text-sm font-semibold text-primary">{{ decision.task_type }}</p>
+                    </div>
+                    {% endif %}
+
+                    {% if decision.detected is defined %}
+                    <div class="p-3 rounded-xl glass-ultra-thin">
+                        <p class="text-xs font-medium text-secondary mb-1">PCB Detected</p>
+                        <p class="text-sm font-semibold">
+                            {% if decision.detected is sameas(true) %}
+                                <span style="color: var(--system-green);"><i class="fas fa-check-circle mr-1"></i>Yes</span>
+                            {% else %}
+                                <span style="color: var(--system-red);"><i class="fas fa-times-circle mr-1"></i>No</span>
+                            {% endif %}
+                        </p>
+                    </div>
+                    {% endif %}
+
+                    {% if decision.pcb_stable is defined %}
+                    <div class="p-3 rounded-xl glass-ultra-thin">
+                        <p class="text-xs font-medium text-secondary mb-1">PCB Stability</p>
+                        <p class="text-sm font-semibold">
+                            {% if decision.pcb_stable is sameas(true) %}
+                                <span style="color: var(--system-green);"><i class="fas fa-check-circle mr-1"></i>Stable</span>
+                            {% elif decision.pcb_stable is sameas(false) %}
+                                <span style="color: var(--system-red);"><i class="fas fa-exclamation-triangle mr-1"></i>Unstable</span>
+                            {% else %}
+                                <span class="text-tertiary">Unknown</span>
+                            {% endif %}
+                        </p>
+                    </div>
+                    {% endif %}
+
+                    {% if decision.should_alert is defined %}
+                    <div class="p-3 rounded-xl glass-ultra-thin">
+                        <p class="text-xs font-medium text-secondary mb-1">Alert Trigger</p>
+                        <p class="text-sm font-semibold">
+                            {% if decision.should_alert is sameas(true) %}
+                                <span style="color: var(--system-orange);"><i class="fas fa-bell mr-1"></i>Yes</span>
+                            {% else %}
+                                <span class="text-primary"><i class="fas fa-bell-slash mr-1 text-tertiary"></i>No</span>
+                            {% endif %}
+                        </p>
+                    </div>
+                    {% endif %}
+
+                    {% if decision.tools_called is defined %}
+                    <div class="p-3 rounded-xl glass-ultra-thin">
+                        <p class="text-xs font-medium text-secondary mb-1">Tools Called</p>
+                        <p class="text-sm font-semibold text-primary">{{ decision.tools_called }}</p>
+                    </div>
+                    {% endif %}
+
+                    {% if decision.all_tools_succeeded is defined %}
+                    <div class="p-3 rounded-xl glass-ultra-thin">
+                        <p class="text-xs font-medium text-secondary mb-1">All Succeeded</p>
+                        <p class="text-sm font-semibold">
+                            {% if decision.all_tools_succeeded is sameas(true) %}
+                                <span style="color: var(--system-green);"><i class="fas fa-check-circle mr-1"></i>Yes</span>
+                            {% else %}
+                                <span style="color: var(--system-red);"><i class="fas fa-exclamation-circle mr-1"></i>No</span>
+                            {% endif %}
+                        </p>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- Proactive Context -->
+                {% if decision.proactive_context %}
+                <details class="rounded-xl glass-ultra-thin mb-3">
+                    <summary class="cursor-pointer px-4 py-3 font-semibold text-sm flex items-center text-primary">
+                        <i class="fas fa-satellite-dish mr-2 text-tertiary"></i>
+                        Proactive Monitoring Context
+                        <i class="fas fa-chevron-down ml-auto text-xs text-tertiary"></i>
+                    </summary>
+                    <div class="p-4" style="border-top: 0.5px solid var(--border-separator);">
+                        {% set obs = decision.proactive_context.get('observation', {}) if decision.proactive_context is mapping else {} %}
+                        {% if obs %}
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs mb-3">
+                            {% if obs.motion_score is defined %}
+                            <div class="px-3 py-2 rounded-lg glass-ultra-thin">
+                                <p class="font-medium uppercase tracking-wide mb-0.5 text-tertiary">Motion Score</p>
+                                <p class="font-semibold text-primary">{{ '%.3f'|format(obs.motion_score) if obs.motion_score is number else obs.motion_score }}</p>
+                            </div>
+                            {% endif %}
+                            {% if obs.edge_density is defined %}
+                            <div class="px-3 py-2 rounded-lg glass-ultra-thin">
+                                <p class="font-medium uppercase tracking-wide mb-0.5 text-tertiary">Edge Density</p>
+                                <p class="font-semibold text-primary">{{ '%.3f'|format(obs.edge_density) if obs.edge_density is number else obs.edge_density }}</p>
+                            </div>
+                            {% endif %}
+                            {% if obs.board_in_zone is defined %}
+                            <div class="px-3 py-2 rounded-lg glass-ultra-thin">
+                                <p class="font-medium uppercase tracking-wide mb-0.5 text-tertiary">Board in Zone</p>
+                                <p class="font-semibold text-primary">
+                                    {% if obs.board_in_zone is sameas(true) %}
+                                        <i class="fas fa-check" style="color: var(--system-green);"></i> Yes
+                                    {% else %}
+                                        <i class="fas fa-times" style="color: var(--system-red);"></i> No
+                                    {% endif %}
+                                </p>
+                            </div>
+                            {% endif %}
+                            {% if obs.board_signature is defined and obs.board_signature %}
+                            <div class="px-3 py-2 rounded-lg glass-ultra-thin">
+                                <p class="font-medium uppercase tracking-wide mb-0.5 text-tertiary">Board Signature</p>
+                                <p class="font-semibold text-primary text-[10px]">{{ obs.board_signature[:16] }}...</p>
+                            </div>
+                            {% endif %}
+                            {% if obs.frame_quality is defined and obs.frame_quality is mapping %}
+                                {% for qk, qv in obs.frame_quality.items() %}
+                                <div class="px-3 py-2 rounded-lg glass-ultra-thin">
+                                    <p class="font-medium uppercase tracking-wide mb-0.5 text-tertiary">{{ qk|replace('_', ' ') }}</p>
+                                    <p class="font-semibold text-primary">{{ '%.3f'|format(qv) if qv is number else qv }}</p>
+                                </div>
+                                {% endfor %}
+                            {% endif %}
+                        </div>
+                        {% endif %}
+
+                        <!-- Full context JSON -->
+                        <details class="mt-2">
+                            <summary class="cursor-pointer text-xs font-medium" style="color: var(--system-blue);">
+                                <i class="fas fa-code mr-1"></i>View Raw Context
+                            </summary>
+                            <pre class="mt-2 text-xs p-3 rounded-lg overflow-x-auto" style="background: var(--glass-dark-subtle); color: var(--text-on-glass); border: 0.5px solid var(--border-glass);">{{ decision.proactive_context | tojson(indent=2) }}</pre>
+                        </details>
+                    </div>
+                </details>
+                {% endif %}
+
+                <!-- SSIM Skip Info -->
+                {% if decision.ssim_skip %}
+                <div class="p-3 rounded-xl glass-ultra-thin mb-3">
+                    <p class="text-xs font-semibold uppercase tracking-wide mb-2 text-secondary">
+                        <i class="fas fa-clone mr-1"></i>Frame Similarity (SSIM Skip)
+                    </p>
+                    <div class="flex gap-4 text-xs text-primary">
+                        {% if decision.ssim_skip.similarity is defined %}
+                            <span>Similarity: <strong>{{ '%.3f'|format(decision.ssim_skip.similarity) }}</strong></span>
+                        {% endif %}
+                        {% if decision.ssim_skip.reused is defined %}
+                            <span>Reused: <strong>{{ decision.ssim_skip.reused }}</strong></span>
+                        {% endif %}
+                        {% if decision.ssim_skip.method is defined %}
+                            <span>Method: <strong>{{ decision.ssim_skip.method }}</strong></span>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Raw Decision JSON -->
+                <details class="rounded-xl glass-ultra-thin">
+                    <summary class="cursor-pointer px-4 py-3 font-semibold text-sm flex items-center text-primary">
+                        <i class="fas fa-code mr-2 text-tertiary"></i>
+                        Raw Decision JSON
+                        <i class="fas fa-chevron-down ml-auto text-xs text-tertiary"></i>
+                    </summary>
+                    <div class="p-4" style="border-top: 0.5px solid var(--border-separator);">
+                        <pre class="text-xs p-3 rounded-lg overflow-x-auto" style="background: var(--glass-dark-subtle); color: var(--text-on-glass); border: 0.5px solid var(--border-glass);">{{ decision | tojson(indent=2) }}</pre>
+                    </div>
+                </details>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Full Agent Response -->
+        <div class="glass rounded-2xl overflow-hidden animate-slide-up" style="--animation-order: 7;">
+            <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator); background: var(--material-thin);">
+                <h3 class="text-base font-semibold flex items-center text-primary">
+                    <div class="w-7 h-7 rounded-lg flex items-center justify-center mr-2.5 glass-ultra-thin">
+                        <i class="fas fa-terminal text-sm text-secondary"></i>
+                    </div>
+                    Full Agent Response
+                </h3>
+            </div>
+            <div class="p-5">
+                {% if log.response %}
+                    <div class="rounded-xl p-4 text-sm glass-ultra-thin">
+                        <pre class="whitespace-pre-wrap font-mono leading-relaxed overflow-x-auto text-primary">{{ log.response }}</pre>
+                    </div>
+                {% else %}
+                    <p class="text-sm italic text-tertiary">No response data was stored for this detection.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="space-y-4">
+        <!-- Detection Image -->
+        <div class="glass rounded-2xl overflow-hidden animate-slide-up" style="--animation-order: 3;">
+            <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator);">
+                <h3 class="text-base font-semibold text-primary">Detection Image</h3>
+            </div>
+            <div class="p-5">
+                {% if image_url %}
+                    <img src="{{ image_url }}" alt="Detection Image" class="w-full rounded-xl" style="box-shadow: var(--shadow-glass);" />
+                {% else %}
+                    <p class="text-sm text-tertiary">No image is associated with this detection.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Event Metadata -->
+        <div class="glass rounded-2xl p-5 animate-slide-up" style="--animation-order: 4;">
+            <h3 class="text-base font-semibold mb-3 text-primary">
+                <i class="fas fa-info-circle mr-2 text-secondary"></i>Event Metadata
+            </h3>
+            <div class="space-y-3 text-sm">
+                <div>
+                    <p class="text-xs font-medium text-secondary">Timestamp</p>
+                    <p class="mt-0.5 text-primary">{{ log.timestamp }}</p>
+                </div>
+                <div>
+                    <p class="text-xs font-medium text-secondary">Event ID</p>
+                    <p class="mt-0.5 text-primary">#{{ log.id }}</p>
+                </div>
+                <div>
+                    <p class="text-xs font-medium text-secondary">Frame Number</p>
+                    <p class="mt-0.5 text-primary">{{ log.frame_number or '—' }}</p>
+                </div>
+                <div>
+                    <p class="text-xs font-medium text-secondary">Processing Reason</p>
+                    <p class="mt-0.5 text-primary">{{ log.reason or '—' }}</p>
+                </div>
+                {% if log.agentic_mode %}
+                <div>
+                    <p class="text-xs font-medium text-secondary">Mode</p>
+                    <span class="text-xs px-2 py-0.5 rounded-md font-medium" style="background: var(--system-purple-glass); color: var(--system-purple);">
+                        <i class="fas fa-robot mr-1"></i>Agentic
+                    </span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Tools Used Tags -->
+        {% if tools_used and tools_used|length > 0 %}
+        <div class="glass rounded-2xl p-5 animate-slide-up" style="--animation-order: 5;">
+            <h3 class="text-base font-semibold mb-3 flex items-center text-primary">
+                <i class="fas fa-puzzle-piece mr-2" style="color: var(--system-teal);"></i>
+                Tools Used
+            </h3>
+            <div class="flex flex-wrap gap-1.5">
+                {% for tool in tools_used %}
+                <span class="text-xs px-2.5 py-1 rounded-lg font-medium glass-ultra-thin text-primary">
+                    <i class="fas fa-cog mr-1 text-tertiary"></i>{{ tool }}
+                </span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Quick Actions -->
+        <div class="glass rounded-2xl p-5 animate-slide-up" style="--animation-order: 6;">
+            <h3 class="text-base font-semibold mb-3 text-primary">Quick Actions</h3>
+            <div class="space-y-2">
+                <a href="{{ url_for('views.log_detail', log_id=log.id) }}" class="btn btn-secondary block text-center">
+                    <i class="fas fa-file-alt mr-2"></i>Summary View
+                </a>
+                {% if image_url %}
+                    <a href="{{ image_url }}" download class="btn block text-center text-white" style="background: linear-gradient(135deg, var(--system-green) 0%, var(--system-teal) 100%);">
+                        <i class="fas fa-download mr-2"></i>Download Image
+                    </a>
+                {% endif %}
+                <a href="{{ url_for('views.logs') }}#log-{{ log.id }}" class="btn btn-secondary block text-center">
+                    <i class="fas fa-list mr-2"></i>View in Table
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -76,11 +76,54 @@ def log_detail(log_id: int):
         except (TypeError, ValueError):
             pass
 
+    # Extract enriched data for the detail template
+    token_usage = log_data.get("token_usage", {})
+    tools_used = log_data.get("tools_used", [])
+    tool_trace = log_data.get("tool_trace", [])
+
     return render_template(
         "log_detail.html",
         log=log_data,
         image_url=image_url,
         confidence_percent=confidence_percent,
+        token_usage=token_usage,
+        tools_used=tools_used,
+        tool_trace=tool_trace,
+    )
+
+
+@views_bp.route("/logs/<int:log_id>/diagnostics")
+def log_diagnostics(log_id: int):
+    """Enhanced diagnostics page for a detection event."""
+    log = DetectionLogRepository.get_by_id(log_id)
+    if not log:
+        abort(404)
+
+    log_data = log.to_dict()
+
+    image_url = None
+    if log.image_path:
+        image_url = url_for("api_v1.serve_image", image_path=log.image_path)
+
+    confidence_percent = None
+    if log.confidence is not None:
+        try:
+            confidence_percent = float(log.confidence) * 100
+        except (TypeError, ValueError):
+            pass
+
+    token_usage = log_data.get("token_usage", {})
+    tools_used = log_data.get("tools_used", [])
+    tool_trace = log_data.get("tool_trace", [])
+
+    return render_template(
+        "log_diagnostics.html",
+        log=log_data,
+        image_url=image_url,
+        confidence_percent=confidence_percent,
+        token_usage=token_usage,
+        tools_used=tools_used,
+        tool_trace=tool_trace,
     )
 
 

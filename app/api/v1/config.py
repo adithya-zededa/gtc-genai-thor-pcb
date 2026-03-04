@@ -147,11 +147,11 @@ def inspection_prompt_config():
         detection = config.get("detection") or {}
         custom = (detection.get("inspection_prompt") or "").strip()
 
-        from agents.tools.pcb import DEFAULT_PCB_DEFECT_INSPECTION_PROMPT
+        from agents.vlm.prompts import DEFAULT_MONITORING_DEFECT_PROMPT
 
         return jsonify({
             "success": True,
-            "prompt": custom if custom else DEFAULT_PCB_DEFECT_INSPECTION_PROMPT,
+            "prompt": custom if custom else DEFAULT_MONITORING_DEFECT_PROMPT,
             "is_default": not bool(custom),
         })
 

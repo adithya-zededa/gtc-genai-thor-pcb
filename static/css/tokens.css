@@ -1,0 +1,381 @@
+/* ===================================================================
+   Design Tokens — CSS Custom Properties
+   Single source of truth for colors, spacing, typography, and effects.
+   Light theme is the default; dark overrides follow.
+   =================================================================== */
+
+/* -------------------------------------------------- */
+/* Light Theme (default)                               */
+/* -------------------------------------------------- */
+:root {
+    /* === ZEDEDA Color Palette === */
+    --zededa-cyan: #00B8C3;
+    --zededa-cyan-hover: #00A5AF;
+    --zededa-cyan-light: rgba(0, 184, 195, 0.1);
+    --zededa-cyan-border: rgba(0, 184, 195, 0.3);
+
+    --zededa-teal: #00B8C3;
+    --zededa-teal-hover: #00A5AF;
+    --zededa-teal-light: rgba(0, 184, 195, 0.1);
+    --zededa-teal-border: rgba(0, 184, 195, 0.3);
+
+    --zededa-bg-primary: #F9FAFB;
+    --zededa-bg-secondary: #FFFFFF;
+    --zededa-bg-tertiary: #F3F4F6;
+    --zededa-bg-hover: #E5E7EB;
+
+    --zededa-text-primary: #111827;
+    --zededa-text-secondary: #374151;
+    --zededa-text-tertiary: #6B7280;
+    --zededa-text-muted: #9CA3AF;
+
+    --zededa-border-dark: #D1D5DB;
+    --zededa-border-medium: #9CA3AF;
+    --zededa-border-light: #E5E7EB;
+
+    /* Semantic status colors */
+    --zededa-success: #10B981;
+    --zededa-success-bg: rgba(16, 185, 129, 0.1);
+    --zededa-success-border: rgba(16, 185, 129, 0.3);
+    --zededa-warning: #F59E0B;
+    --zededa-warning-bg: rgba(245, 158, 11, 0.1);
+    --zededa-warning-border: rgba(245, 158, 11, 0.3);
+    --zededa-error: #EF4444;
+    --zededa-error-bg: rgba(239, 68, 68, 0.1);
+    --zededa-error-border: rgba(239, 68, 68, 0.3);
+    --zededa-info: #3B82F6;
+    --zededa-info-bg: rgba(59, 130, 246, 0.1);
+    --zededa-info-border: rgba(59, 130, 246, 0.3);
+
+    /* Glass tints */
+    --glass-tint: rgba(255, 255, 255, 0.86);
+    --glass-tint-subtle: rgba(255, 255, 255, 0.72);
+    --glass-tint-prominent: rgba(255, 255, 255, 0.92);
+    --glass-dark: rgba(17, 24, 39, 0.76);
+    --glass-dark-subtle: rgba(17, 24, 39, 0.6);
+    --glass-surface-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0.5) 50%, rgba(255, 255, 255, 0.32) 100%);
+    --glass-card-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.82) 0%, rgba(255, 255, 255, 0.52) 48%, rgba(255, 255, 255, 0.34) 100%);
+    --glass-card-bloom-1: rgba(255, 255, 255, 0.6);
+    --glass-card-bloom-2: rgba(255, 255, 255, 0.45);
+    --glass-card-bloom-opacity: 0.55;
+    --glass-card-bloom-blend: screen;
+    --glass-ultra-border: rgba(255, 255, 255, 0.2);
+
+    /* System aliases (used by existing components) */
+    --system-blue: var(--zededa-cyan);
+    --system-blue-glass: var(--zededa-cyan-light);
+    --system-blue-vibrant: var(--zededa-cyan-hover);
+    --system-green: var(--zededa-success);
+    --system-green-glass: var(--zededa-success-bg);
+    --system-orange: var(--zededa-warning);
+    --system-orange-glass: var(--zededa-warning-bg);
+    --system-red: var(--zededa-error);
+    --system-red-glass: var(--zededa-error-bg);
+    --system-purple: #A855F7;
+    --system-purple-glass: rgba(168, 85, 247, 0.15);
+    --system-indigo: #6366F1;
+    --system-teal: #14B8A6;
+    --system-pink: #EC4899;
+
+    /* macOS Graphite */
+    --graphite-50: rgba(142, 142, 147, 0.12);
+    --graphite-100: rgba(142, 142, 147, 0.24);
+    --graphite-200: rgba(142, 142, 147, 0.36);
+    --graphite-text: rgba(142, 142, 147, 1);
+
+    /* Text Colors */
+    --text-primary: var(--zededa-text-primary);
+    --text-secondary: var(--zededa-text-secondary);
+    --text-tertiary: var(--zededa-text-tertiary);
+    --text-quaternary: rgba(107, 114, 128, 0.35);
+    --text-on-glass: #111827;
+
+    /* Backgrounds */
+    --bg-ambient: var(--zededa-bg-primary);
+    --bg-ambient-warm: var(--zededa-bg-primary);
+    --bg-solid: var(--zededa-bg-secondary);
+
+    /* === Glass Materials (depth-based vibrancy) === */
+    --material-ultra-thin: rgba(255, 255, 255, 0.3);
+    --material-thin: rgba(255, 255, 255, 0.5);
+    --material-regular: rgba(255, 255, 255, 0.65);
+    --material-thick: rgba(255, 255, 255, 0.72);
+    --material-chrome: rgba(255, 255, 255, 0.85);
+
+    /* Specular & Refraction */
+    --specular-edge: linear-gradient(180deg,
+        rgba(255, 255, 255, 0.8) 0%,
+        rgba(255, 255, 255, 0.1) 100%);
+    --specular-highlight: rgba(255, 255, 255, 0.5);
+    --refraction-shift: 0.5px;
+
+    /* Borders (soft glass edges) */
+    --border-glass: rgba(229, 231, 235, 0.85);
+    --border-glass-inner: rgba(255, 255, 255, 0.9);
+    --border-subtle: rgba(209, 213, 219, 0.6);
+    --border-separator: rgba(209, 213, 219, 0.8);
+
+    /* === Blur Values === */
+    --blur-xs: 8px;
+    --blur-sm: 16px;
+    --blur-md: 24px;
+    --blur-lg: 40px;
+    --blur-xl: 64px;
+    --blur-ultra: 80px;
+
+    /* Saturate for vibrancy */
+    --saturate-glass: 1.35;
+    --saturate-subtle: 1.08;
+
+    /* === Geometry (continuous rounded corners) === */
+    --radius-xs: 6px;
+    --radius-sm: 10px;
+    --radius-md: 14px;
+    --radius-lg: 20px;
+    --radius-xl: 28px;
+    --radius-2xl: 36px;
+    --radius-full: 9999px;
+
+    /* === Shadows (minimal, depth-focused) === */
+    --shadow-glass-sm:
+        0 0.5px 0 0 rgba(255, 255, 255, 0.5) inset,
+        0 1px 3px 0 rgba(0, 0, 0, 0.04),
+        0 2px 8px 0 rgba(0, 0, 0, 0.04);
+    --shadow-glass-md:
+        0 0.5px 0 0 rgba(255, 255, 255, 0.4) inset,
+        0 2px 8px 0 rgba(0, 0, 0, 0.06),
+        0 8px 24px 0 rgba(0, 0, 0, 0.08);
+    --shadow-glass-lg:
+        0 1px 0 0 rgba(255, 255, 255, 0.28) inset,
+        0 3px 14px 0 rgba(0, 0, 0, 0.07),
+        0 14px 40px 0 rgba(0, 0, 0, 0.1);
+    --shadow-glass-glow:
+        0 0 0 0.5px rgba(255, 255, 255, 0.28),
+        0 7px 28px -4px rgba(0, 0, 0, 0.14),
+        0 0 72px -22px rgba(0, 0, 0, 0.1);
+    --shadow-float:
+        0 16px 50px -16px rgba(0, 0, 0, 0.16),
+        0 6px 18px -10px rgba(0, 0, 0, 0.09);
+    --shadow-dock:
+        0 0 0 0.5px rgba(255, 255, 255, 0.5) inset,
+        0 20px 50px -12px rgba(17, 24, 39, 0.18),
+        0 8px 20px -8px rgba(17, 24, 39, 0.12);
+    --shadow-glow-cyan: 0 0 20px rgba(0, 184, 195, 0.3);
+    --shadow-glow-teal: 0 0 20px rgba(0, 184, 195, 0.3);
+
+    /* === Typography (SF Pro-inspired) === */
+    --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', sans-serif;
+    --font-mono: 'SF Mono', ui-monospace, 'Menlo', 'Monaco', monospace;
+
+    /* Optical sizing */
+    --text-xs: 11px;
+    --text-sm: 13px;
+    --text-base: 15px;
+    --text-lg: 17px;
+    --text-xl: 20px;
+    --text-2xl: 24px;
+    --text-3xl: 28px;
+    --text-4xl: 34px;
+    --text-display: 48px;
+
+    /* Letter spacing */
+    --tracking-tight: -0.02em;
+    --tracking-normal: -0.01em;
+    --tracking-wide: 0.02em;
+    --tracking-label: 0.04em;
+
+    /* Line heights */
+    --leading-tight: 1.15;
+    --leading-snug: 1.25;
+    --leading-normal: 1.4;
+    --leading-relaxed: 1.6;
+
+    /* === Animation === */
+    --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.1);
+    --ease-liquid: cubic-bezier(0.4, 0, 0.2, 1);
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out-smooth: cubic-bezier(0.45, 0, 0.15, 1);
+    --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    /* Durations */
+    --duration-instant: 100ms;
+    --duration-fast: 150ms;
+    --duration-normal: 250ms;
+    --duration-slow: 400ms;
+    --duration-slower: 600ms;
+
+    /* === Z-Index Scale === */
+    --z-base: 0;
+    --z-dropdown: 100;
+    --z-sticky: 200;
+    --z-modal-backdrop: 300;
+    --z-modal: 400;
+    --z-toast: 500;
+    --z-dock: 600;
+    --z-tooltip: 700;
+}
+
+/* -------------------------------------------------- */
+/* Dark Mode — prefers-color-scheme                    */
+/* -------------------------------------------------- */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --zededa-bg-primary: #030712;
+        --zededa-bg-secondary: #111827;
+        --zededa-bg-tertiary: #1F2937;
+        --zededa-bg-hover: #374151;
+
+        --zededa-text-primary: #FFFFFF;
+        --zededa-text-secondary: #E5E7EB;
+        --zededa-text-tertiary: #CBD5E1;
+        --zededa-text-muted: #94A3B8;
+
+        --zededa-border-dark: #374151;
+        --zededa-border-medium: #4B5563;
+        --zededa-border-light: #6B7280;
+
+        --glass-tint: rgba(31, 41, 55, 0.76);
+        --glass-tint-subtle: rgba(31, 41, 55, 0.58);
+        --glass-tint-prominent: rgba(55, 65, 81, 0.86);
+        --glass-dark: rgba(3, 7, 18, 0.9);
+        --glass-surface-gradient: linear-gradient(135deg, rgba(31, 41, 55, 0.94) 0%, rgba(24, 33, 50, 0.9) 48%, rgba(17, 24, 39, 0.86) 100%);
+        --glass-card-gradient: linear-gradient(135deg, rgba(31, 41, 55, 0.96) 0%, rgba(24, 33, 50, 0.9) 48%, rgba(17, 24, 39, 0.88) 100%);
+        --glass-card-bloom-1: rgba(0, 184, 195, 0.14);
+        --glass-card-bloom-2: rgba(99, 102, 241, 0.1);
+        --glass-card-bloom-opacity: 0.35;
+        --glass-card-bloom-blend: normal;
+        --glass-ultra-border: rgba(75, 85, 99, 0.72);
+
+        --material-ultra-thin: rgba(17, 24, 39, 0.84);
+        --material-thin: rgba(17, 24, 39, 0.88);
+        --material-regular: rgba(17, 24, 39, 0.92);
+        --material-thick: rgba(31, 41, 55, 0.94);
+        --material-chrome: rgba(31, 41, 55, 0.97);
+
+        --text-primary: var(--zededa-text-primary);
+        --text-secondary: var(--zededa-text-secondary);
+        --text-tertiary: var(--zededa-text-tertiary);
+        --text-quaternary: rgba(156, 163, 175, 0.4);
+        --text-on-glass: #FFFFFF;
+
+        --bg-ambient: #030712;
+        --bg-solid: #111827;
+
+        --border-glass: rgba(75, 85, 99, 0.82);
+        --border-glass-inner: rgba(148, 163, 184, 0.46);
+        --border-subtle: rgba(75, 85, 99, 0.62);
+        --border-separator: rgba(100, 116, 139, 0.82);
+
+        --specular-edge: linear-gradient(180deg,
+            rgba(255, 255, 255, 0.15) 0%,
+            rgba(255, 255, 255, 0.02) 100%);
+        --specular-highlight: rgba(255, 255, 255, 0.12);
+
+        --shadow-glass-sm:
+            0 0.5px 0 0 rgba(255, 255, 255, 0.08) inset,
+            0 1px 3px 0 rgba(0, 0, 0, 0.3);
+        --shadow-glass-md:
+            0 0.5px 0 0 rgba(255, 255, 255, 0.06) inset,
+            0 4px 16px 0 rgba(0, 0, 0, 0.4);
+        --shadow-glass-lg:
+            0 1px 0 0 rgba(255, 255, 255, 0.05) inset,
+            0 8px 32px 0 rgba(0, 0, 0, 0.5);
+        --shadow-dock:
+            0 0 0 0.5px rgba(255, 255, 255, 0.1) inset,
+            0 20px 60px -12px rgba(0, 0, 0, 0.6);
+    }
+}
+
+/* -------------------------------------------------- */
+/* Dark Mode — data-theme attribute override           */
+/* -------------------------------------------------- */
+[data-theme="dark"] {
+    --zededa-bg-primary: #030712;
+    --zededa-bg-secondary: #111827;
+    --zededa-bg-tertiary: #1F2937;
+    --zededa-bg-hover: #374151;
+    --zededa-text-primary: #FFFFFF;
+    --zededa-text-secondary: #E5E7EB;
+    --zededa-text-tertiary: #CBD5E1;
+    --zededa-text-muted: #94A3B8;
+    --zededa-border-dark: #374151;
+    --zededa-border-medium: #4B5563;
+    --zededa-border-light: #6B7280;
+
+    --glass-tint: rgba(31, 41, 55, 0.76);
+    --glass-tint-subtle: rgba(31, 41, 55, 0.58);
+    --glass-tint-prominent: rgba(55, 65, 81, 0.86);
+    --glass-surface-gradient: linear-gradient(135deg, rgba(31, 41, 55, 0.94) 0%, rgba(24, 33, 50, 0.9) 48%, rgba(17, 24, 39, 0.86) 100%);
+    --glass-card-gradient: linear-gradient(135deg, rgba(31, 41, 55, 0.96) 0%, rgba(24, 33, 50, 0.9) 48%, rgba(17, 24, 39, 0.88) 100%);
+    --glass-card-bloom-1: rgba(0, 184, 195, 0.14);
+    --glass-card-bloom-2: rgba(99, 102, 241, 0.1);
+    --glass-card-bloom-opacity: 0.35;
+    --glass-card-bloom-blend: normal;
+    --glass-ultra-border: rgba(75, 85, 99, 0.72);
+
+    --material-ultra-thin: rgba(17, 24, 39, 0.84);
+    --material-thin: rgba(17, 24, 39, 0.88);
+    --material-regular: rgba(17, 24, 39, 0.92);
+    --material-thick: rgba(31, 41, 55, 0.94);
+    --material-chrome: rgba(31, 41, 55, 0.97);
+    --text-primary: var(--zededa-text-primary);
+    --text-secondary: var(--zededa-text-secondary);
+    --text-tertiary: var(--zededa-text-tertiary);
+    --text-on-glass: #FFFFFF;
+    --bg-ambient: #030712;
+    --bg-solid: #111827;
+    --border-glass: rgba(75, 85, 99, 0.82);
+    --border-glass-inner: rgba(148, 163, 184, 0.46);
+    --border-subtle: rgba(75, 85, 99, 0.62);
+    --border-separator: rgba(100, 116, 139, 0.82);
+}
+
+/* -------------------------------------------------- */
+/* Light Mode — explicit data-theme override           */
+/* -------------------------------------------------- */
+[data-theme="light"] {
+    --zededa-bg-primary: #F9FAFB;
+    --zededa-bg-secondary: #FFFFFF;
+    --zededa-bg-tertiary: #F3F4F6;
+    --zededa-bg-hover: #E5E7EB;
+    --zededa-text-primary: #111827;
+    --zededa-text-secondary: #374151;
+    --zededa-text-tertiary: #6B7280;
+    --zededa-text-muted: #9CA3AF;
+    --zededa-border-dark: #D1D5DB;
+    --zededa-border-medium: #9CA3AF;
+    --zededa-border-light: #E5E7EB;
+
+    --glass-tint: rgba(255, 255, 255, 0.86);
+    --glass-tint-subtle: rgba(255, 255, 255, 0.72);
+    --glass-tint-prominent: rgba(255, 255, 255, 0.92);
+    --glass-surface-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0.5) 50%, rgba(255, 255, 255, 0.32) 100%);
+    --glass-card-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.82) 0%, rgba(255, 255, 255, 0.52) 48%, rgba(255, 255, 255, 0.34) 100%);
+    --glass-card-bloom-1: rgba(255, 255, 255, 0.6);
+    --glass-card-bloom-2: rgba(255, 255, 255, 0.45);
+    --glass-card-bloom-opacity: 0.55;
+    --glass-card-bloom-blend: screen;
+    --glass-ultra-border: rgba(255, 255, 255, 0.2);
+    --text-primary: var(--zededa-text-primary);
+    --text-secondary: var(--zededa-text-secondary);
+    --text-tertiary: var(--zededa-text-tertiary);
+    --text-on-glass: #111827;
+    --bg-ambient: #F9FAFB;
+    --bg-solid: #FFFFFF;
+    --border-glass: rgba(229, 231, 235, 0.85);
+    --border-glass-inner: rgba(255, 255, 255, 0.9);
+    --border-subtle: rgba(209, 213, 219, 0.6);
+    --border-separator: rgba(209, 213, 219, 0.8);
+}
+
+/* -------------------------------------------------- */
+/* Material Theme Overrides — geometry refinements     */
+/* -------------------------------------------------- */
+:root {
+    --radius-xs: 8px;
+    --radius-sm: 10px;
+    --radius-md: 12px;
+    --radius-lg: 14px;
+    --radius-xl: 16px;
+    --radius-2xl: 20px;
+}

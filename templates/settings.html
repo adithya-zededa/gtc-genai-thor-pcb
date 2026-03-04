@@ -110,42 +110,13 @@
                     </label>
                 </div>
             </div>
-        </div>
-    </section>
-
-    <!-- Detection Model & Prompt (Liquid Glass) -->
-    <section class="glass rounded-2xl overflow-hidden animate-slide-up" style="animation-delay: 100ms;">
-        <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator);">
-            <h3 class="text-headline">Detection Model & Prompt</h3>
-            <p class="text-footnote mt-0.5">Configure vision model and detection prompt</p>
-        </div>
-        <div class="p-5">
-            <div class="grid gap-4 md:grid-cols-2 mb-4">
-                <div>
-                    <label class="input-label">Vision Model</label>
-                    <select id="vision-model" class="input-glass">
-                        <option value="">Loading models...</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="input-label">SSIM Threshold</label>
-                    <input id="ssim-threshold-config" type="range" min="0.5" max="1.0" step="0.05" class="w-full mt-2 accent-[var(--system-blue)]">
-                    <div class="flex justify-between text-footnote mt-2">
-                        <span class="text-tertiary">0.5 (sensitive)</span>
-                        <span id="ssim-threshold-value" class="font-semibold" style="color: var(--system-blue);">0.80</span>
-                        <span class="text-tertiary">1.0 (strict)</span>
-                    </div>
-                </div>
-            </div>
-            <div class="space-y-3">
-                <label class="input-label">Detection Prompt</label>
-                <textarea id="detection-prompt" rows="5" class="input-glass font-mono text-sm" placeholder="Describe the detection criteria"></textarea>
-                <div class="flex items-center justify-between">
-                    <button id="reset-prompt" class="btn btn-secondary text-xs">
-                        <i class="fas fa-undo"></i>
-                        <span>Reset to Default</span>
-                    </button>
-                    <span class="text-footnote">Characters: <span id="prompt-length" class="font-semibold" style="color: var(--system-blue);">0</span></span>
+            <div class="mt-4">
+                <label class="input-label">SSIM Threshold</label>
+                <input id="ssim-threshold-config" type="range" min="0.5" max="1.0" step="0.05" class="w-full mt-2 accent-[var(--system-blue)]">
+                <div class="flex justify-between text-footnote mt-2">
+                    <span class="text-tertiary">0.5 (sensitive)</span>
+                    <span id="ssim-threshold-value" class="font-semibold" style="color: var(--system-blue);">0.80</span>
+                    <span class="text-tertiary">1.0 (strict)</span>
                 </div>
             </div>
         </div>
@@ -325,10 +296,9 @@
     <section class="glass rounded-2xl overflow-hidden animate-slide-up" style="animation-delay: 200ms;">
         <div class="px-5 py-4" style="border-bottom: 0.5px solid var(--border-separator);">
             <h3 class="text-headline">vLLM Connection</h3>
-            <p class="text-footnote mt-0.5">Status and configuration for the vLLM inference backend</p>
+            <p class="text-footnote mt-0.5">Status of the vLLM inference backend</p>
         </div>
-        <div class="p-5 space-y-5">
-            <!-- vLLM status card -->
+        <div class="p-5">
             <div class="glass-ultra-thin rounded-xl p-4 flex items-center gap-4 liquid-hover">
                 <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style="background: var(--system-teal-glass, var(--graphite-50));">
                     <i class="fas fa-server" style="color: var(--system-teal, var(--graphite-text));"></i>
@@ -339,10 +309,9 @@
                         <span class="status-dot" id="vllm-status-dot" title="Checking..."></span>
                         <span class="text-caption text-tertiary" id="vllm-latency"></span>
                     </div>
-                    <div class="text-footnote text-secondary flex items-center gap-2 mt-0.5">
-                        <span id="vllm-url-display">—</span>
-                        <span class="text-quaternary">·</span>
-                        <span id="vllm-model-display">—</span>
+                    <div class="text-footnote text-secondary flex items-center gap-3 mt-1">
+                        <span class="flex items-center gap-1.5"><i class="fas fa-link text-[10px] text-tertiary"></i> <span id="vllm-url-display">—</span></span>
+                        <span class="flex items-center gap-1.5"><i class="fas fa-cube text-[10px] text-tertiary"></i> <span id="vllm-model-display">—</span></span>
                     </div>
                 </div>
                 <div class="flex items-center gap-2 flex-shrink-0">
@@ -350,32 +319,6 @@
                         <i class="fas fa-sync-alt mr-1"></i>Refresh
                     </button>
                 </div>
-            </div>
-
-            <!-- vLLM config form -->
-            <div class="grid gap-4 md:grid-cols-2">
-                <div>
-                    <label for="vllm-url" class="input-label">vLLM Server URL</label>
-                    <input id="vllm-url" type="url" class="input-glass" placeholder="http://vllm-service:8000">
-                </div>
-                <div>
-                    <label for="vllm-model" class="input-label">Model</label>
-                    <div class="flex gap-2">
-                        <select id="vllm-model" class="input-glass flex-1">
-                            <option value="">Loading models...</option>
-                        </select>
-                        <button type="button" class="btn btn-secondary text-xs flex-shrink-0" onclick="vllmFetchModels()">
-                            <i class="fas fa-sync-alt mr-1"></i>Fetch
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Save vLLM config -->
-            <div class="flex gap-3">
-                <button id="vllm-save-btn" class="btn flex-1 text-white" style="background: linear-gradient(135deg, var(--system-blue) 0%, var(--system-indigo) 100%);" onclick="vllmSaveConfig()">
-                    <i class="fas fa-save mr-1.5"></i>Save vLLM Config
-                </button>
             </div>
         </div>
     </section>
@@ -423,7 +366,7 @@ let recipientEmails = [];
 let autoSyncEnabled = false;
 
 // =============================================================================
-// vLLM Connection Management
+// vLLM Connection Status
 // =============================================================================
 
 async function vllmCheckHealth() {
@@ -453,90 +396,7 @@ async function vllmCheckHealth() {
     }
 }
 
-async function vllmLoadStatus() {
-    const result = await apiCall('/api/llm/providers');
-    if (result && result.success && result.providers && result.providers.length > 0) {
-        const p = result.providers[0];
-        const urlInput = document.getElementById('vllm-url');
-        if (urlInput && p.url) urlInput.value = p.url;
-        const modelSelect = document.getElementById('vllm-model');
-        if (modelSelect && p.model) {
-            // Add current model as option if not present
-            let found = false;
-            for (const opt of modelSelect.options) {
-                if (opt.value === p.model) { found = true; break; }
-            }
-            if (!found) {
-                const opt = document.createElement('option');
-                opt.value = p.model;
-                opt.textContent = p.model;
-                modelSelect.appendChild(opt);
-            }
-            modelSelect.value = p.model;
-        }
-    }
-    vllmCheckHealth();
-}
 
-async function vllmFetchModels() {
-    const urlInput = document.getElementById('vllm-url');
-    const modelSelect = document.getElementById('vllm-model');
-    const url = urlInput ? urlInput.value.trim() : '';
-
-    const result = await apiCall('/api/llm/models/fetch', {
-        method: 'POST',
-        body: JSON.stringify({ url: url || null }),
-    });
-
-    if (modelSelect) modelSelect.innerHTML = '';
-
-    if (result && result.success && Array.isArray(result.models) && result.models.length > 0) {
-        result.models.forEach(m => {
-            const name = typeof m === 'string' ? m : (m.id || m.name || String(m));
-            const opt = document.createElement('option');
-            opt.value = name;
-            opt.textContent = name;
-            if (modelSelect) modelSelect.appendChild(opt);
-        });
-        showToast(`Found ${result.models.length} model(s)`, 'success');
-    } else {
-        const opt = document.createElement('option');
-        opt.value = '';
-        opt.textContent = '— no models found —';
-        if (modelSelect) modelSelect.appendChild(opt);
-        const errorMsg = (result && result.error) ? result.error : 'No models returned';
-        showToast(errorMsg, 'warning');
-    }
-}
-
-async function vllmSaveConfig() {
-    const url = (document.getElementById('vllm-url') || { value: '' }).value.trim();
-    const model = (document.getElementById('vllm-model') || { value: '' }).value.trim();
-
-    const payload = {};
-    if (url) payload.url = url;
-    if (model) payload.model = model;
-
-    const result = await apiCall('/api/llm/config', {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-    });
-
-    if (result && result.success) {
-        showToast('vLLM configuration updated', 'success');
-        vllmCheckHealth();
-    } else {
-        showToast(result ? result.error : 'Failed to update vLLM config', 'error');
-    }
-}
-
-function initVLLMSection() {
-    vllmLoadStatus();
-}
-
-// =============================================================================
-// End vLLM Connection Management
-// =============================================================================
 
 function getIntValue(id, fallback) {
     const el = document.getElementById(id);
@@ -656,7 +516,6 @@ async function loadSystemStatus() {
     const serviceFlags = [
         ['web-status', status.web_available !== false],
         ['settings-agent-status', Boolean(status.camera_available)],
-        ['settings-vllm-status', Boolean(status.vllm_available || status.ollama_available)],
         ['settings-email-status', Boolean(status.email_available)]
     ];
     serviceFlags.forEach(([id, flag]) => {
@@ -817,11 +676,6 @@ function populateForm(config) {
     const sliderValue = document.getElementById('ssim-threshold-value');
     if (sliderValue) sliderValue.textContent = threshold.toFixed(2);
 
-    const detection = config.detection || {};
-    const promptEl = document.getElementById('detection-prompt');
-    if (promptEl) promptEl.value = detection.prompt || '';
-    updatePromptLength();
-
     const advanced = config.advanced || {};
     setNumberInput('max-concurrent-analyses', advanced.max_concurrent_analyses ?? 1);
     setNumberInput('max-pending-analyses', advanced.max_pending_analyses ?? Math.max((advanced.max_concurrent_analyses ?? 1) * 2, 1));
@@ -829,8 +683,6 @@ function populateForm(config) {
     setNumberInput('motion-burst-window', advanced.motion_burst_window ?? 10);
     setNumberInput('motion-burst-ssim', clamp(advanced.motion_burst_ssim ?? threshold, 0, 1));
     setNumberInput('pending-dedupe-ssim', clamp(advanced.pending_dedupe_ssim ?? 0.92, 0, 1));
-
-    // Model selection is handled by loadAvailableModels()
 
     const notifications = config.notifications && typeof config.notifications === 'object' ? config.notifications.email || {} : {};
     const smtpEl = document.getElementById('smtp-server');
@@ -872,6 +724,7 @@ function buildConfigFromForm() {
     const preprocessingDefaults = cameraDefaults.preprocessing || {};
     const advancedDefaults = currentConfig.advanced || {};
     const previousVllm = currentConfig.vllm || currentConfig.ollama || {};
+    const previousDetection = currentConfig.detection || {};
     const notificationsRoot = currentConfig.notifications && typeof currentConfig.notifications === 'object' ? currentConfig.notifications : {};
     const previousNotifications = notificationsRoot.email || {};
 
@@ -935,45 +788,16 @@ function buildConfigFromForm() {
         },
         vllm: {
             base_url: previousVllm.base_url || previousVllm.url || '',
-            model: (document.getElementById('vision-model') || {}).value || previousVllm.model || '',
+            model: previousVllm.model || '',
             timeout: previousVllm.timeout || 60
         },
-        detection: {
-            prompt: (document.getElementById('detection-prompt') || { value: '' }).value || ''
-        },
+        detection: previousDetection,
         rules: rulesClone.length ? rulesClone : currentConfig.rules || [],
         notifications: notificationsConfig
     };
 }
 
-async function loadAvailableModels() {
-    const select = document.getElementById('vision-model');
-    if (!select) return;
-    
-    const result = await apiCall('/api/llm/models');
-    select.innerHTML = '';
-    
-    if (result && result.success && result.models && result.models.length > 0) {
-        result.models.forEach(model => {
-            const name = typeof model === 'string' ? model : (model.id || model.name || String(model));
-            const option = document.createElement('option');
-            option.value = name;
-            option.textContent = name;
-            select.appendChild(option);
-        });
-        // Set selected value from config if available
-        const vllmCfg = currentConfig.vllm || currentConfig.ollama || {};
-        if (vllmCfg.model && result.models.some(m => (typeof m === 'string' ? m : m.id) === vllmCfg.model)) {
-            select.value = vllmCfg.model;
-        }
-    } else {
-        // Fallback if vLLM unavailable
-        const fallback = document.createElement('option');
-        fallback.value = '';
-        fallback.textContent = 'No models available - check vLLM connection';
-        select.appendChild(fallback);
-    }
-}
+
 
 async function loadConfiguration() {
     showLoading(true);
@@ -985,8 +809,6 @@ async function loadConfiguration() {
     }
     currentConfig = result;
     populateForm(result);
-    // Re-select model after config is loaded
-    loadAvailableModels();
 }
 
 async function loadDefaultConfiguration() {
@@ -1014,29 +836,6 @@ async function saveConfiguration() {
     }
     showToast(result ? result.error : 'Failed to save configuration.', 'error');
     return false;
-}
-
-function resetPrompt() {
-    const defaultPrompt = 'Describe what you see in this image in 2-3 concise sentences. Focus on identifying objects, furniture, electronics, and the general setting. Be specific about any computer equipment, screens, displays, or technology you observe.';
-    const el = document.getElementById('detection-prompt');
-    if (el) el.value = defaultPrompt;
-    updatePromptLength();
-}
-
-function updatePromptLength() {
-    const prompt = (document.getElementById('detection-prompt') || { value: '' }).value;
-    const lengthEl = document.getElementById('prompt-length');
-    if (lengthEl) lengthEl.textContent = prompt.length;
-}
-
-async function testPrompt() {
-    const prompt = (document.getElementById('detection-prompt') || { value: '' }).value;
-    if (!prompt.trim()) {
-        showToast('Enter a prompt before testing.', 'warning');
-        return;
-    }
-    showToast('Testing prompt with latest image (mock).', 'info');
-    setTimeout(() => showToast('Prompt test completed.', 'success'), 1500);
 }
 
 function updateThresholdDisplay() {
@@ -1253,9 +1052,6 @@ async function saveAllSettings() {
     const configSaved = await saveConfiguration();
     const recipientsSaved = await saveRecipients();
 
-    // Also save vLLM config
-    await vllmSaveConfig();
-
     if (envSaved && logSaved && configSaved && recipientsSaved) {
         showToast('All settings saved successfully.', 'success');
     } else {
@@ -1411,10 +1207,8 @@ document.addEventListener('DOMContentLoaded', () => {
     loadConfiguration();
     loadLogSettings();
     loadRecipients();
-    loadAvailableModels();
     updateThresholdDisplay();
-    updatePromptLength();
-    initVLLMSection();
+    vllmCheckHealth();
     loadNotificationPreferences();
     loadInspectionPrompt();
 
@@ -1455,12 +1249,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const loadDefaultsBtn = document.getElementById('reset-default-config');
     if (loadDefaultsBtn) loadDefaultsBtn.addEventListener('click', loadDefaultConfiguration);
 
-    const resetPromptBtn = document.getElementById('reset-prompt');
-    if (resetPromptBtn) resetPromptBtn.addEventListener('click', resetPrompt);
-    const promptInput = document.getElementById('detection-prompt');
-    if (promptInput) promptInput.addEventListener('input', updatePromptLength);
-    const testPromptBtn = document.getElementById('test-prompt');
-    if (testPromptBtn) testPromptBtn.addEventListener('click', testPrompt);
+
 
     const saveLogBtn = document.getElementById('save-log-settings');
     if (saveLogBtn) saveLogBtn.addEventListener('click', saveLogSettings);

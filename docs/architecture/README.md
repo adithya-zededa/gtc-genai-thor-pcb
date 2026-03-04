@@ -1,488 +1,262 @@
-# Architecture — PCB Conveyor Inspection Agent
+# Architecture
 
-## System Overview
+This document is the single source of truth for the current system architecture.
 
-The PCB Conveyor Inspection Agent is an **AI-powered industrial monitoring system** that watches a conveyor belt via camera, detects PCBs, inspects them for defects using a Vision Language Model (VLM), and alerts operators by email. Every decision flows through the LLM agent via explicit MCP tool calls — there are no hardcoded decision shortcuts.
+## System Summary
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                         User (Chat UI)                               │
-│   "Start monitoring for defective PCBs and email me@acme.com"        │
-└────────────────────────────┬─────────────────────────────────────────┘
-                             │ SocketIO
-                             ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                      Flask App + WebSocket                           │
-│   app/__init__.py · app/websocket/chat.py                            │
-└────────────────────────────┬─────────────────────────────────────────┘
-                             │
-                             ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                        MCP Manager                                   │
-│   agents/mcp/manager.py                                              │
-│   ┌──────────────┐    ┌──────────────────────────────────────┐       │
-│   │  LLM Intent  │───▶│  Domain Router                       │       │
-│   │  Classifier  │    │  ┌────────────┐  ┌────────────────┐  │       │
-│   └──────────────┘    │  │  general    │  │  pcb           │  │       │
-│                       │  │  domain     │  │  domain        │  │       │
-│                       │  └────────────┘  └────────────────┘  │       │
-│                       └──────────────────────────────────────┘       │
-└────────────────────────────┬─────────────────────────────────────────┘
-                             │
-              ┌──────────────┼──────────────┐
-              ▼              ▼              ▼
-     ┌──────────────┐ ┌───────────┐ ┌──────────────┐
-     │  Tool        │ │  VLM      │ │  Monitoring   │
-     │  Handlers    │ │  Client   │ │  Service      │
-     │  agents/     │ │  agents/  │ │  services/    │
-     │  tools/      │ │  vlm/     │ │  core/        │
-     └──────────────┘ └───────────┘ └──────────────┘
-              │              │              │
-              ▼              ▼              ▼
-     ┌──────────────┐ ┌───────────┐ ┌──────────────┐
-     │  Email       │ │  vLLM     │ │  Camera Feed  │
-     │  Service     │ │  Backend  │ │  Publisher    │
-     └──────────────┘ └───────────┘ └──────────────┘
+The application is a Flask + Socket.IO runtime that provides:
+
+- chat-driven agent control via MCP (Model Context Protocol),
+- proactive PCB monitoring from a camera feed,
+- VLM-based frame analysis (supporting vLLM and Ollama backends),
+- persistence for events, inspections, defects, config, and chat history (SQLite),
+- REST APIs for operational and diagnostics workflows,
+- server-rendered web UI for dashboard, chat, logs, settings, and user management.
+
+The control surface is language-first: user messages are interpreted into MCP tool proposals, then executed through a proposal lifecycle (including approval for sensitive actions). The system is packaged as a container and deployed via Helm alongside a dedicated vLLM inference server.
+
+## Top-Level Architecture
+
+```text
+┌─────────────────────────────────────────────────────────┐
+│                    Kubernetes (Helm)                     │
+│                                                         │
+│  ┌──────────────────────┐    ┌────────────────────────┐ │
+│  │   camera-agent Pod   │    │      vLLM Server Pod   │ │
+│  │   (Flask + SocketIO) │───▶│  (Triton + vLLM)       │ │
+│  │   Port 8080          │    │  Port 8000             │ │
+│  │   NodePort 30080     │    │  ClusterIP             │ │
+│  │                      │    │  GPU: 1x NVIDIA        │ │
+│  │  /dev/video0 mount   │    │  Model cache PVC       │ │
+│  │  Data PVC (SQLite)   │    └────────────────────────┘ │
+│  └──────────────────────┘                               │
+└─────────────────────────────────────────────────────────┘
 ```
 
----
+### Internal component flow
 
-## Core Design Principles
+```text
+User (Web Chat UI / REST API)
+      │
+      ▼
+Flask App (HTTP + Socket.IO)
+  - app/__init__.py          (create_app factory)
+  - app/websocket/chat.py    (conversational agent loop)
+  - app/views/               (dashboard, chat, logs, settings, users)
+  - app/api/v1/              (REST endpoints)
+      │
+      ▼
+MCP Manager / Domain Router
+  - agents/mcp/manager.py
+      │
+      ├──▶ General MCP domain
+      │      - session lifecycle, status, history, alerts, evidence tools
+      │
+      └──▶ PCB MCP domain
+             - inspection, defect logging, analytics, reporting,
+               notification preferences tools
+      │
+      ▼
+Agent State Machine (OFF → IDLE → MONITORING → ANALYZING → ALERTING → ERROR)
+  - agents/mcp/state_machine.py
 
-1. **Language is the only control surface.** Users interact via natural language chat. The LLM agent decides what tools to call.
-2. **Propose → Approve → Execute.** All tool calls follow an explicit lifecycle (`MCPToolCallProposal`). Sensitive actions require user confirmation.
-3. **Frame capture is decoupled from the LLM.** The CV pipeline stores frames automatically; the LLM accesses them via tool calls, never touching the camera directly.
-4. **One responsibility per tool.** Retrieving frames, inspecting frames, sending alerts, and querying history are all separate tools the LLM chains together.
-
----
-
-## Directory Structure
-
-```
-├── agents/                    # Agent logic
-│   ├── classifiers/           # LLM-based intent classifier
-│   │   └── llm_classifier.py  # Routes messages → domain + tool
-│   ├── core/                  # Core agent runtime
-│   │   ├── monitoring_loop.py # Observation loop (only deterministic piece)
-│   │   ├── detection_agent.py # Streamlined VLM detection agent
-│   │   └── state.py           # DetectionEvent model
-│   ├── mcp/                   # Model Context Protocol
-│   │   ├── manager.py         # Domain router (pcb/general)
-│   │   ├── executor_base.py   # Base executor with proposal lifecycle
-│   │   ├── executor.py        # General domain executor
-│   │   ├── interpreter.py     # General domain interpreter
-│   │   ├── lifecycle.py       # MCPToolCallProposal + MCPToolResult
-│   │   ├── state_machine.py   # AgentStateMachine (6 states)
-│   │   ├── registry.py        # MCPToolDefinition + MCPToolRegistry
-│   │   └── domains/
-│   │       └── pcb.py         # PCB domain: registry, interpreter, executor
-│   ├── tools/                 # Tool handler functions
-│   │   ├── pcb.py             # PCB tools (inspect, alert, monitor, query)
-│   │   ├── email.py           # Email sending
-│   │   └── base.py            # General tools (history, evidence, etc.)
-│   └── vlm/                   # Vision Language Model
-│       ├── client.py          # UnifiedVLMClient (vLLM / Ollama)
-│       ├── prompts.py         # Task-specific VLM prompts
-│       └── task_types.py      # TaskType enum
-├── app/                       # Flask application
-│   ├── __init__.py            # App factory (create_app)
-│   ├── api/v1/                # REST API endpoints
-│   ├── database/              # SQLite models + repositories
-│   │   ├── connection.py      # DB init, connection pool
-│   │   ├── models.py          # Dataclass models (8 models)
-│   │   └── repositories.py   # Repository classes (9 repos)
-│   ├── views/                 # Jinja2 HTML views
-│   └── websocket/
-│       └── chat.py            # SocketIO chat handlers
-├── config/                    # Pydantic settings + YAML defaults
-├── core/                      # Cross-cutting concerns
-│   ├── config.py              # Configuration loading
-│   ├── logging.py             # Structured logging
-│   └── errors.py              # Error hierarchy (CameraAgentError)
-├── router/                    # LLM Router
-│   ├── llm_router.py          # vLLM routing + token tracking
-│   └── adapters/              # Provider adapters
-├── services/                  # Business logic services
-│   ├── core/
-│   │   ├── monitoring.py      # StreamlinedMonitoringService
-│   │   ├── camera.py          # Camera feed publisher
-│   │   └── pcb_presence_cv.py # OpenCV board detection
-│   └── domains/pcb/
-│       └── service.py         # PCB domain service (defect recording)
-├── helm/                      # Kubernetes Helm chart
-├── templates/                 # Jinja2 HTML templates
-└── static/                    # CSS / JS
+Monitoring Service + MonitoringLoop
+  - services/core/monitoring.py     (StreamlinedMonitoringService)
+  - agents/core/monitoring_loop.py  (deterministic CV observation)
+  - agents/core/detection_agent.py  (StreamlinedAgent – VLM analysis)
+      │
+      ▼
+VLM Client + LLM Router
+  - agents/vlm/client.py        (UnifiedVLMClient – vLLM & Ollama)
+  - services/infrastructure/vlm.py  (client factory)
+  - router/llm_router.py        (AgentLLMRouter – vLLM adapter)
+      │
+      ▼
+Persistence + UI broadcast
+  - app/database/*              (SQLite repos & models)
+  - Socket.IO events            (real-time UI updates)
 ```
 
----
+## Runtime Components
 
-## Agent State Machine
+### 1) App and transport layer
 
-The agent runs through 6 states with validated transitions:
+- `create_app()` in `app/__init__.py` creates the Flask app, registers API blueprints, view blueprints, and initializes Socket.IO.
+- WebSocket chat handlers in `app/websocket/chat.py` drive the conversational agent loop: session management, MCP interpretation, proposal approval/rejection, and real-time activity event emission.
+- API v1 routes are registered from `app/api/v1/*` under `/api`, covering health, camera, config, defects, analysis, logs, LLM, MCP protocol, monitoring, system, and users.
+- Server-rendered views (`app/views/`) serve the web UI: dashboard (`/`), chat (`/chat`), logs (`/logs`), settings (`/settings`), users (`/users`), and log detail/diagnostics pages.
 
-```
-         ┌─────────┐
-         │   OFF   │──────────────────┐
-         └────┬────┘                  │
-              │ start                 │ shutdown
-              ▼                       │
-         ┌─────────┐                  │
-    ┌────│  IDLE   │◀─────────────────┤
-    │    └────┬────┘                  │
-    │         │ start monitoring      │
-    │         ▼                       │
-    │    ┌────────────┐     ┌─────────┴──┐
-    │    │ MONITORING │────▶│  ANALYZING  │
-    │    └─────┬──────┘     └─────┬──────┘
-    │          │                  │
-    │          ▼                  ▼
-    │    ┌──────────┐       ┌─────────┐
-    │    │ ALERTING │       │  ERROR  │
-    │    └──────────┘       └─────────┘
-    │          │                  │
-    └──────────┴──────────────────┘
-                  → IDLE
-```
+### 2) Agent state machine
 
-| State | Description |
-|-------|-------------|
-| `OFF` | Agent powered down |
-| `IDLE` | Ready, no active monitoring |
-| `MONITORING` | Camera feed is active, CV pipeline running |
-| `ANALYZING` | VLM inference in progress |
-| `ALERTING` | Sending an alert notification |
-| `ERROR` | Recoverable error state |
+- `AgentStateMachine` (`agents/mcp/state_machine.py`) manages validated state transitions across the agent lifecycle.
+- States: `OFF` → `IDLE` → `MONITORING` → `ANALYZING` → `ALERTING` → `ERROR`.
+- Transitions are validated against an explicit `VALID_STATE_TRANSITIONS` map; listeners are notified on state change.
+- On first WebSocket connection, the agent transitions `OFF → IDLE`.
 
-Defined in `agents/mcp/state_machine.py`. Transitions are thread-safe (RLock) and audited.
+### 3) MCP orchestration
 
----
+- `MCPManager` (`agents/mcp/manager.py`) routes each message to either the `general` or `pcb` domain.
+- Domain detection uses `LLMIntentClassifier` (`agents/classifiers/llm_classifier.py`) exclusively (no keyword fallback). Falls back to `general` when the LLM is unavailable or classification confidence is below 0.3.
+- The classifier includes a per-request TTL cache and circuit breaker (3 consecutive failures → 30s backoff).
+- The manager coordinates: domain resolution → interpreter → tool proposal → executor lifecycle.
+- If the PCB interpreter returns no proposal, the manager falls back to the general interpreter.
+- Global MCP singletons (state machine, audit log, tool registry, executor, interpreter) are provided in `agents/mcp/globals.py`.
 
-## MCP Tool System
+### 4) Domain MCPs
 
-### Two Domains
+Each domain has its own interpreter, executor, and tool registry:
 
-| Domain | Interpreter | Executor | Tools |
-|--------|-------------|----------|-------|
-| **general** | `MCPInterpreter` | `MCPExecutor` | Session/state control, frame analysis, alerts, evidence, history |
-| **pcb** | `PCBInterpreter` | `PCBExecutor` | PCB inspection, frame-store workflow, defect analytics, reporting, notification preferences |
+- **General domain** (`agents/mcp/domains/general/`): 13 tools covering session lifecycle (start/end/summary), agent control (status, idle, shutdown, acknowledge error), analysis (current frame), alerting (email), evidence saving, event logging, history queries, and detection task assignment.
+- **PCB domain** (`agents/mcp/domains/pcb/`): 24+ tools covering PCB inspection and classification, defect logging, defect analytics (count, trend, breakdown, severity, sources, thresholds, insights), monitoring control, notification preferences, and report generation (defect reports, summary reports).
 
-### Domain Routing
+### 5) MCP proposal lifecycle
 
-1. User message arrives via SocketIO → `chat.py`
-2. `MCPManager.interpret()` calls the **LLM intent classifier** which returns `{domain, tool, confidence, params}`
-3. Routes to the correct domain's interpreter
-4. Interpreter produces an `MCPToolCallProposal`
-5. `MCPManager.submit()` sends it to the domain's executor
-6. Executor checks confirmation policy → auto-execute or wait for user approval
+- Tool proposals follow the lifecycle: `PROPOSED → PENDING_APPROVAL → APPROVED → EXECUTING → SUCCEEDED | FAILED` (`agents/mcp/lifecycle.py`).
+- `BaseDomainExecutor` (`agents/mcp/executor_base.py`) handles shared proposal flow: deduplication (SHA256 hash + 5s window), approval gates for sensitive tools, thread-pool execution, and timeout management.
+- `MCPAuditLog` (`agents/mcp/audit.py`) records all lifecycle events with 15 event types, metrics tracking, and sensitive data redaction.
 
-### Tool Call Lifecycle
+### 6) Monitoring runtime
 
-```
-User Message
-    │
-    ▼
-MCPToolCallProposal
-  state: PROPOSED → PENDING_APPROVAL → APPROVED → EXECUTING → SUCCEEDED/FAILED
-                                    ↘ REJECTED (user declines)
-```
+- `StreamlinedMonitoringService` (`services/core/monitoring.py`) is the monitoring control plane with two modes: `IDLE` and `PROACTIVE`.
+- `MonitoringLoop` (`agents/core/monitoring_loop.py`) is the deterministic CV observation loop. It acquires frames, computes motion score, edge density, board-in-zone detection, and board signature via contour hashing.
+- On board-ready state change (new board stops in inspection zone), the loop fires an `on_board_ready` callback with a 4-second camera focus delay before capture.
+- `StreamlinedAgent` (`agents/core/detection_agent.py`) performs VLM-based PCB inspection with SSIM-based frame deduplication (skips analysis if scene is unchanged), circuit breaker, and retry logic.
 
-Defined in `agents/mcp/lifecycle.py`. Every transition is timestamped and audit-logged.
+### 7) Inference and routing
 
-### PCB Domain Tools
+- `UnifiedVLMClient` (`agents/vlm/client.py`) is the multi-backend VLM client supporting both **vLLM** and **Ollama** backends via the `VLMBackend` enum. Returns typed results: `AnalysisResult`, `AgenticResult`, `DetectionResult`.
+- VLM client creation is centralized in `services/infrastructure/vlm.py` (`create_vlm_client_from_config()`) with auto-detection of the available model via `core.model_detect`.
+- `AgentLLMRouter` (`router/llm_router.py`) is a vLLM-focused single-provider router using `VLLMAdapter` with token usage tracking (`TokenUsageTracker`).
+- VLM prompts are centralized in `agents/vlm/prompts.py`, including the default PCB inspection prompt for Arduino Uno R4 Minima boards.
 
-| Tool | Confirmation | Description |
-|------|:---:|-------------|
-| `get_latest_pcb_frames` | No | List stored PCB frames from the frame store |
-| `inspect_pcb_frame` | No | Send a stored frame to VLM for defect analysis |
-| `inspect_pcb` | No | Analyze the live camera frame |
-| `classify_board` | No | Identify board type from current frame |
-| `send_defect_alert` | **Yes** | Email defect alert to recipients |
-| `log_defect` | No | Record defect to database |
-| `generate_defect_report` | No | Aggregate defect summary |
-| `start_defect_monitoring` | No | Deprecated — monitoring loop + LLM handle this |
-| `stop_defect_monitoring` | No | Deprecated — see above |
-| `query_pcb_inspections` | No | Query past inspection history (PASS/FAIL) |
-| `get_monitoring_status` | No | Monitoring status + recent activity summary |
-| `toggle_email_notifications` | No | Enable/disable notifications and set thresholds/recipients |
-| `get_defect_summary` | No | Defects in a time range (optional filters) |
-| `count_defective_pcbs` | No | Count defective boards over a time window |
-| `get_latest_defect` | No | Most recent recorded defect |
-| `get_defect_type_breakdown` | No | Frequency by defect type |
-| `get_defect_trend` | No | Defect-rate trend analysis |
-| `get_most_severe_defect` | No | Highest-severity defect in range |
-| `get_top_defect_sources` | No | Boards/sources with highest defect volume |
-| `generate_summary_report` | No | Daily/weekly/all-time monitoring report |
-| `check_threshold_alerts` | No | Check if defect thresholds are exceeded |
-| `get_defect_insights` | No | AI-generated recommendations from defect patterns |
-| `get_notification_preferences` | No | Read current notification preferences |
+### 8) Data and persistence
 
-### General Domain Tools
+- SQLite database managed through `app/database/connection.py` (`get_db_connection()`, `init_db()`).
+- **Models** (`app/database/models.py`): `User`, `DetectionLog`, `ConfigHistory`, `LogSettings`, `PCBDefect`, `PCBFrameStore`, `PCBInspection`.
+- **Repositories** (`app/database/repositories.py`): `UserRepository`, `DetectionLogRepository`, `ChatHistoryRepository`, `ConfigHistoryRepository`, `LogSettingsRepository`, `PCBDefectRepository`, `PCBFrameStoreRepository`, `PCBInspectionRepository`.
+- Chat history is persisted via `ChatHistoryRepository` within the WebSocket session flow.
 
-| Tool | Confirmation | Description |
-|------|:---:|-------------|
-| `start_monitoring_session` | No | Start camera + proactive monitoring |
-| `end_session` | No | Stop monitoring, end session |
-| `go_idle` | No | Pause monitoring |
-| `get_agent_status` | No | Current state + metrics |
-| `analyze_current_frame` | No | Analyze live frame via VLM |
-| `query_history` | No | Detection log history |
-| `get_session_summary` | No | Session statistics |
-| `send_alert_email` | **Yes** | Generic alert email |
-| `set_detection_task` | No | Configure detection mode |
-| `shutdown_agent` | **Yes** | Full shutdown |
-| `acknowledge_error` | No | Recover from error state back to idle |
+### 9) Domain services
 
----
+- `services/domains/pcb/` provides PCB domain logic: `record_defect()`, `should_alert()`, `generate_defect_report()`, `classify_board_from_analysis()`, `extract_defects_from_analysis()`.
+- Alert logic is severity- and board-type-aware, backed by `PCBDefectRepository`.
+- `services/domains/pcb/notification_preferences.py` manages per-user notification settings.
 
-## Frame Capture Pipeline (Decoupled from LLM)
+## Web Application
 
-The LLM never touches the camera directly. Frame capture is handled by the monitoring loop:
+The web UI is server-rendered using Jinja2 templates (`templates/`) with static assets (`static/css/`):
 
-```
-Camera Feed Publisher
-        │
-        ▼
-MonitoringLoop                              (agents/core/monitoring_loop.py)
-        │
-        ├── CV Observation (per frame)
-        │     ├── Motion score (ROI diff)
-        │     ├── Board-in-zone (contour detection + hysteresis)
-        │     └── Board signature (tracker or hash)
-        │
-        ├── State-change detection
-        │     Board just stopped in zone? → on_board_ready()
-        │
-        └── Frame Store Hook
-              │
-              │  if board_in_zone AND NOT motion_moving:
-              │     save JPEG to disk
-              │     INSERT into pcb_frame_store
-              │
-              ▼
-        ┌─────────────────┐
-        │ pcb_frame_store │  (SQLite table)
-        │  id, timestamp, │
-        │  image_path,    │
-        │  motion_score,  │
-        │  board_signature│
-        │  consumed       │
-        └────────┬────────┘
-                 │
-                 │  consumed by:
-                 │
-        LLM tools (on-demand)
-           get_latest_pcb_frames
-           inspect_pcb_frame
-```
+| Route | Template | Purpose |
+|-------|----------|---------|
+| `/` | `dashboard.html` | System overview dashboard |
+| `/chat` | `chat.html` | Conversational agent interface (Socket.IO) |
+| `/logs` | `logs.html` | Detection log listing |
+| `/logs/<id>` | `log_detail.html` | Individual log detail view |
+| `/logs/<id>/diagnostics` | `log_diagnostics.html` | Log diagnostics view |
+| `/settings` | `settings.html` | Camera, VLM, notification configuration |
+| `/users` | `users.html` | User management |
 
-### Automatic Frame Storage
+Legacy routes (`/monitoring`, `/chat/v2`, `/configuration`) redirect to their current equivalents.
 
-Frames are stored when:
-- **Board detected** in the camera's region of interest
-- **Motion score < threshold** (board is stationary)
-- **Cooldown elapsed** (2 seconds between captures)
+## Deployment Architecture
 
-Storage path: `$CAMERA_AGENT_DATA_DIR/pcb_frame_store/pcb_{timestamp}.jpg`
+### Helm chart (`helm/camera-agent/`)
 
----
+Chart: `zededa-reference-agent-pcb-thor-vllm` (v2.15.0, appVersion 2.11.0).
 
-## How the LLM Handles Defect Monitoring
+The Helm chart deploys **two workloads** into a Kubernetes cluster:
 
-When the user says *"start monitoring for defective PCBs"*, the system:
+1. **camera-agent** — Flask web application container.
+   - Image: `adithyazededa/gtc-genai-thor-pcb`
+   - Port 8080 exposed via NodePort (30080)
+   - Mounts camera device (`/dev/video0`) and optional speaker (`/dev/snd`)
+   - Data PVC for SQLite database and detected images
+   - Connects to vLLM server via cluster-internal URL
 
-1. Starts `MonitoringLoop` which observes the camera feed via CV
-2. When a board stops in zone, fires `on_board_ready(frame, context)`
-3. The `StreamlinedMonitoringService._on_board_ready` calls the VLM
-4. The LLM decides follow-up MCP actions (alerts, analytics queries, reporting, preference updates)
+2. **vLLM server** — GPU-accelerated inference server.
+   - Image: `nvcr.io/nvidia/tritonserver:25.12-vllm-python-py3`
+   - Port 8000 via ClusterIP (cluster-internal)
+   - 1x NVIDIA GPU with configurable memory utilization
+   - Default model: `nvidia/Cosmos-Reason2-8B` (configurable)
+   - HuggingFace model cache PVC (50Gi)
+   - Configurable tensor parallelism, prefix caching, max model length
 
-```
-MonitoringLoop detects board stopped
-        │
-        ▼
-on_board_ready(frame, observation_context)
-        │
-        ▼
-VLM analysis → DetectionEvent
-        │
-        ├── Persist to pcb_inspections (PASS/FAIL)
-  ├── Auto-log defect side effects when detection tools are used
-        ├── Emit SocketIO event → Chat UI
-  └── LLM decides: call send_defect_alert / analytics tools?
+### Docker Compose (`docker-compose.yml`)
+
+For local development, Docker Compose deploys the same two-service topology:
+
+1. **camera-agent** — builds from `Dockerfile`, port 8080, camera device passthrough, config/data/DB volumes.
+2. **vllm-server** — `nvcr.io/nvidia/tritonserver:25.12-vllm-python-py3`, port 8000, 1x GPU reservation, model cache volume. Default model: `Qwen/Qwen3-VL-4B-Instruct` (smaller than Helm default for local dev).
+
+### Entry points
+
+- `run.py` — CLI entry point: loads env → config → logging → model auto-detection → LLM router init → database init → `create_app()` → `socketio.run()`.
+- `wsgi.py` — WSGI entry point for gunicorn with eventlet worker.
+- `start.sh` — Container entrypoint script.
+
+## Primary Execution Flows
+
+### Chat command flow
+
+1. User sends a chat message via Socket.IO.
+2. `MCPManager.detect_domain()` classifies intent via the LLM classifier → `general` or `pcb`.
+3. Domain interpreter creates an `MCPToolCallProposal`.
+4. Executor runs proposal lifecycle: deduplication check → approval gate (if required) → tool execution.
+5. Tool result is emitted back to the chat session, persisted to the database, and recorded in the audit log.
+
+### Proactive PCB monitoring flow
+
+1. Monitoring is started via MCP tooling (`start_monitoring_session` / `start_defect_monitoring`) or the proactive API endpoint.
+2. `MonitoringLoop` subscribes to camera frames and computes observations (motion, edge density, board presence, board signature).
+3. On board-ready state change (new board detected, motion stopped, 4s focus delay elapsed), `on_board_ready` callback fires.
+4. `StreamlinedAgent` performs VLM analysis with SSIM dedup; inspection/defect results are persisted.
+5. Results are broadcast via Socket.IO; follow-up actions (alerts/reports/preferences) are handled through MCP tools.
+
+## Key Directories
+
+```text
+agents/
+  classifiers/      # LLM domain/intent classification with cache + circuit breaker
+  core/             # MonitoringLoop, StreamlinedAgent, state models, AgentMemory
+  mcp/              # MCP lifecycle, manager, registries, state machine, audit log
+    domains/
+      general/      # General domain interpreter, executor, tool definitions (13 tools)
+      pcb/          # PCB domain interpreter, executor, tool definitions (24+ tools)
+  tools/            # Tool handler implementations
+    general/        # Alert, evidence, event log, history handlers
+    pcb/            # Inspection, analytics, defect logging, reporting, notification handlers
+  vlm/              # UnifiedVLMClient (vLLM + Ollama), prompts, task types
+
+app/
+  api/v1/           # REST endpoints (health, camera, config, defects, analysis,
+                    #   logs, LLM, MCP, monitoring, system, users)
+  database/         # SQLite models, repositories, connection management
+  views/            # Server-rendered view routes
+  websocket/        # Socket.IO chat handlers, session management
+
+services/
+  core/             # StreamlinedMonitoringService, camera publisher, inference
+  domains/
+    pcb/            # PCB defect recording, alerting, report generation
+  infrastructure/   # VLM client factory, camera/config utilities
+
+router/             # AgentLLMRouter, VLLMAdapter, token usage tracking
+config/             # Pydantic settings/schemas, runtime defaults
+core/               # Shared config, logging, errors, model detection, resilience
+helm/               # Kubernetes Helm chart (camera-agent + vLLM server)
+templates/          # Jinja2 HTML templates (dashboard, chat, logs, settings, users)
+static/             # CSS and static assets
 ```
 
-The LLM chains tools together naturally. Runtime monitoring is proactive-only:
-`StreamlinedMonitoringService.start_monitoring()` always selects
-`MonitoringMode.PROACTIVE`.
+## Current Design Decisions
 
----
+- Domain-separated MCP execution (`general` vs `pcb`) is retained as the primary organization boundary.
+- Monitoring observation (deterministic CV) and LLM/tool decisioning are intentionally separated.
+- The LLM router is currently optimized for vLLM deployment rather than multi-provider routing; the VLM client additionally supports Ollama for alternative deployments.
+- The architecture supports both conversational operation (Socket.IO chat) and operational API access (`/api/*`).
+- The Helm chart co-deploys the app and inference server as separate pods, keeping GPU resources isolated to the vLLM server.
+- SQLite is used for persistence to keep the deployment self-contained (no external database dependency).
 
-## Database Schema
+## Scope of this document
 
-SQLite with connection pooling. 8 models, 9 repositories.
-
-### Key Tables
-
-| Table | Purpose | Key Fields |
-|-------|---------|------------|
-| `pcb_frame_store` | Auto-captured PCB frames | timestamp, image_path, motion_score, board_signature, consumed |
-| `pcb_inspections` | VLM inspection outcomes | board_signature, result (PASS/FAIL), confidence, defect_type, image_path, decision_trace |
-| `pcb_defects` | Logged defect records | board_type, defect_type, severity, confidence, description |
-| `detection_logs` | General detection events | timestamp, confidence, response, image_path, decision_details |
-| `users` | Email recipients + settings | email, name, active |
-| `chat_messages` | Persisted conversations | client_session_id, message_id, role, content, metadata |
-| `notification_preferences` | Alert policy configuration | email_enabled, min_severity, recipients_json, quiet_hours |
-
-### Data Flow
-
-```
-Frame captured → pcb_frame_store (image + metadata)
-                       │
-                       ▼
-              VLM inspection
-                       │
-                       ▼
-              pcb_inspections (PASS/FAIL record)
-                       │
-                  if FAIL:
-                       ├──▶ pcb_defects (logged defect)
-                       └──▶ email alert
-```
-
----
-
-## LLM Integration
-
-### Intent Classification
-
-`agents/classifiers/llm_classifier.py` uses a **single LLM inference call** with structured JSON output:
-
-```json
-{
-  "domain": "pcb",
-  "tool": "count_defective_pcbs",
-  "confidence": 0.95,
-  "params": {"hours": 24},
-  "rationale": "User asked how many defective boards were found today"
-}
-```
-
-The classifier prompt embeds all available tools with descriptions. A simple circuit breaker (3 consecutive failures → 30s backoff) handles vLLM downtime.
-
-### VLM (Vision Language Model)
-
-`agents/vlm/client.py` — `UnifiedVLMClient` supports:
-- **vLLM backend** (OpenAI-compatible `/v1/chat/completions`)
-- **Ollama backend** (local `/api/generate`)
-
-Used for frame analysis: encodes images as base64, sends with task-specific prompts, returns structured detection results.
-
-### LLM Router
-
-`router/llm_router.py` — single-provider vLLM router. Handles conversational responses (non-tool chat messages) via the same vLLM deployment. Tracks token usage.
-
----
-
-## Chat Interface
-
-### Backend event flow (`app/websocket/chat.py`)
-
-1. **`chat_message`** → `_process_user_message()` → MCPManager interpret/submit.
-2. Pending proposals emit **`tool_confirmation_required`**.
-3. User emits **`approve_proposal`** or **`reject_proposal`**.
-4. Server emits **`proposal_result`**, **`chat_message`**, and (when needed) **`agent_state_changed`**.
-
-Session management uses `ChatSessionManager` with persisted message history (`chat_messages` table) keyed by stable `client_session_id`.
-
-### Frontend runtime (`templates/base.html` + `templates/chat.html`)
-
-- `base.html` owns Socket.IO initialization and translates key socket events into browser `CustomEvent`s.
-- `chat.html` listens to `agent-chat-connected`, `agent-chat-message`, and `agent-state-changed` to avoid duplicate `socket.on(...)` registration.
-- Additional chat-specific socket handlers in `chat.html` include `tool_confirmation_required`, `proposal_result`, `conversation_cleared`, `chat_detection`, `new_log`, and `agent_activity`.
-
-### Camera + status behavior in chat view
-
-- Camera stream starts when agent state indicates active monitoring (`monitoring`, `analyzing`, `alerting`) or `monitoring_active` is true.
-- Live image source uses `/api/video_feed` with periodic metadata/stat refresh from `/api/capture_frame`.
-- Status fallback path calls `/api/status` (and `/api/v1/tools`) when socket bootstrap does not arrive.
-- Offline mode remains interactive: user messages get local mock responses while preserving UI responsiveness.
-
----
-
-## Typical User Flows
-
-### Flow 1: Start Monitoring
-
-```
-User: "Monitor for defective PCBs and alert admin@acme.com"
-  │
-  ├─ Classifier: domain=general, tool=start_monitoring_session
-  ├─ MonitoringLoop starts, observes camera feed
-  │
-  ...board stops in zone...
-  │
-  ├─ on_board_ready → VLM analysis
-  ├─ Defect detected → LLM calls send_defect_alert
-  │
-  ▼
-Agent: "🚨 Defect detected — solder bridge. Alert sent to admin@acme.com"
-```
-
-### Flow 2: Ask About Past Inspections
-
-```
-User: "How many defective PCBs did you find today?"
-  │
-  ├─ Classifier: domain=pcb, tool=query_pcb_inspections
-  ├─ Interpreter: proposal(limit=10, result_filter="FAIL")
-  ├─ Executor: auto-approved
-  │
-  ▼
-Agent: "Found 47 total inspections. Showing 10 most recent. Pass: 3, Fail: 7."
-```
-
-### Flow 3: On-Demand Inspection
-
-```
-User: "Check the latest PCB for defects"
-  │
-  ├─ Classifier: domain=pcb, tool=inspect_pcb_frame
-  ├─ Interpreter: proposal(frame_id=None → latest unconsumed)
-  ├─ Executor: auto-approved → VLM analysis
-  │
-  ▼
-Agent: "✅ Stored PCB frame inspected — solder bridge detected, severity: high"
-  │
-User: "Send an alert about that to ops@acme.com"
-  │
-  ├─ Classifier: domain=pcb, tool=send_defect_alert
-  ├─ Interpreter: proposal(recipients=["ops@acme.com"], ...)
-  ├─ Executor: requires_confirmation
-  │
-  ▼
-Agent: "🔔 Send a PCB defect alert email to ops@acme.com?"
-User: [Approve]
-Agent: "✅ Defect alert sent to 1 recipient(s)"
-```
-
-### Flow 4: Stop Monitoring
-
-```
-User: "Stop monitoring"
-  │
-  ├─ Classifier: domain=general, tool=end_session
-  ├─ end_session handler:
-  │    ├─ stops MonitoringLoop
-  │    └─ transitions state → IDLE
-  │
-  ▼
-Agent: "✅ Session ended."
-```
-
----
-
-## Deployment
-
-- **Container**: Dockerfile + docker-compose.yml
-- **Kubernetes**: Helm chart in `helm/camera-agent/`
-- **Runtime**: Gunicorn via `wsgi.py`, SocketIO via eventlet
-- **Dependencies**: `requirements/base.txt` (core), `dev.txt`, `prod.txt`, `test.txt`
+This file intentionally replaces older architecture docs in this folder. Keep this README updated when changing runtime boundaries, module responsibilities, or cross-component flow.

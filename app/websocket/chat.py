@@ -16,7 +16,7 @@ Key principles:
 from __future__ import annotations
 
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import json as _json
@@ -117,7 +117,7 @@ def _emit_agent_activity(
         "detail": detail,
         "tool_name": tool_name,
         "display_name": _friendly_tool_name(tool_name) if tool_name else None,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
     if chat_session is not None:
@@ -157,7 +157,7 @@ class ChatMessage:
         self.role = role
         self.content = content
         self.metadata = metadata or {}
-        self.timestamp = timestamp or datetime.now().isoformat()
+        self.timestamp = timestamp or datetime.now(timezone.utc).isoformat()
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -218,7 +218,7 @@ class ChatSession:
         self.socket_session_id = session_id
         self.client_session_id = client_session_id
         self.messages: List[ChatMessage] = []
-        self.created_at = datetime.now().isoformat()
+        self.created_at = datetime.now(timezone.utc).isoformat()
         self._lock = threading.Lock()
         self._load_messages_from_db()
 
@@ -1126,10 +1126,17 @@ def _deterministic_tool_summary(tool_name: str, output_message: str, output_data
             f"{output_data.get('low', 0)} low severity."
         )
     if tool_name == "query_pcb_inspections" and isinstance(output_data, dict):
+        time_window = output_data.get("time_window", "all time")
+        fail_types = output_data.get("fail_defect_types", {})
+        fail_detail = ""
+        if fail_types:
+            parts = [f"{dt}: {cnt}" for dt, cnt in fail_types.items()]
+            fail_detail = f" Failure breakdown: {'; '.join(parts)}."
         return (
-            f"I found {output_data.get('total', 0)} inspection(s) total and reviewed "
-            f"{output_data.get('showing', 0)} recent record(s): "
+            f"I found {output_data.get('total', 0)} inspection(s) ({time_window}), "
+            f"showing {output_data.get('showing', 0)} recent record(s): "
             f"{output_data.get('pass_count', 0)} pass and {output_data.get('fail_count', 0)} fail."
+            f"{fail_detail}"
         )
     if tool_name == "get_defect_type_breakdown" and isinstance(output_data, dict):
         defect_types = output_data.get("types", [])

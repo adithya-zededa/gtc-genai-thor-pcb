@@ -565,15 +565,27 @@ class PCBInspectionRepository:
         page: int = 1,
         per_page: int = 50,
         result: Optional[str] = None,
+        start_time: Optional[str] = None,
     ) -> tuple[List[PCBInspection], int]:
-        """Get paginated PCB inspection outcome records."""
+        """Get paginated PCB inspection outcome records.
+
+        Parameters
+        ----------
+        start_time : str, optional
+            UTC timestamp lower-bound (inclusive) in SQLite format.
+        """
         offset = (page - 1) * per_page
-        where = ""
+        conditions: List[str] = []
         params: List[Any] = []
 
         if result:
-            where = " WHERE result = ?"
+            conditions.append("result = ?")
             params.append(result)
+        if start_time:
+            conditions.append("timestamp >= ?")
+            params.append(start_time)
+
+        where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
 
         with get_db_connection() as conn:
             total = int(conn.execute(

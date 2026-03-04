@@ -9,7 +9,6 @@ import cv2
 import numpy as np
 from flask import jsonify, request
 
-from agents.tools.base import ToolExecutor
 from agents.vlm.task_types import TaskType
 from app.database import DetectionLogRepository
 from core.logging import get_logger
@@ -90,6 +89,15 @@ def _capture_current_frame():
 def _log_detection_to_db(event, frame_metadata):
     """Log a detection event to the database."""
     try:
+        # Enrich decision_details with token usage and tool sequence
+        decision_details = dict(event.decision_trace or {})
+        token_usage = getattr(event, "token_usage", {})
+        if token_usage:
+            decision_details["token_usage"] = token_usage
+        tools_used = getattr(event, "tools_used", [])
+        if tools_used:
+            decision_details["tools_used"] = tools_used
+
         DetectionLogRepository.create(
             timestamp=event.timestamp,
             confidence=event.confidence,
@@ -98,7 +106,7 @@ def _log_detection_to_db(event, frame_metadata):
             frame_number=frame_metadata.get("frame_number"),
             reason=frame_metadata.get("reason", "Uploaded image analysis"),
             vision_description=getattr(event, "vision_description", ""),
-            decision_details=event.decision_trace,
+            decision_details=decision_details,
             tool_trace=getattr(event, "tool_trace", []),
         )
     except Exception as exc:
@@ -303,14 +311,24 @@ def analyze_agentic():
                 500,
             )
 
-        tool_executor = ToolExecutor()
+        from agents.mcp.globals import get_mcp_executor
+        from agents.mcp.tool_defs import get_agentic_tool_schemas
+
+        mcp_executor = get_mcp_executor()
+        image_bytes = vlm_client._frame_to_bytes(frame)
+        tool_schemas = get_agentic_tool_schemas()
+
+        def tool_dispatch(tool_name, arguments):
+            mcp_executor.context["image_data"] = image_bytes
+            mcp_executor.context["recipients"] = recipients
+            return mcp_executor._invoke(tool_name, arguments)
 
         result = vlm_client.analyze_with_tools(
             frame=frame,
-            tool_executor=tool_executor,
+            tool_dispatch=tool_dispatch,
+            tool_schemas=tool_schemas,
             task_type=task_type,
             user_query=custom_prompt if custom_prompt else None,
-            recipients=recipients,
         )
 
         if result is None:
@@ -439,7 +457,7 @@ def analyze_uploaded_image():
                 use_agentic = False
 
             from agents.core.detection_agent import StreamlinedAgent
-            from agents.core.resilience import CircuitBreaker
+            from core.resilience import CircuitBreaker
 
             circuit_breaker = CircuitBreaker(
                 failure_threshold=5, recovery_timeout=120.0

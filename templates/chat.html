@@ -3,6 +3,24 @@
 {% block title %}Agent Chat - ZEDEDA Camera Agent{% endblock %}
 {% block page_title %}Agent Chat{% endblock %}
 
+{% block header_controls %}
+<div class="chat-navbar-controls">
+    <button id="header-widget-toggle" class="btn-widget-toggle" type="button" title="Toggle monitoring panel" aria-label="Toggle monitoring panel" onclick="toggleWidgetsPanel()">
+        <i class="fas fa-chart-bar"></i>
+    </button>
+    <button id="clear-history-btn" class="btn-clear" type="button"
+            title="Clear chat history"
+            aria-label="Clear chat history"
+            onclick="clearConversationHistory()">
+        <i class="fas fa-trash-alt"></i> Clear
+    </button>
+    <div id="agent-status" class="status-pill disabled">
+        <span class="status-dot"></span>
+        <span id="agent-status-text">Offline</span>
+    </div>
+</div>
+{% endblock %}
+
 {% block extra_head %}
 <style>
     /* ═══════════════════════════════════════════════════
@@ -14,6 +32,7 @@
         --chat-border: color-mix(in srgb, var(--border-separator) 58%, transparent);
         --chat-max-width: 780px;
         --chat-radius: 14px;
+        --chat-app-header-height: 60px;
         --chat-accent: #00B8C3;
         --chat-accent-hover: #00A5AF;
         --chat-accent-light: rgba(0, 184, 195, 0.1);
@@ -53,9 +72,9 @@
     }
 
     main[role="main"] {
-        max-width: 100% !important;
-        padding: 0 !important;
-        margin: 0 !important;
+        max-width: 100%;
+        padding: 0;
+        margin: 0;
         height: calc(100vh - 60px);
         overflow: hidden;
     }
@@ -89,44 +108,29 @@
         overflow: hidden;
     }
 
-    /* Chat Header — Minimal top bar */
-    .chat-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0 1.25rem;
-        border-bottom: var(--chat-island-border);
-        background: var(--chat-island-bg);
-        flex-shrink: 0;
-        height: 52px;
-        transition: border-color var(--chat-transition);
-    }
-
-    .chat-header-left {
+    .chat-navbar-controls {
         display: flex;
         align-items: center;
         gap: 0.5rem;
     }
 
-    .chat-agent-avatar {
-        display: none;
-    }
+    @media (max-width: 768px) {
+        .chat-navbar-controls #clear-history-btn {
+            width: 36px;
+            padding: 0;
+            justify-content: center;
+            font-size: 0;
+        }
 
-    .chat-agent-info h2 {
-        font-size: 0.9rem;
-        font-weight: 600;
-        color: var(--text-primary);
-        line-height: 1.2;
-    }
+        .chat-navbar-controls #clear-history-btn i {
+            margin-right: 0 !important;
+            font-size: 0.75rem !important;
+        }
 
-    .chat-agent-info p {
-        display: none;
-    }
-
-    .chat-header-actions {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
+        .chat-navbar-controls #agent-status {
+            padding-left: 8px;
+            padding-right: 8px;
+        }
     }
 
     .btn-clear {
@@ -233,9 +237,7 @@
     .message.assistant { justify-content: flex-start; }
     .message.system { justify-content: center; }
 
-    .message-avatar {
-        display: none;
-    }
+    /* Avatar hidden — element removed from DOM to reduce bloat */
 
     .message-content-wrap {
         max-width: 85%;
@@ -385,33 +387,76 @@
         z-index: 3;
     }
 
-    .quick-actions {
-        display: none;
-        gap: 6px;
-        margin-bottom: 0.5rem;
-        flex-wrap: wrap;
+    /* Confirm modal — replaces native window.confirm for design consistency */
+    .confirm-modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: var(--chat-overlay-backdrop);
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        animation: fadeIn 0.15s ease;
     }
 
-    .quick-action-btn {
-        padding: 6px 14px;
-        border-radius: 14px;
-        border: 1px solid var(--chat-border);
+    .confirm-modal {
         background: var(--chat-island-bg);
-        color: var(--text-secondary, #374151);
+        border: var(--chat-island-border);
+        border-radius: var(--chat-radius);
+        box-shadow: var(--chat-shadow-md), 0 18px 30px -20px rgba(0, 0, 0, 0.35);
+        padding: 1.5rem;
+        max-width: 380px;
+        width: calc(100% - 2rem);
+        animation: msgIn 0.2s ease-out;
+    }
+
+    .confirm-modal h3 {
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin: 0 0 0.5rem;
+    }
+
+    .confirm-modal p {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        line-height: 1.5;
+        margin: 0 0 1.25rem;
+    }
+
+    .confirm-modal-actions {
+        display: flex;
+        gap: 0.5rem;
+        justify-content: flex-end;
+    }
+
+    .confirm-modal-btn {
+        padding: 0.5rem 1rem;
+        border-radius: 10px;
         font-size: 0.8rem;
+        font-weight: 500;
         cursor: pointer;
+        border: 1px solid var(--chat-border);
         transition: all var(--chat-transition);
-        white-space: nowrap;
     }
 
-    .quick-action-btn:hover {
-        border-color: var(--chat-accent-border);
-        background: var(--chat-accent-light);
-        box-shadow: var(--chat-shadow-hover);
+    .confirm-modal-btn.cancel {
+        background: transparent;
+        color: var(--text-secondary);
     }
 
-    .quick-action-btn:active {
-        transform: scale(0.98);
+    .confirm-modal-btn.cancel:hover {
+        background: var(--bg-ambient, #F3F4F6);
+    }
+
+    .confirm-modal-btn.danger {
+        background: var(--chat-error-bg);
+        color: var(--chat-error-fg);
+        border-color: var(--chat-error-border);
+    }
+
+    .confirm-modal-btn.danger:hover {
+        filter: brightness(0.95);
     }
 
     .chat-input-wrapper {
@@ -600,26 +645,27 @@
 
     .right-panel {
         position: fixed;
-        top: 0;
-        right: 0;
+        top: calc(var(--chat-app-header-height) + 0.75rem);
+        right: 1rem;
         width: 340px;
         max-width: calc(100% - 2rem);
-        height: calc(100% - 2rem);
-        margin: 1rem;
+        height: calc(100% - var(--chat-app-header-height) - 1.5rem);
+        margin: 0;
         display: flex;
         flex-direction: column;
         background: var(--chat-island-bg);
         border: var(--chat-island-border);
         border-radius: var(--chat-radius);
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        box-shadow: var(--chat-shadow-md), 0 18px 30px -20px rgba(0, 0, 0, 0.35);
         z-index: 200;
         overflow: hidden;
         animation: slideInRight 0.2s ease;
-        transition: border-color var(--chat-transition);
+        transition: border-color var(--chat-transition), box-shadow var(--chat-transition), transform var(--chat-transition);
     }
 
     .right-panel:hover {
         border-color: var(--chat-accent-border);
+        box-shadow: var(--chat-shadow-md), 0 22px 34px -22px rgba(0, 0, 0, 0.38);
     }
 
     @keyframes slideInRight {
@@ -631,9 +677,16 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 1rem 1.25rem;
+        padding: 0.9rem 1rem;
         border-bottom: 1px solid var(--chat-border);
         flex-shrink: 0;
+        backdrop-filter: blur(8px);
+    }
+
+    .right-panel-title {
+        font-weight: 600;
+        font-size: 0.875rem;
+        color: var(--text-primary);
     }
 
     .right-panel-content {
@@ -689,8 +742,9 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0.75rem 1rem;
+        padding: 0.8rem 0.95rem;
         border-bottom: 1px solid var(--chat-border);
+        background: color-mix(in srgb, var(--chat-island-bg) 92%, transparent);
     }
 
     .panel-section-header h3 {
@@ -859,15 +913,17 @@
 
     .stat-item {
         text-align: center;
-        padding: 0.625rem 0.5rem;
+        padding: 0.7rem 0.55rem;
         border-radius: 10px;
         background: var(--bg-ambient, #F9FAFB);
         border: 1px solid var(--chat-border);
-        transition: border-color var(--chat-transition);
+        transition: border-color var(--chat-transition), transform var(--chat-transition), box-shadow var(--chat-transition);
     }
 
     .stat-item:hover {
         border-color: var(--chat-accent-border);
+        transform: translateY(-1px);
+        box-shadow: 0 6px 14px -10px rgba(0, 0, 0, 0.25);
     }
 
     .stat-value {
@@ -880,12 +936,22 @@
     .stat-value.highlight { color: var(--chat-warning-fg); }
     .stat-value.alert { color: var(--chat-error-fg); }
 
+    .stat-value-sm { font-size: 0.8em; }
+    .stat-value-ok { color: var(--system-green); }
+
     .stat-label {
         font-size: 0.625rem;
         color: var(--text-tertiary, #9CA3AF);
         margin-top: 3px;
         text-transform: uppercase;
         letter-spacing: 0.5px;
+    }
+
+    /* Camera placeholder subtitle */
+    .camera-placeholder-sub {
+        font-size: 0.65rem;
+        margin-top: 4px;
+        opacity: 0.6;
     }
 
     /* ── Tools Panel ───────────────────────────────── */
@@ -917,12 +983,22 @@
         border-radius: 10px;
         border: 1px solid transparent;
         cursor: pointer;
-        transition: all var(--chat-transition);
+        transition: background var(--chat-transition), border-color var(--chat-transition), transform var(--chat-transition);
     }
 
     .tool-item:hover {
         background: var(--bg-ambient, #F9FAFB);
         border-color: var(--chat-accent-border);
+        transform: translateX(1px);
+    }
+
+    @media (max-width: 768px) {
+        .right-panel {
+            top: calc(var(--chat-app-header-height) + 0.5rem);
+            right: 0.5rem;
+            max-width: calc(100% - 1rem);
+            height: calc(100% - var(--chat-app-header-height) - 1rem);
+        }
     }
 
     .tool-info { flex: 1; min-width: 0; }
@@ -957,29 +1033,7 @@
 <div id="chat-layout" class="chat-layout widgets-hidden">
     <!-- ═══ Chat Main Area ═══ -->
     <div class="chat-container">
-        <div class="chat-header">
-            <div class="chat-header-left">
-                <div class="chat-agent-info">
-                    <h2>Camera Agent</h2>
-                </div>
-            </div>
-            <div class="chat-header-actions">
-                <button id="header-widget-toggle" class="btn-widget-toggle" type="button" title="Toggle monitoring panel" onclick="toggleWidgetsPanel()">
-                    <i class="fas fa-chart-bar" style="font-size: 0.7rem;"></i>
-                </button>
-                <button id="clear-history-btn" class="btn-clear" type="button"
-                        title="Clear chat history"
-                        onclick="clearConversationHistory()">
-                    <i class="fas fa-trash-alt" style="margin-right: 4px; font-size: 0.6rem;"></i> Clear
-                </button>
-                <div id="agent-status" class="status-pill disabled">
-                    <span class="status-dot"></span>
-                    <span id="agent-status-text">Offline</span>
-                </div>
-            </div>
-        </div>
-
-        <div id="messages-area" class="messages-area">
+        <div id="messages-area" class="messages-area" role="log" aria-live="polite" aria-label="Chat messages">
             <div id="welcome-state" class="welcome-state">
                 <div class="welcome-icon">CA</div>
                 <div class="welcome-title">Camera Agent</div>
@@ -987,33 +1041,24 @@
                     Start monitoring or ask a question to begin.
                 </div>
                 <div class="welcome-hints">
-                    <div class="welcome-hint" onclick="sendQuickMessage('Start monitoring')">"Start monitoring"</div>
-                    <div class="welcome-hint" onclick="sendQuickMessage('What do you see?')">"What do you see?"</div>
-                    <div class="welcome-hint" onclick="sendQuickMessage('How many defects today?')">"Defect count"</div>
-                    <div class="welcome-hint" onclick="sendQuickMessage('Generate a daily report')">"Daily report"</div>
-                    <div class="welcome-hint" onclick="sendQuickMessage('Show me defect insights')">"Insights"</div>
+                    <div class="welcome-hint" role="button" tabindex="0" onclick="sendQuickMessage('Start monitoring')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();sendQuickMessage('Start monitoring');}">"Start monitoring"</div>
+                    <div class="welcome-hint" role="button" tabindex="0" onclick="sendQuickMessage('What do you see?')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();sendQuickMessage('What do you see?');}">"What do you see?"</div>
+                    <div class="welcome-hint" role="button" tabindex="0" onclick="sendQuickMessage('How many defects today?')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();sendQuickMessage('How many defects today?');}">"Defect count"</div>
+                    <div class="welcome-hint" role="button" tabindex="0" onclick="sendQuickMessage('Generate a daily report')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();sendQuickMessage('Generate a daily report');}">"Daily report"</div>
                 </div>
             </div>
         </div>
 
         <div class="chat-input-area">
-            <div class="quick-actions">
-                <button class="quick-action-btn" onclick="sendQuickMessage('Start monitoring')">Start Monitoring</button>
-                <button class="quick-action-btn" onclick="sendQuickMessage('End session')">End Session</button>
-                <button class="quick-action-btn" onclick="sendQuickMessage('What do you see?')">Analyze Frame</button>
-                <button class="quick-action-btn" onclick="sendQuickMessage('Show me the status')">Status</button>
-                <button class="quick-action-btn" onclick="sendQuickMessage('Show me the defect trend')">Trend</button>
-                <button class="quick-action-btn" onclick="sendQuickMessage('Generate a daily defect report')">Report</button>
-                <button class="quick-action-btn" onclick="sendQuickMessage('Give me defect insights')">Insights</button>
-            </div>
             <div class="chat-input-wrapper">
                 <textarea
                     id="chat-input"
                     class="chat-input"
                     placeholder="Message Camera Agent..."
                     rows="1"
+                    aria-label="Message input"
                 ></textarea>
-                <button id="send-btn" class="chat-send-btn" onclick="sendMessage()">
+                <button id="send-btn" class="chat-send-btn" onclick="sendMessage()" aria-label="Send message">
                     <i class="fas fa-arrow-up"></i>
                 </button>
             </div>
@@ -1027,9 +1072,9 @@
     <!-- ═══ Right Panel (Monitoring Overlay) ═══ -->
     <div class="right-panel">
         <div class="right-panel-header">
-            <span style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary);">Monitoring</span>
-            <button class="btn-widget-toggle" type="button" title="Close panel" onclick="toggleWidgetsPanel()">
-                <i class="fas fa-times" style="font-size: 0.7rem;"></i>
+            <span class="right-panel-title">Monitoring</span>
+            <button class="btn-widget-toggle" type="button" title="Close panel" aria-label="Close monitoring panel" onclick="toggleWidgetsPanel()">
+                <i class="fas fa-times"></i>
             </button>
         </div>
         <div class="right-panel-content">
@@ -1045,7 +1090,7 @@
             <div class="camera-feed-container">
                 <div id="camera-placeholder" class="camera-placeholder">
                     <p>Camera feed unavailable</p>
-                    <p style="font-size: 0.65rem; margin-top: 4px; opacity: 0.6;">Say "start monitoring" to begin</p>
+                    <p class="camera-placeholder-sub">Say "start monitoring" to begin</p>
                 </div>
                 <div id="camera-feed-wrapper" class="camera-feed-wrapper hidden">
                     <img id="camera-feed" class="camera-feed-img" alt="Camera Feed">
@@ -1109,11 +1154,11 @@
                     <div class="stat-label">High Sev</div>
                 </div>
                 <div class="stat-item">
-                    <div id="chat-defects-trend" class="stat-value" style="font-size: 0.8em;">--</div>
+                    <div id="chat-defects-trend" class="stat-value stat-value-sm">--</div>
                     <div class="stat-label">Trend</div>
                 </div>
                 <div class="stat-item">
-                    <div id="chat-threshold-status" class="stat-value" style="color: var(--system-green);">OK</div>
+                    <div id="chat-threshold-status" class="stat-value stat-value-ok">OK</div>
                     <div class="stat-label">Threshold</div>
                 </div>
             </div>
@@ -1150,17 +1195,14 @@
     const PREVIEW_COLLAPSED_STORAGE_KEY = 'chat_preview_collapsed';
     const WIDGETS_HIDDEN_STORAGE_KEY = 'chat_widgets_hidden';
     
-    // Debug mode - enabled temporarily for troubleshooting
-    const DEBUG_MODE = true;
+    // Debug mode — disable for production
+    const DEBUG_MODE = false;
     
     function debugLog(action, ...args) {
         if (DEBUG_MODE) {
             console.log(`[UI Debug] ${action}:`, ...args);
         }
     }
-    
-    // Log immediately to verify script is loading
-    console.log('[Chat] Script loaded, version v163');
 
     // Tool icons mapping
     const toolIcons = {
@@ -1319,24 +1361,8 @@
         }
     }
     
-    // Debug handler to verify button clicks are reaching handlers
     function setupButtonDebugHandlers() {
-        // Add click listeners to all quick action buttons for debugging
-        document.querySelectorAll('.quick-action-btn').forEach((btn, index) => {
-            btn.addEventListener('click', function(e) {
-                debugLog('Button Click', `Quick action button ${index} clicked`, e.target.textContent.trim());
-            });
-        });
-        
-        // Debug send button
-        const sendBtn = document.getElementById('send-btn');
-        if (sendBtn) {
-            sendBtn.addEventListener('click', function(e) {
-                debugLog('Button Click', 'Send button clicked');
-            });
-        }
-        
-        debugLog('Setup', 'Button debug handlers attached');
+        // No-op in production; kept as hook for development.
     }
 
     function initializeChatHandlers() {
@@ -1470,24 +1496,45 @@
         confirmEl.className = 'message system';
         confirmEl.setAttribute('data-proposal-id', proposalId);
         confirmEl.setAttribute('data-domain', domain || '');
-        confirmEl.innerHTML = `
-            <div class="message-content" style="max-width: 400px; text-align: left;">
-                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
-                    <strong>Confirmation Required</strong>
-                </div>
-                <p style="margin: 0.25rem 0; font-size: var(--text-sm);">${escapeHtml(toolName)}: ${escapeHtml(description)}</p>
-                <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
-                    <button class="btn btn-primary" style="font-size: var(--text-xs); padding: 0.375rem 0.75rem;" 
-                            onclick="confirmProposal('${proposalId}', '${domain || ''}', true); this.closest('.message').remove();">
-                        Approve
-                    </button>
-                    <button class="btn btn-secondary" style="font-size: var(--text-xs); padding: 0.375rem 0.75rem;"
-                            onclick="confirmProposal('${proposalId}', '${domain || ''}', false); this.closest('.message').remove();">
-                        Reject
-                    </button>
-                </div>
-            </div>
-        `;
+
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        contentDiv.style.cssText = 'max-width:400px;text-align:left;';
+
+        const header = document.createElement('div');
+        header.style.cssText = 'display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;';
+        header.innerHTML = '<strong>Confirmation Required</strong>';
+
+        const desc = document.createElement('p');
+        desc.style.cssText = 'margin:0.25rem 0;font-size:0.85rem;';
+        desc.textContent = toolName + ': ' + description;
+
+        const actions = document.createElement('div');
+        actions.style.cssText = 'display:flex;gap:0.5rem;margin-top:0.75rem;';
+
+        const approveBtn = document.createElement('button');
+        approveBtn.className = 'confirm-modal-btn danger';
+        approveBtn.textContent = 'Approve';
+        approveBtn.addEventListener('click', function() {
+            confirmProposal(proposalId, domain || '', true);
+            confirmEl.remove();
+        });
+
+        const rejectBtn = document.createElement('button');
+        rejectBtn.className = 'confirm-modal-btn cancel';
+        rejectBtn.textContent = 'Reject';
+        rejectBtn.addEventListener('click', function() {
+            confirmProposal(proposalId, domain || '', false);
+            confirmEl.remove();
+        });
+
+        actions.appendChild(approveBtn);
+        actions.appendChild(rejectBtn);
+        contentDiv.appendChild(header);
+        contentDiv.appendChild(desc);
+        contentDiv.appendChild(actions);
+        confirmEl.appendChild(contentDiv);
+
         messagesArea.appendChild(confirmEl);
         messagesArea.scrollTop = messagesArea.scrollHeight;
     }
@@ -1628,13 +1675,13 @@
     function getMockResponse(content) {
         const lowerContent = content.toLowerCase();
         
-        if (lowerContent.includes('turn') && lowerContent.includes('on') || lowerContent.includes('enable')) {
+        if ((lowerContent.includes('turn') && lowerContent.includes('on')) || lowerContent.includes('enable')) {
             return {
                 role: 'assistant',
                 content: '✓ **Agent Enabled** (Demo Mode)\n\nIn live mode, the camera monitoring agent would now be active and analyzing frames.',
                 timestamp: new Date().toISOString()
             };
-        } else if (lowerContent.includes('turn') && lowerContent.includes('off') || lowerContent.includes('disable')) {
+        } else if ((lowerContent.includes('turn') && lowerContent.includes('off')) || lowerContent.includes('disable')) {
             return {
                 role: 'assistant',
                 content: '✓ **Agent Disabled** (Demo Mode)\n\nIn live mode, the agent would stop monitoring.',
@@ -1734,11 +1781,10 @@
                     Start monitoring or ask a question to begin.
                 </div>
                 <div class="welcome-hints">
-                    <div class="welcome-hint" onclick="sendQuickMessage('Start monitoring')">"Start monitoring"</div>
-                    <div class="welcome-hint" onclick="sendQuickMessage('What do you see?')">"What do you see?"</div>
-                    <div class="welcome-hint" onclick="sendQuickMessage('How many defects today?')">"Defect count"</div>
-                    <div class="welcome-hint" onclick="sendQuickMessage('Generate a daily report')">"Daily report"</div>
-                    <div class="welcome-hint" onclick="sendQuickMessage('Show me defect insights')">"Insights"</div>
+                    <div class="welcome-hint" role="button" tabindex="0" onclick="sendQuickMessage('Start monitoring')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();sendQuickMessage('Start monitoring');}">"Start monitoring"</div>
+                    <div class="welcome-hint" role="button" tabindex="0" onclick="sendQuickMessage('What do you see?')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();sendQuickMessage('What do you see?');}">"What do you see?"</div>
+                    <div class="welcome-hint" role="button" tabindex="0" onclick="sendQuickMessage('How many defects today?')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();sendQuickMessage('How many defects today?');}">"Defect count"</div>
+                    <div class="welcome-hint" role="button" tabindex="0" onclick="sendQuickMessage('Generate a daily report')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();sendQuickMessage('Generate a daily report');}">"Daily report"</div>
                 </div>
             </div>
         `;
@@ -1755,30 +1801,88 @@
     }
 
     function clearConversationHistory() {
-        const confirmed = window.confirm(
-            'Delete chat history for this session? This only clears chat messages and will not delete monitoring or agent logs.'
+        showConfirmModal(
+            'Clear chat history?',
+            'This only clears chat messages and will not delete monitoring or agent logs.',
+            function onConfirm() {
+                const clearButton = document.getElementById('clear-history-btn');
+                if (clearButton) {
+                    clearButton.disabled = true;
+                }
+
+                if (isConnected && socket) {
+                    socket.emit('clear_conversation');
+                    return;
+                }
+
+                resetConversationView();
+                if (clearButton) {
+                    clearButton.disabled = false;
+                }
+                if (typeof showToast === 'function') {
+                    showToast('Chat history cleared (offline view only).', 'success');
+                }
+            }
         );
-        if (!confirmed) {
-            return;
-        }
+    }
 
-        const clearButton = document.getElementById('clear-history-btn');
-        if (clearButton) {
-            clearButton.disabled = true;
-        }
+    function showConfirmModal(title, message, onConfirm) {
+        // Remove any existing modal
+        const existing = document.getElementById('confirm-modal-backdrop');
+        if (existing) existing.remove();
 
-        if (isConnected && socket) {
-            socket.emit('clear_conversation');
-            return;
-        }
+        const backdrop = document.createElement('div');
+        backdrop.id = 'confirm-modal-backdrop';
+        backdrop.className = 'confirm-modal-backdrop';
 
-        resetConversationView();
-        if (clearButton) {
-            clearButton.disabled = false;
+        const modal = document.createElement('div');
+        modal.className = 'confirm-modal';
+        modal.setAttribute('role', 'alertdialog');
+        modal.setAttribute('aria-modal', 'true');
+        modal.setAttribute('aria-labelledby', 'confirm-modal-title');
+
+        const h3 = document.createElement('h3');
+        h3.id = 'confirm-modal-title';
+        h3.textContent = title;
+
+        const p = document.createElement('p');
+        p.textContent = message;
+
+        const actions = document.createElement('div');
+        actions.className = 'confirm-modal-actions';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'confirm-modal-btn cancel';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.addEventListener('click', function() { backdrop.remove(); });
+
+        const confirmBtn = document.createElement('button');
+        confirmBtn.className = 'confirm-modal-btn danger';
+        confirmBtn.textContent = 'Delete';
+        confirmBtn.addEventListener('click', function() {
+            backdrop.remove();
+            if (typeof onConfirm === 'function') onConfirm();
+        });
+
+        actions.appendChild(cancelBtn);
+        actions.appendChild(confirmBtn);
+        modal.appendChild(h3);
+        modal.appendChild(p);
+        modal.appendChild(actions);
+        backdrop.appendChild(modal);
+        document.body.appendChild(backdrop);
+
+        // Focus the cancel button for keyboard accessibility
+        cancelBtn.focus();
+
+        // Close on Escape key
+        function onKeydown(e) {
+            if (e.key === 'Escape') {
+                backdrop.remove();
+                document.removeEventListener('keydown', onKeydown);
+            }
         }
-        if (typeof showToast === 'function') {
-            showToast('Chat history cleared (offline view only).', 'success');
-        }
+        document.addEventListener('keydown', onKeydown);
     }
 
     function handleConversationCleared() {
@@ -1881,10 +1985,6 @@
                 </div>
             `;
         } else {
-            const avatar = message.role === 'user' 
-                ? 'You'
-                : 'CA';
-            
             const formattedContent = formatMarkdown(message.content);
             
             let toolBadges = '';
@@ -1897,7 +1997,6 @@
             }
             
             messageEl.innerHTML = `
-                <div class="message-avatar">${avatar}</div>
                 <div>
                     <div class="message-content">
                         ${formattedContent}
@@ -1931,7 +2030,6 @@
         indicator.id = 'typing-indicator';
         indicator.className = 'message assistant';
         indicator.innerHTML = `
-            <div class="message-avatar">CA</div>
             <div class="message-content">
                 <div class="typing-indicator">
                     <span></span>
@@ -2350,8 +2448,10 @@
             .join(' ');
     }
 
-    // Periodically fetch status (always poll so stats stay current)
+    // Stats are updated via WebSocket events (agent-state-changed, detection, frame_update).
+    // A lightweight fallback poll runs every 30s only when not connected.
     setInterval(async () => {
+        if (isConnected) return; // Skip when WebSocket is active
         try {
             const response = await fetch('/api/status');
             const data = await response.json();
@@ -2359,9 +2459,9 @@
                 updateStats(data.stats);
             }
         } catch (error) {
-            console.error('Status fetch error:', error);
+            // Silently fail — supplementary fallback
         }
-    }, 3000);
+    }, 30000);
 
     // Fetch defect analytics for sidebar
     async function updateChatDefectStats() {

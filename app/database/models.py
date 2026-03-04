@@ -103,6 +103,10 @@ class DetectionLog:  # pylint: disable=too-many-instance-attributes
         else:
             detected = self.confidence is not None and self.confidence > 0
 
+        # Extract token usage and tools_used from decision_details
+        token_usage = self.decision_details.get("token_usage", {})
+        tools_used = self.decision_details.get("tools_used", [])
+
         return {
             "id": self.id,
             "timestamp": self.timestamp,
@@ -116,6 +120,8 @@ class DetectionLog:  # pylint: disable=too-many-instance-attributes
             "tool_trace": self.tool_trace,
             "agentic_mode": is_agentic,
             "detected": detected,
+            "token_usage": token_usage,
+            "tools_used": tools_used,
         }
 
 
