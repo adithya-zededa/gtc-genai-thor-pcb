@@ -19,7 +19,6 @@ from .core.camera import (
 from .core.inference import (
     check_inference_backend_availability,
     check_vllm_availability,
-    check_ollama_availability,
 )
 from .core.monitoring import (
     get_monitoring_service,
@@ -56,7 +55,6 @@ __all__ = [
     # Inference service
     "check_inference_backend_availability",
     "check_vllm_availability",
-    "check_ollama_availability",
     # Config service
     "load_camera_config",
     "save_camera_config",

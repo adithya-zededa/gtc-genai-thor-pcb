@@ -1,11 +1,14 @@
-"""LLM API endpoints for vLLM provider management.
+"""LLM API endpoints for provider management.
 
 This module provides REST API endpoints for:
-- Checking vLLM provider health and status
+- Checking LLM provider health and status
 - Querying token usage statistics
 - Sending test chat messages
 - Listing available models
-- Updating vLLM configuration
+- Updating provider configuration
+
+The router layer abstracts the underlying backend (vLLM, OpenAI, etc.),
+so these endpoints work with any configured adapter.
 """
 
 # pylint: disable=broad-exception-caught,import-outside-toplevel
@@ -37,7 +40,7 @@ def _get_router():
 
 @api_bp.route("/llm/providers", methods=["GET"])
 def list_llm_providers():
-    """List the vLLM provider with status."""
+    """List configured LLM providers with status."""
     router = _get_router()
     if router is None:
         return (
@@ -59,7 +62,6 @@ def list_llm_providers():
         {
             "success": True,
             "enabled": True,
-            "provider": "vllm",
             "providers": providers,
             "active_provider": active,
             "count": len(providers),
@@ -74,7 +76,7 @@ def list_llm_providers():
 
 @api_bp.route("/llm/health", methods=["GET"])
 def check_llm_health():
-    """Check health of the vLLM provider."""
+    """Check health of the configured LLM provider(s)."""
     router = _get_router()
     if router is None:
         return jsonify({"success": False, "error": "LLM router not available"}), 200
@@ -91,7 +93,7 @@ def check_llm_health():
 
 @api_bp.route("/llm/status", methods=["GET"])
 def get_llm_status():
-    """Get full vLLM status including config and token usage."""
+    """Get full LLM status including config and token usage."""
     router = _get_router()
 
     if router is None:
@@ -126,12 +128,12 @@ def get_llm_status():
 
 @api_bp.route("/llm/config", methods=["PUT"])
 def update_llm_config():
-    """Update vLLM configuration at runtime.
+    """Update LLM provider configuration at runtime.
 
     Request body::
 
         {
-            "url": "http://vllm-service:8000",
+            "url": "http://llm-service:8000",
             "model": "Qwen/Qwen3-VL-8B-Instruct",
             "timeout": 300,
             "temperature": 0.1
@@ -151,10 +153,12 @@ def update_llm_config():
             timeout=data.get("timeout"),
             temperature=data.get("temperature"),
         )
+        active = router.get_active_provider()
+        provider_name = (active or {}).get("name", "llm")
         return jsonify(
             {
                 "success": True,
-                "message": "vLLM configuration updated",
+                "message": f"{provider_name} configuration updated",
                 "config": (
                     router.get_config().to_dict() if router.get_config() else None
                 ),
@@ -171,45 +175,58 @@ def update_llm_config():
 
 @api_bp.route("/llm/models", methods=["GET"])
 def list_llm_models():
-    """List models available from the vLLM server."""
+    """List models available from the configured LLM provider."""
     router = _get_router()
     if router is None:
         return jsonify({"success": False, "error": "LLM router not available"}), 200
+
+    active = router.get_active_provider()
+    provider_name = (active or {}).get("name", "default")
 
     try:
         models = router.list_models()
         return jsonify(
             {
                 "success": True,
-                "models": {"vllm": models},
+                "provider": provider_name,
+                "models": models,
             }
         )
     except Exception as exc:
         return jsonify(
             {
                 "success": True,
-                "models": {"vllm": {"error": str(exc)}},
+                "provider": provider_name,
+                "models": [],
+                "error": str(exc),
             }
         )
 
 
 @api_bp.route("/llm/models/fetch", methods=["POST"])
 def fetch_models_for_provider():
-    """Fetch available models from the vLLM server.
+    """Fetch available models from an LLM provider.
+
+    Uses the active provider's adapter by default.  Supply an optional
+    ``provider_type`` (e.g. ``"vllm"``) to target a specific backend.
 
     Request body::
 
         {
             "url": "http://localhost:8000",
-            "api_key": null
+            "api_key": null,
+            "provider_type": "vllm"
         }
     """
     data = request.get_json() or {}
     url = data.get("url")
+    provider_type = data.get("provider_type")
 
     try:
-        from router.adapters import VLLMAdapter
+        from router.adapters import get_adapter
         from router.config import LLMProviderConfig
+
+        adapter = get_adapter(provider_type)
 
         temp_config = LLMProviderConfig(
             name="_temp_fetch",
@@ -218,11 +235,14 @@ def fetch_models_for_provider():
             api_key=data.get("api_key"),
         )
 
-        adapter = VLLMAdapter()
         available, _latency, error = adapter.check_availability(temp_config)
         if not available:
             return jsonify(
-                {"success": True, "models": [], "error": error or "vLLM not reachable"}
+                {
+                    "success": True,
+                    "models": [],
+                    "error": error or "Provider not reachable",
+                }
             )
 
         models = adapter.list_models(temp_config)
@@ -268,7 +288,7 @@ def reset_llm_token_usage():
 
 @api_bp.route("/llm/chat", methods=["POST"])
 def llm_test_chat():
-    """Send a test chat message through vLLM.
+    """Send a test chat message through the configured LLM provider.
 
     Request body::
 

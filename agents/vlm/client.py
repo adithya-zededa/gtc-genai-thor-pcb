@@ -1,12 +1,12 @@
-"""Unified Vision Language Model client for streamlined detection pipeline.
+"""Vision Language Model client for streamlined detection pipeline.
 
 This module provides a single VLM client that handles both image analysis
 and decision-making in one inference call, eliminating the need for a
 separate decision LLM stage.
 
-Supported backends:
-- Ollama: Local LLM server with /api/generate endpoint
-- vLLM: High-performance inference with OpenAI-compatible /v1/chat/completions endpoint
+All requests are routed through the centralized ``router`` package which
+provides connection pooling, retries with exponential backoff, concurrency
+limiting, and global token-usage tracking via the vLLM adapter.
 """
 
 from __future__ import annotations
@@ -14,16 +14,13 @@ from __future__ import annotations
 import base64
 import json
 import logging
-import os
 import re
 from datetime import datetime
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 import cv2
 import numpy as np
-import requests
 
 from core.logging import get_logger
 from .task_types import TaskType
@@ -40,12 +37,6 @@ if TYPE_CHECKING:
     from agents.tools.base import ToolCall
 
 logger = get_logger(__name__)
-
-
-class VLMBackend(Enum):
-    """Supported VLM backend types."""
-    OLLAMA = "ollama"
-    VLLM = "vllm"
 
 
 @dataclass
@@ -116,11 +107,18 @@ class DetectionResult:
     pcb_stable: Optional[bool]
     should_alert: bool
     raw_response: str
-    
 
 
 class UnifiedVLMClient:
-    """Unified Vision Language Model client for detection and decision-making."""
+    """Vision Language Model client for detection and decision-making.
+
+    All inference requests are delegated to the centralized
+    :pymod:`router` (``AgentLLMRouter``).  The router handles connection
+    pooling, retries with exponential backoff, concurrency limiting, and
+    global token-usage tracking.  Vision-specific payload fields
+    (``repetition_penalty``, ``chat_template_kwargs``, ...) are forwarded
+    via the router's ``extra_body`` mechanism.
+    """
     
     # Compiled regex patterns for efficient JSON parsing (20-30% faster)
     _CLEANUP_PATTERN = re.compile(
@@ -131,22 +129,18 @@ class UnifiedVLMClient:
 
     def __init__(
         self,
-        base_url: str,
         model: str,
         timeout: int = 300,
         prompt: Optional[str] = None,
         default_task_type: TaskType = TaskType.CUSTOM,
-        backend: VLMBackend = VLMBackend.VLLM,
         temperature: float = 0.1,
     ):
         if not model:
             raise ValueError("Vision model name must be provided")
 
-        self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout
         self.default_task_type = default_task_type
-        self.backend = backend
         self.temperature = temperature
         self.prompt = prompt or DEFAULT_DETECTION_PROMPT
 
@@ -161,91 +155,37 @@ class UnifiedVLMClient:
             "last_error_at": None,
         }
         self._last_token_usage: Dict[str, int] = {}
-        
-        # Configure session with optimized connection pooling
-        self.session = self._create_optimized_session()
-        user_agent = os.getenv("CAMERA_AGENT_USER_AGENT", "camera-agent/1.0")
-        self.session.headers.update({"User-Agent": user_agent})
-        
-        backend_name = backend.value if isinstance(backend, VLMBackend) else backend
+
+        # -- Router delegation -------------------------------------------------
+        from router import get_router
+        self._router = get_router()
+
+        router_config = self._router.get_config()
+        if router_config and router_config.model and router_config.model != self.model:
+            logger.warning(
+                "VLM model '%s' differs from router model '%s'; "
+                "vision requests will use '%s'",
+                self.model, router_config.model, self.model,
+            )
+
+        base_url = (router_config.url if router_config else None) or "http://localhost:8000"
         logger.info(
-            "Initialized Unified VLM client for model '%s' at %s (backend=%s, timeout=%ds)",
+            "Initialized VLM client for model '%s' via router at %s (timeout=%ds)",
             model,
-            self.base_url,
-            backend_name,
+            base_url,
             timeout,
         )
         self._ensure_model_available()
-    
-    def _create_optimized_session(self) -> requests.Session:
-        """Create HTTP session with optimized connection pooling.
-        
-        Performance improvements:
-        - 30-50% reduction in request latency for burst operations
-        - Automatic retry on transient failures
-        - Connection keep-alive for reduced overhead
-        """
-        from requests.adapters import HTTPAdapter
-        from urllib3.util.retry import Retry
-        
-        session = requests.Session()
-        
-        # Configure retry strategy for transient failures
-        retry_strategy = Retry(
-            total=3,
-            backoff_factor=0.3,
-            status_forcelist=[500, 502, 503, 504],
-            allowed_methods=["GET", "POST"],
-        )
-        
-        # Configure connection pooling adapter
-        adapter = HTTPAdapter(
-            pool_connections=20,    # Number of connection pools to cache
-            pool_maxsize=50,        # Max connections per pool
-            max_retries=retry_strategy,
-            pool_block=False,       # Don't block when pool is full
-        )
-        
-        # Mount adapter for both HTTP and HTTPS
-        session.mount('http://', adapter)
-        session.mount('https://', adapter)
-        
-        # Enable keep-alive
-        session.headers.update({'Connection': 'keep-alive'})
-        
-        return session
+
+    # ------------------------------------------------------------------
+    # Model availability
+    # ------------------------------------------------------------------
 
     def _check_model_exists(self) -> bool:
-        """Check if model exists on the backend server."""
-        if self.backend == VLMBackend.VLLM:
-            return self._check_model_exists_vllm()
-        return self._check_model_exists_ollama()
-
-    def _check_model_exists_ollama(self) -> bool:
-        """Check if model exists on Ollama."""
+        """Check if the model exists on the vLLM server via the router."""
         try:
-            response = self.session.get(f"{self.base_url}/api/tags", timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            models = data.get("models", [])
-            for model_info in models:
-                model_name = model_info.get("name", "")
-                if model_name == self.model or model_name.startswith(f"{self.model}:"):
-                    return True
-            return False
-        except Exception as exc:
-            logger.warning("Failed to check if model exists: %s", exc)
-            return False
-
-    def _check_model_exists_vllm(self) -> bool:
-        """Check if model exists on vLLM server."""
-        try:
-            response = self.session.get(f"{self.base_url}/v1/models", timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            models = data.get("data", [])
-            for model_info in models:
-                model_id = model_info.get("id", "")
+            models = self._router.list_models()
+            for model_id in models:
                 if model_id == self.model or self.model in model_id:
                     return True
             return len(models) > 0
@@ -253,73 +193,34 @@ class UnifiedVLMClient:
             logger.warning("Failed to check if model exists on vLLM: %s", exc)
             return False
 
-    def _pull_model(self) -> bool:
-        """Pull model - only applicable for Ollama backend."""
-        if self.backend == VLMBackend.VLLM:
-            logger.info("vLLM does not support model pulling - model must be pre-loaded")
-            return False
-        try:
-            logger.info("🔄 Pulling model '%s'...", self.model)
-            payload = {"name": self.model, "stream": False}
-            response = self.session.post(
-                f"{self.base_url}/api/pull",
-                json=payload,
-                timeout=600,
-            )
-            response.raise_for_status()
-            logger.info("✅ Successfully pulled model '%s'", self.model)
-            return True
-        except Exception as exc:
-            logger.error("❌ Failed to pull model '%s': %s", self.model, exc)
-            return False
-
     def _ensure_model_available(self) -> None:
-        """Ensure the model is available on the backend."""
+        """Ensure the model is available on the vLLM server."""
         if not self._check_model_exists():
-            if self.backend == VLMBackend.VLLM:
-                logger.warning(
-                    "Model '%s' not found on vLLM server. Ensure vLLM is running with: vllm serve '%s'",
-                    self.model,
-                    self.model,
-                )
-            else:
-                logger.warning("Model '%s' not found. Attempting to pull...", self.model)
-                if not self._pull_model():
-                    logger.error(
-                        "Could not pull model '%s'. Run 'ollama pull %s' manually.",
-                        self.model,
-                        self.model,
-                    )
+            logger.warning(
+                "Model '%s' not found on vLLM server. "
+                "Ensure vLLM is running with: vllm serve '%s'",
+                self.model,
+                self.model,
+            )
         else:
             logger.info("Model '%s' is available", self.model)
 
     def test_connection(self) -> bool:
-        """Test connectivity to the VLM backend."""
-        if self.backend == VLMBackend.VLLM:
-            return self._test_connection_vllm()
-        return self._test_connection_ollama()
-
-    def _test_connection_ollama(self) -> bool:
-        """Test connectivity to Ollama."""
+        """Test connectivity to the vLLM backend via the router."""
         try:
-            response = self.session.get(f"{self.base_url}/api/version", timeout=10)
-            response.raise_for_status()
-            logger.info("Ollama connection test successful")
-            return True
-        except Exception as exc:
-            logger.error("Ollama connection test failed: %s", exc)
+            health = self._router.check_health()
+            if health.get("vllm", False):
+                logger.info("vLLM connection test successful (via router)")
+                return True
+            logger.warning("vLLM connection test: server not available")
             return False
-
-    def _test_connection_vllm(self) -> bool:
-        """Test connectivity to vLLM."""
-        try:
-            response = self.session.get(f"{self.base_url}/v1/models", timeout=10)
-            response.raise_for_status()
-            logger.info("vLLM connection test successful")
-            return True
         except Exception as exc:
             logger.error("vLLM connection test failed: %s", exc)
             return False
+
+    # ------------------------------------------------------------------
+    # Image encoding
+    # ------------------------------------------------------------------
 
     def _resize_for_inference(self, frame: np.ndarray, max_dimension: int = 1024) -> np.ndarray:
         """Resize image for efficient inference while maintaining aspect ratio.
@@ -347,15 +248,15 @@ class UnifiedVLMClient:
         Optimized to resize BEFORE encoding to reduce computational cost.
         Performance gain: 40-60% faster than encode-then-resize pattern.
         """
-        # Resize first to reduce encoding work (fewer pixels)
         resized_frame = self._resize_for_inference(frame)
-        
-        # Encode with optimized quality setting
         success, buffer = cv2.imencode('.jpg', resized_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
         if not success:
             raise ValueError("Failed to encode frame to JPEG")
-        
         return base64.b64encode(buffer.tobytes()).decode("utf-8")
+
+    # ------------------------------------------------------------------
+    # Response parsing
+    # ------------------------------------------------------------------
 
     def _parse_json_response(self, response_text: str) -> Optional[Dict[str, Any]]:
         """Extract JSON from model response, handling various formats.
@@ -375,7 +276,6 @@ class UnifiedVLMClient:
             if match:
                 text = match.group(1).strip()
         elif text.startswith("```") and "```tool_call" not in text:
-            # Remove code block markers
             text = text.strip('`').strip()
             if text.startswith('json'):
                 text = text[4:].strip()
@@ -418,12 +318,10 @@ class UnifiedVLMClient:
         
         json_str = text[start_idx:end_idx + 1]
         
-        # Try parsing with standard quotes first, then fallback
         try:
             return json.loads(json_str)
         except json.JSONDecodeError:
             try:
-                # Attempt to fix single quotes
                 return json.loads(json_str.replace("'", '"'))
             except json.JSONDecodeError:
                 if logger.isEnabledFor(logging.WARNING):
@@ -446,6 +344,10 @@ class UnifiedVLMClient:
                 return None
         return None
 
+    # ------------------------------------------------------------------
+    # Prompt helpers
+    # ------------------------------------------------------------------
+
     @staticmethod
     def _build_prompt(
         task_type: TaskType,
@@ -455,6 +357,10 @@ class UnifiedVLMClient:
         """Delegate to prompts.build_prompt (kept as method for API compat)."""
         return build_prompt(task_type, cv_context, user_query)
 
+    # ------------------------------------------------------------------
+    # Inference - all requests go through the router
+    # ------------------------------------------------------------------
+
     def _send_vlm_request(
         self,
         prompt: str,
@@ -463,29 +369,13 @@ class UnifiedVLMClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
     ) -> str:
-        """Send request to VLM and return raw response."""
-        if self.backend == VLMBackend.VLLM:
-            return self._send_vllm_request(
-                prompt,
-                base64_image,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-        return self._send_ollama_request(
-            prompt,
-            base64_image,
-            temperature=temperature,
-        )
+        """Send a vision request to vLLM via the centralized router.
 
-    def _send_vllm_request(
-        self,
-        prompt: str,
-        base64_image: str,
-        *,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-    ) -> str:
-        """Send request to vLLM using OpenAI-compatible chat completions API."""
+        The router handles connection pooling, retries with exponential
+        backoff, concurrency limiting, and global token-usage tracking.
+        Vision-specific payload fields (repetition_penalty, etc.) are
+        passed through the router's ``extra_body`` mechanism.
+        """
         messages = [
             {
                 "role": "user",
@@ -498,105 +388,37 @@ class UnifiedVLMClient:
                 ]
             }
         ]
-        
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": temperature if temperature is not None else self.temperature,
-            "max_tokens": max_tokens if max_tokens is not None else 2048,
-            # Penalise repeated tokens to break degenerate reasoning loops
-            "repetition_penalty": 1.15,
-            "frequency_penalty": 0.3,
-            # Disable Qwen3 thinking mode for structured JSON output
-            "chat_template_kwargs": {"enable_thinking": False},
-        }
-        
-        logger.debug("Sending request to vLLM (task prompt length: %d)", len(prompt))
-        response = self.session.post(
-            f"{self.base_url}/v1/chat/completions",
-            json=payload,
-            timeout=self.timeout,
-        )
-        
-        if not response.ok:
-            try:
-                error_body = response.json()
-                logger.error("vLLM request failed with status %d: %s", response.status_code, error_body)
-            except Exception:
-                logger.error("vLLM request failed with status %d: %s", response.status_code, response.text[:500])
-        
-        response.raise_for_status()
-        result = response.json()
 
-        # Extract token usage from vLLM response
-        usage = result.get("usage", {})
-        if usage:
-            self._last_token_usage = {
-                "prompt_tokens": usage.get("prompt_tokens", 0),
-                "completion_tokens": usage.get("completion_tokens", 0),
-                "total_tokens": usage.get("total_tokens", 0),
-            }
-        else:
-            self._last_token_usage = {}
-        
-        choices = result.get("choices", [])
-        if choices:
-            message = choices[0].get("message", {})
-            return message.get("content", "")
-        return ""
-
-    def _send_ollama_request(
-        self,
-        prompt: str,
-        base64_image: str,
-        *,
-        temperature: Optional[float] = None,
-    ) -> str:
-        """Send request to Ollama using the generate API."""
-        payload = {
-            "model": self.model,
-            "prompt": prompt,
-            "images": [base64_image],
-            "stream": False,
-            "options": {
+        logger.debug("Sending vision request via router (prompt length: %d)", len(prompt))
+        response = self._router.chat(
+            messages=messages,
+            extra_body={
+                "model": self.model,
+                "max_tokens": max_tokens if max_tokens is not None else 2048,
                 "temperature": temperature if temperature is not None else self.temperature,
+                # Penalise repeated tokens to break degenerate reasoning loops
+                "repetition_penalty": 1.15,
+                "frequency_penalty": 0.3,
+                # Disable Qwen3 thinking mode for structured JSON output
+                "chat_template_kwargs": {"enable_thinking": False},
             },
-        }
-        
-        logger.debug("Sending request to Ollama (task prompt length: %d)", len(prompt))
-        response = self.session.post(
-            f"{self.base_url}/api/generate",
-            json=payload,
-            timeout=self.timeout,
         )
-        
-        if response.status_code == 404:
-            logger.warning("Model not found, attempting to pull...")
-            if self._pull_model():
-                response = self.session.post(
-                    f"{self.base_url}/api/generate",
-                    json=payload,
-                    timeout=self.timeout,
-                )
-            else:
-                raise RuntimeError(f"Model '{self.model}' not available")
-        
-        response.raise_for_status()
-        result = response.json()
 
-        # Extract token usage from Ollama response
-        eval_count = result.get("eval_count", 0)
-        prompt_eval_count = result.get("prompt_eval_count", 0)
-        if eval_count or prompt_eval_count:
+        # Extract token usage from the router's ChatResponse
+        if response.usage:
             self._last_token_usage = {
-                "prompt_tokens": prompt_eval_count,
-                "completion_tokens": eval_count,
-                "total_tokens": prompt_eval_count + eval_count,
+                "prompt_tokens": response.usage.get("prompt_tokens", 0),
+                "completion_tokens": response.usage.get("completion_tokens", 0),
+                "total_tokens": response.usage.get("total_tokens", 0),
             }
         else:
             self._last_token_usage = {}
 
-        return result.get("response", "")
+        return response.content
+
+    # ------------------------------------------------------------------
+    # Analysis entry points
+    # ------------------------------------------------------------------
 
     def analyze(
         self,
@@ -634,7 +456,7 @@ class UnifiedVLMClient:
             if not reasoning.strip():
                 reasoning = self._synthesize_reasoning(parsed, raw_response)
 
-            # ── Alert condition — trust the VLM's structured output
+            # -- Alert condition -- trust the VLM's structured output
             if custom_alert_condition:
                 should_alert = custom_alert_condition(parsed)
             else:
@@ -647,10 +469,7 @@ class UnifiedVLMClient:
                 if bool_field in details:
                     details[bool_field] = self._coerce_bool(details[bool_field])
 
-            # ── Consistency enforcement: detail fields override boolean flags
-            # The VLM sometimes fills in defect details correctly but mis-sets
-            # the top-level detected/should_alert booleans.  Re-derive from
-            # the structured detail fields when they are present.
+            # -- Consistency enforcement: detail fields override boolean flags
             detected, should_alert = self._enforce_detail_consistency(
                 detected, should_alert, details, custom_alert_condition is not None,
             )
@@ -678,18 +497,12 @@ class UnifiedVLMClient:
                 token_usage=token_usage,
             )
             
-        except requests.exceptions.Timeout:
+        except TimeoutError:
             self._metrics["timeouts"] += 1
             self._metrics["request_failures"] += 1
             self._metrics["last_error"] = "timeout"
             self._metrics["last_error_at"] = datetime.now().isoformat()
             logger.error("VLM request timed out after %ds", self.timeout)
-            raise
-        except requests.exceptions.RequestException as exc:
-            self._metrics["request_failures"] += 1
-            self._metrics["last_error"] = str(exc)
-            self._metrics["last_error_at"] = datetime.now().isoformat()
-            logger.error("VLM request failed: %s", exc)
             raise
         except Exception as exc:
             self._metrics["request_failures"] += 1
@@ -697,6 +510,10 @@ class UnifiedVLMClient:
             self._metrics["last_error_at"] = datetime.now().isoformat()
             logger.error("VLM analysis failed: %s", exc)
             raise
+
+    # ------------------------------------------------------------------
+    # Reasoning helpers
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _synthesize_reasoning(
@@ -713,7 +530,7 @@ class UnifiedVLMClient:
         """
         inner = parsed.get("details", parsed)
         if isinstance(inner, dict):
-            inner = inner.get("details", inner)  # handle nested {"details": {"details": ...}}
+            inner = inner.get("details", inner)
 
         parts: list[str] = []
         STATUS_LABELS = {
@@ -733,7 +550,6 @@ class UnifiedVLMClient:
         if parts:
             return "; ".join(parts) + "."
 
-        # No structured details — fall back to raw response excerpt.
         return raw_response[:200] if raw_response else "No reasoning provided."
 
     @staticmethod
@@ -750,7 +566,7 @@ class UnifiedVLMClient:
         top-level ``detected`` to *false*, the detail fields take
         precedence because they are the direct observational evidence.
         """
-        inner = details.get("details", details)  # handles nested or flat
+        inner = details.get("details", details)
 
         _DEFECT_STATUSES = {"missing", "damaged"}
 
@@ -767,7 +583,7 @@ class UnifiedVLMClient:
         if defect_signals and not detected:
             logger.warning(
                 "Consistency fix: detail fields indicate defects (%s) "
-                "but detected was false — overriding to true",
+                "but detected was false -- overriding to true",
                 ", ".join(defect_signals),
             )
             detected = True
@@ -792,6 +608,10 @@ class UnifiedVLMClient:
             details={"parse_error": True},
         )
 
+    # ------------------------------------------------------------------
+    # Legacy entry point
+    # ------------------------------------------------------------------
+
     def analyze_frame(
         self,
         frame: np.ndarray,
@@ -812,6 +632,10 @@ class UnifiedVLMClient:
             should_alert=result.should_alert,
             raw_response=result.raw_response,
         )
+
+    # ------------------------------------------------------------------
+    # Agentic analysis (tool calling)
+    # ------------------------------------------------------------------
 
     def analyze_with_tools(
         self,
@@ -854,7 +678,6 @@ class UnifiedVLMClient:
         analysis_result: Optional[AnalysisResult] = None
         raw_response = ""
 
-        # Accumulate token usage across all VLM rounds
         total_token_usage: Dict[str, int] = {
             "prompt_tokens": 0,
             "completion_tokens": 0,
@@ -864,7 +687,6 @@ class UnifiedVLMClient:
         for round_num in range(max_tool_rounds):
             raw_response = self._send_vlm_request(agentic_prompt, base64_image)
 
-            # Accumulate token usage from this round
             if self._last_token_usage:
                 total_token_usage["prompt_tokens"] += self._last_token_usage.get("prompt_tokens", 0)
                 total_token_usage["completion_tokens"] += self._last_token_usage.get("completion_tokens", 0)
@@ -902,7 +724,6 @@ class UnifiedVLMClient:
             if not tool_calls:
                 break
 
-            # Log the tool call sequence for this round
             tool_names = [tc.tool_name for tc in tool_calls]
             logger.info(
                 "Tool call sequence (round %d/%d): %s",
@@ -951,7 +772,6 @@ class UnifiedVLMClient:
 
             agentic_prompt = build_tool_continuation_prompt(results_text)
 
-        # Log total token usage summary for agentic analysis
         if total_token_usage.get("total_tokens", 0) > 0:
             logger.info(
                 "Agentic token usage (all rounds): prompt=%d, completion=%d, total=%d",

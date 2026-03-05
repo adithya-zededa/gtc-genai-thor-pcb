@@ -317,8 +317,10 @@ def test_vllm():
 
 @api_bp.route("/test_ollama")
 def test_ollama():
-    """Test Ollama connection (redirects to vLLM check)."""
-    available = check_vllm_availability()
+    """Legacy endpoint — redirects to vLLM health check via router."""
+    from router import get_router
+    health = get_router().check_health()
+    available = health.get("vllm", False)
     return jsonify(
         {
             "success": available,
@@ -331,17 +333,10 @@ def test_ollama():
 
 @api_bp.route("/ollama_models")
 def ollama_models():
-    """List available models (redirects to vLLM models)."""
-    import requests
-
-    config = get_config()
+    """Legacy endpoint — lists vLLM models via router."""
+    from router import get_router
     try:
-        response = requests.get(
-            f"{config.inference.vllm_url}/v1/models", timeout=config.http_timeout
-        )
-        response.raise_for_status()
-        data = response.json()
-        models = [m.get("id", "") for m in data.get("data", [])]
+        models = get_router().list_models()
         return jsonify({"success": True, "models": models})
-    except requests.RequestException as exc:
+    except Exception as exc:
         return jsonify({"success": False, "error": str(exc), "models": []})

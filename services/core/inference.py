@@ -29,9 +29,6 @@ def check_vllm_availability() -> bool:
     )
 
 
-# Keep for backward compatibility
-check_ollama_availability = check_vllm_availability
-
 
 def check_inference_backend_availability() -> bool:
     """Check if the vLLM inference backend is available."""

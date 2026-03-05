@@ -61,19 +61,41 @@ The board under inspection is an **Arduino Uno R4 Minima**. It is expected to ha
 
 RULES — read before answering:
   1. Describe ONLY what you actually see in the image.
-  2. The barrel-jack connector is a chunky, black, cylindrical part that sticks up from the board — it is NOT flat pads. If you can see such a 3-D connector, mark it "present_intact".
+  2. The barrel-jack connector is a chunky, black, cylindrical part that sticks up from the board — it is NOT flat pads. If you can see such a 3-D connector AND it is straight, undamaged, and properly seated, mark it "present_intact".
   3. Do NOT confuse viewing angle, shadows, or lighting with missing parts.
   4. If a component area is occluded or unclear, say "uncertain" — do NOT default to "missing".
+  5. "present_intact" means the component is BOTH present AND in perfect physical condition. If a component is present but shows ANY physical damage (bent, deformed, tilted, cracked, lifted, displaced), mark it "damaged" — NOT "present_intact".
+
+WHAT "DAMAGED" LOOKS LIKE — check carefully for each connector:
+  • Bent or deformed metal tabs, shields, or housings (metal sticking out at an angle).
+  • Connector body tilted, lifted, or not flush with the PCB.
+  • Cracked or broken plastic housing.
+  • Pins or leads visibly bent, splayed, or lifted from pads.
+  • Any part of the connector that looks physically stressed, warped, or out of its normal shape.
 
 INSPECTION CHECKLIST:
 
-Q1 — DC BARREL JACK: Locate the barrel-jack connector (black cylinder, ~9 mm tall). Is it physically present and soldered to the board?
+Q1 — DC BARREL JACK: Locate the barrel-jack connector (black cylinder, ~9 mm tall).
+  a) Is it physically present on the board?
+  b) Is the metal housing straight and properly seated (not bent, tilted, or deformed)?
+  c) Are the metal ground tabs/shields flat and in their normal position (not bent outward or upward)?
+  If present but any part is bent, deformed, or physically damaged → "damaged".
 
-Q2 — USB PORT: Locate the USB-C port. Is it physically present and intact?
+Q2 — USB PORT: Locate the USB-C port.
+  a) Is it physically present?
+  b) Is the metal shield/housing straight and undamaged (no bent tabs, no dents)?
+  c) Is it properly seated flush with the board edge?
+  If present but physically damaged → "damaged".
 
-Q3 — HEADER PINS: Are the two rows of header pins present? Do they appear straight and properly soldered?
+Q3 — HEADER PINS: Are the two rows of header pins present? Do they appear straight and properly soldered? Any bent, missing, or crooked pins → "damaged".
 
-Q4 — OTHER DEFECTS: Do you see any solder bridges, obviously missing ICs or passives, cold joints, cracked traces, burn marks, or mechanical damage?
+Q4 — OTHER DEFECTS: Do you see any of the following?
+  • Solder bridges or shorts between adjacent pads/pins.
+  • Obviously missing ICs, capacitors, resistors, or other passives.
+  • Cold or insufficient solder joints.
+  • Cracked, cut, or scratched traces on the PCB.
+  • Burn marks, discoloration from overheating, or scorch marks.
+  • Mechanical damage: cracked PCB substrate, chips in the board edge, bent or broken components, foreign objects or debris on the board.
 
 Respond with ONLY this JSON:
 {

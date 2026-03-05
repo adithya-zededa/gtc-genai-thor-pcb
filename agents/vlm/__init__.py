@@ -12,7 +12,6 @@ from .prompts import (
 )
 
 from .client import (
-    VLMBackend,
     UnifiedVLMClient,
     AnalysisResult,
     DetectionResult,
@@ -32,7 +31,6 @@ __all__ = [
     "build_tools_prompt",
 
     # Client
-    "VLMBackend",
     "UnifiedVLMClient",
     "AnalysisResult",
     "DetectionResult",

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict
 
-from agents.vlm.client import UnifiedVLMClient, VLMBackend
+from agents.vlm.client import UnifiedVLMClient
 from core.config import get_config
 from core.logging import get_logger
 
@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 def create_vlm_client_from_config(cfg: Dict[str, Any]) -> UnifiedVLMClient:
     """Create a VLM client from configuration.
     
-    Uses the vLLM backend exclusively.
+    All inference is routed through the centralized ``router`` package.
     Environment variables take precedence over config file settings.
     """
     app_config = get_config()
@@ -29,11 +29,9 @@ def create_vlm_client_from_config(cfg: Dict[str, Any]) -> UnifiedVLMClient:
     timeout = int(os.getenv("VLLM_TIMEOUT", vllm_cfg.get("timeout", app_config.inference.timeout)))
     temperature = float(os.getenv("VLLM_TEMPERATURE", vllm_cfg.get("temperature", app_config.inference.temperature)))
     
-    logger.info("Creating vLLM client: url=%s, model=%s", vllm_url, vision_model)
+    logger.info("Creating VLM client: model=%s (routed via centralized router)", vision_model)
     return UnifiedVLMClient(
-        base_url=vllm_url,
         model=vision_model,
         timeout=timeout,
-        backend=VLMBackend.VLLM,
         temperature=temperature,
     )
