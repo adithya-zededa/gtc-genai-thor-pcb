@@ -39,9 +39,12 @@ def tool_send_alert_email(
         result = send_email(payload)
         return {
             "success": True,
-            "message": result,
-            "recipients_count": len(recipients),
+            "message": f"Alert email sent to {len(recipients)} recipient(s)",
+            "data": {
+                "recipients_count": len(recipients),
+                "email_result": str(result),
+            },
         }
     except Exception as e:
         logger.error("Failed to send alert email: %s", e)
-        return {"success": False, "error": str(e)}
+        return {"success": False, "message": f"Failed to send alert email: {e}"}

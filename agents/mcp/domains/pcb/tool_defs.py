@@ -109,26 +109,6 @@ TOOL_GENERATE_DEFECT_REPORT = MCPToolDefinition(
     allowed_in_states=(AgentState.IDLE, AgentState.MONITORING, AgentState.ANALYZING),
 )
 
-TOOL_START_DEFECT_MONITORING = MCPToolDefinition(
-    name="start_defect_monitoring",
-    description="Deprecated: continuous monitoring is handled by the proactive monitoring loop. Use start_monitoring_session instead.",
-    category="pcb_monitoring",
-    input_schema=[],
-    output_schema=standard_output_schema(),
-    requires_confirmation=False,
-    allowed_in_states=(AgentState.IDLE, AgentState.MONITORING),
-)
-
-TOOL_STOP_DEFECT_MONITORING = MCPToolDefinition(
-    name="stop_defect_monitoring",
-    description="Stop the continuous defect monitoring loop. Returns stats on frames inspected and defects found.",
-    category="pcb_monitoring",
-    input_schema=[],
-    output_schema=standard_output_schema(),
-    requires_confirmation=False,
-    allowed_in_states=(AgentState.IDLE, AgentState.MONITORING, AgentState.ANALYZING, AgentState.ALERTING),
-)
-
 TOOL_QUERY_PCB_INSPECTIONS = MCPToolDefinition(
     name="query_pcb_inspections",
     description="Query past PCB inspection results from the database. Use this to answer user questions about detected defects, pass rates, board types seen, and inspection history. Supports time-window filtering.",
@@ -331,8 +311,6 @@ ALL_PCB_TOOLS = [
     TOOL_SEND_DEFECT_ALERT,
     TOOL_LOG_DEFECT,
     TOOL_GENERATE_DEFECT_REPORT,
-    TOOL_START_DEFECT_MONITORING,
-    TOOL_STOP_DEFECT_MONITORING,
     TOOL_QUERY_PCB_INSPECTIONS,
     # Monitoring analytics & chat queries
     TOOL_GET_MONITORING_STATUS,
@@ -372,8 +350,6 @@ TOOL_PARAM_ALLOWLIST: Dict[str, FrozenSet[str]] = {
     "send_defect_alert": frozenset(["recipients", "board_type", "defect_summary", "severity", "include_image", "image_data"]),
     "log_defect": frozenset(["board_type", "defect_type", "severity", "confidence", "description", "image_path"]),
     "generate_defect_report": frozenset(["board_type"]),
-    "start_defect_monitoring": frozenset(),
-    "stop_defect_monitoring": frozenset(),
     "query_pcb_inspections": frozenset(["limit", "result_filter", "hours"]),
     # Monitoring analytics & chat queries
     "get_monitoring_status": frozenset(),

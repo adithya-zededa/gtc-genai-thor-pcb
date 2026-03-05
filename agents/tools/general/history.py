@@ -34,9 +34,12 @@ def tool_query_history(
 
         result: Dict[str, Any] = {
             "success": True,
-            "count": len(log_entries),
-            "total": total,
-            "events": log_entries,
+            "message": f"Found {len(log_entries)} detection log(s) out of {total} total",
+            "data": {
+                "count": len(log_entries),
+                "total": total,
+                "events": log_entries,
+            },
         }
 
         # Enrich with defect data from pcb_defects table
@@ -53,7 +56,7 @@ def tool_query_history(
                 latest_defect = get_latest_defect()
                 defects_24h = count_defects(hours=24)
 
-                result["defects"] = {
+                result["data"]["defects"] = {
                     "recent": recent_defects,
                     "total_defects": total_defects,
                     "defects_last_24h": defects_24h,
@@ -65,9 +68,9 @@ def tool_query_history(
                 )
             except Exception as defect_exc:
                 logger.warning("Failed to enrich history with defect data: %s", defect_exc)
-                result["defects"] = {"error": str(defect_exc)}
+                result["data"]["defects"] = {"error": str(defect_exc)}
 
         return result
     except Exception as e:
         logger.error("Failed to query history: %s", e)
-        return {"success": False, "error": str(e)}
+        return {"success": False, "message": f"Failed to query history: {e}"}

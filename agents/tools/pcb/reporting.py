@@ -43,7 +43,8 @@ def tool_generate_defect_report(
         type_breakdown = get_defect_type_breakdown()
         insights = get_defect_insights()
 
-        report["enriched"] = {
+        report_data = report.get("data", {}) if isinstance(report.get("data"), dict) else {}
+        report_data["enriched"] = {
             "total_all_time": total_all,
             "total_last_24h": total_24h,
             "total_last_week": total_week,
@@ -52,11 +53,19 @@ def tool_generate_defect_report(
             "risk_level": insights.get("risk_level", "unknown"),
             "recommendations": insights.get("recommendations", []),
         }
+        report["data"] = report_data
+
+        # Update message with enrichment summary
+        trend_dir = trend.get("trend", "unknown")
+        risk = insights.get("risk_level", "unknown")
+        report["message"] = (
+            f"Defect report: {total_all} total, {total_24h} in last 24h, "
+            f"{total_week} in last week. Trend: {trend_dir}. Risk: {risk}."
+        )
+
         logger.info(
             "Defect report generated: total=%d, 24h=%d, week=%d, trend=%s, risk=%s",
-            total_all, total_24h, total_week,
-            trend.get("trend", "unknown"),
-            insights.get("risk_level", "unknown"),
+            total_all, total_24h, total_week, trend_dir, risk,
         )
     except Exception as exc:
         logger.warning("Failed to enrich defect report with analytics: %s", exc)

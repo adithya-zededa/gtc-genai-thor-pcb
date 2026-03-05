@@ -53,39 +53,49 @@ TASK_PROMPTS: Dict[TaskType, str] = {}  # empty; build_prompt falls through to C
 
 DEFAULT_MONITORING_DEFECT_PROMPT = """You are a PCB quality inspector. Look at this image and answer the questions below. Output ONLY valid JSON.
 
-This is an Arduino Uno R4 Minima PCB on a green surface.
+The board under inspection is an **Arduino Uno R4 Minima**. It is expected to have:
+  • A black cylindrical DC barrel-jack power connector on one edge.
+  • A USB-C port on an adjacent edge.
+  • Two rows of through-hole header pins (one along each long edge).
+  • A main microcontroller IC (square QFP package) and supporting SMD components.
 
-Answer each question by describing ONLY what you see in the image. Do NOT repeat my instructions back. Do NOT guess. If you cannot see a location clearly, say "uncertain".
+RULES — read before answering:
+  1. Describe ONLY what you actually see in the image.
+  2. The barrel-jack connector is a chunky, black, cylindrical part that sticks up from the board — it is NOT flat pads. If you can see such a 3-D connector, mark it "present_intact".
+  3. Do NOT confuse viewing angle, shadows, or lighting with missing parts.
+  4. If a component area is occluded or unclear, say "uncertain" — do NOT default to "missing".
 
-Q1: Look at the LEFT EDGE of the board, upper area. Is there a tall black cylindrical barrel jack connector there? Describe the shape, color, and height of whatever object is at that location. If you only see flat copper pads or bare solder points with no tall connector, it is missing.
+INSPECTION CHECKLIST:
 
-Q2: Look at the TOP EDGE. Is there a USB port? Describe it.
+Q1 — DC BARREL JACK: Locate the barrel-jack connector (black cylinder, ~9 mm tall). Is it physically present and soldered to the board?
 
-Q3: Look at the header pins along the LEFT EDGE (below the power area) and the BOTTOM EDGE. Do the header pins have small black plastic caps on them? Check both sides.
+Q2 — USB PORT: Locate the USB-C port. Is it physically present and intact?
 
-Q4: Any other defects? (solder bridges, missing parts, cold joints, trace damage, mechanical damage)
+Q3 — HEADER PINS: Are the two rows of header pins present? Do they appear straight and properly soldered?
 
-Fill in this JSON. Start by filling in "details", then derive "detected" from the details.
+Q4 — OTHER DEFECTS: Do you see any solder bridges, obviously missing ICs or passives, cold joints, cracked traces, burn marks, or mechanical damage?
+
+Respond with ONLY this JSON:
 {
     "details": {
         "power_jack_status": "present_intact" or "missing" or "damaged" or "uncertain",
         "usb_port_status": "present_intact" or "missing" or "damaged" or "uncertain",
-        "uart_cap_status": "present_both_sides" or "missing_one_side" or "missing_both_sides" or "uncertain",
+        "header_pins_status": "present_intact" or "missing" or "damaged" or "uncertain",
         "defects": []
     },
     "detected": <DEFECT_BOOLEAN — see decision rule below>,
     "confidence": <float 0-1>,
-    "reasoning": "<your observations from Q1-Q4>",
-    "should_alert": <MUST be the same value as detected>
+    "reasoning": "<brief observations from Q1-Q4>",
+    "should_alert": <same value as detected>
 }
 
-DECISION RULE for "detected" (apply AFTER filling in details):
-  Look at the details you just wrote.
-  - If power_jack_status is "missing" or "damaged" → detected = true
-  - If usb_port_status is "missing" or "damaged" → detected = true
-  - If uart_cap_status contains "missing" → detected = true
-  - If defects list is non-empty → detected = true
-  - Otherwise → detected = false
+DECISION RULE (apply AFTER filling in details):
+  detected = true ONLY IF at least one of these is true:
+    • power_jack_status is "missing" or "damaged"
+    • usb_port_status is "missing" or "damaged"
+    • header_pins_status is "missing" or "damaged"
+    • defects list is non-empty
+  Otherwise detected = false.
   "should_alert" must always equal "detected".
 """
 

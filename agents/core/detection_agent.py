@@ -110,6 +110,42 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
 
         logger.info("StreamlinedAgent initialized with unified VLM")
 
+    # ── Keyword signatures used to recognise the built-in PCB
+    #    defect inspection prompt (DEFAULT_MONITORING_DEFECT_PROMPT).
+    _PCB_DEFECT_PROMPT_SIGNATURES = (
+        "power_jack_status",
+        "usb_port_status",
+        "header_pins_status",
+        "PCB quality inspector",
+    )
+
+    @classmethod
+    def _derive_analysis_metadata(
+        cls,
+        task_type: "TaskType",
+        custom_prompt: str,
+        result: "AnalysisResult",
+    ) -> tuple:
+        """Derive classification label and tool name from the analysis context.
+
+        Returns ``(classification, tool_label)`` so that ``tools_used``
+        and ``decision_trace["classification"]`` reflect what the agent
+        actually did, instead of being hardcoded to ``"unified_vlm"``.
+        """
+        # Check if the prompt is the canonical PCB defect inspection prompt
+        prompt_lower = (custom_prompt or "").lower()
+        is_pcb_defect_prompt = any(
+            sig.lower() in prompt_lower
+            for sig in cls._PCB_DEFECT_PROMPT_SIGNATURES
+        )
+
+        if is_pcb_defect_prompt:
+            return "PCB_DEFECT_INSPECTION", "pcb_defect_inspection"
+
+        # Fallback: derive from task_type
+        task_val = task_type.value if hasattr(task_type, "value") else str(task_type)
+        return task_val.upper(), f"{task_val}_vlm"
+
     def _save_detection_image(self, frame: np.ndarray, result) -> str:
         """Save detection frame to disk and return the path."""
         try:
@@ -348,6 +384,9 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
         if vlm_result.detected:
             primary_label = getattr(vlm_result, 'primary_label', None) or "detection"
 
+        # Derive tool label from the VLM result task_type
+        tool_label = f"{vlm_result.task_type}_vlm" if hasattr(vlm_result, 'task_type') and vlm_result.task_type else "vlm_analysis"
+
         event = DetectionEvent(
             timestamp=datetime.now().isoformat(),
             detected=vlm_result.detected,
@@ -358,7 +397,7 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
             should_alert=vlm_result.should_alert,
             pcb_stable=vlm_result.pcb_stable,
             image_path=image_path,
-            tools_used=["unified_vlm"],
+            tools_used=[tool_label],
             tool_trace=[],
             decision_trace={
                 "classification": "VLM_DECISION",
@@ -379,7 +418,7 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
             self._last_processed_event = event
             self._last_analysis_time = time.time()
             self._last_board_signature = metadata.get("board_signature")
-        self._remember_event(event, source="unified_vlm")
+        self._remember_event(event, source=tool_label)
 
         # Log result
         if vlm_result.should_alert:
@@ -425,6 +464,11 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
             if self.save_images:
                 image_path = self._save_detection_image(frame, result)
 
+            # Derive classification and tools_used from actual analysis context
+            classification, tool_label = self._derive_analysis_metadata(
+                task_type, custom_prompt, result,
+            )
+
             event = DetectionEvent(
                 timestamp=datetime.now().isoformat(),
                 detected=result.detected,
@@ -435,10 +479,10 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
                 should_alert=result.should_alert,
                 pcb_stable=result.details.get("pcb_stable"),
                 image_path=image_path,
-                tools_used=["unified_vlm"],
+                tools_used=[tool_label],
                 tool_trace=[],
                 decision_trace={
-                    "classification": task_type.value.upper(),
+                    "classification": classification,
                     "task_type": task_type.value,
                     "custom_prompt": custom_prompt[:100] if custom_prompt else "",
                     "detected": result.detected,
@@ -449,12 +493,12 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
                 token_usage=getattr(result, 'token_usage', {}),
             )
 
-            self._remember_event(event, source=f"{task_type.value}_vlm")
+            self._remember_event(event, source=tool_label)
 
             if result.should_alert:
                 logger.info(
                     "🔔 %s ALERT: %s (Confidence: %.2f)",
-                    task_type.value.upper(),
+                    classification,
                     result.reasoning[:50] if result.reasoning else "Alert triggered",
                     result.confidence
                 )
@@ -533,6 +577,11 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
             if self.save_images:
                 image_path = self._save_detection_image(frame, analysis)
 
+            # Derive the base tool label from prompt context
+            _, base_tool_label = self._derive_analysis_metadata(
+                effective_task_type, custom_prompt or "", analysis,
+            )
+
             # Create detection event
             event = DetectionEvent(
                 timestamp=datetime.now().isoformat(),
@@ -544,7 +593,7 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
                 should_alert=analysis.should_alert,
                 pcb_stable=analysis.details.get("pcb_stable"),
                 image_path=image_path,
-                tools_used=["unified_vlm"] + agentic_result.tools_used,
+                tools_used=[base_tool_label] + agentic_result.tools_used,
                 tool_trace=tool_trace,
                 decision_trace={
                     "classification": "AGENTIC_ANALYSIS",

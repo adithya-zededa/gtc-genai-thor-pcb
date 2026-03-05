@@ -1244,6 +1244,19 @@ def _generate_tool_followup_response(
     output_message = str(output.get("message", "")) if isinstance(output, dict) else ""
     output_data = output.get("data", {}) if isinstance(output, dict) else {}
 
+    # Fallback: if output has no "message" key, check for "error"
+    if not output_message and isinstance(output, dict):
+        output_message = str(output.get("error", ""))
+
+    # Fallback: if "data" is missing/empty/None, collect all extra keys from
+    # output so that tools not following the message/data convention still have
+    # their return values visible to the LLM.
+    _STANDARD_KEYS = {"success", "message", "data", "error"}
+    if not output_data and isinstance(output, dict):
+        extra = {k: v for k, v in output.items() if k not in _STANDARD_KEYS}
+        if extra:
+            output_data = extra
+
     router = _get_chat_router()
     if router is not None:
         try:
@@ -1260,6 +1273,23 @@ def _generate_tool_followup_response(
             if history_messages and history_messages[-1].get("role") == "user":
                 history_messages = history_messages[:-1]
 
+            # Format output_data as readable plain text instead of JSON to
+            # avoid escaped newlines that the LLM may misread.
+            if isinstance(output_data, dict):
+                formatted_parts = []
+                for key, value in output_data.items():
+                    if isinstance(value, str):
+                        formatted_parts.append(f"**{key.replace('_', ' ').title()}:**\n{value}")
+                    else:
+                        formatted_parts.append(
+                            f"**{key.replace('_', ' ').title()}:** {_json.dumps(value, default=str)}"
+                        )
+                formatted_data = "\n\n".join(formatted_parts) if formatted_parts else "No additional data."
+            elif isinstance(output_data, str):
+                formatted_data = output_data
+            else:
+                formatted_data = _json.dumps(output_data, default=str)[:3000]
+
             messages = [
                 # 1. System prompt: persona + instructions only, no data
                 {
@@ -1270,6 +1300,8 @@ def _generate_tool_followup_response(
                         "Ground your answers in the tool results provided in the conversation. "
                         "Do not invent dates, counts, defect names, severities, or any values not present "
                         "in the tool result. If a value is missing, say it is not available. "
+                        "IMPORTANT: Always quote exact numbers, durations, counts, and identifiers "
+                        "directly from the tool result. Never approximate or round values. "
                         f"The agent is currently in **{state.value}** state."
                     ),
                 },
@@ -1282,8 +1314,8 @@ def _generate_tool_followup_response(
                     "role": "assistant",
                     "content": (
                         f"I ran the `{tool_name}` tool. Here is the result:\n\n"
-                        f"**Message:** {output_message}\n"
-                        f"**Data:** {_json.dumps(output_data, default=str)[:3000]}"
+                        f"**Message:** {output_message}\n\n"
+                        f"{formatted_data}"
                     ),
                 },
                 # 5. User asks for the summary — forces the model to synthesise from the result above

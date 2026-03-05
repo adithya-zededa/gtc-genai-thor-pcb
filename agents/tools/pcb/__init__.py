@@ -48,12 +48,6 @@ from .reporting import (
     tool_query_pcb_inspections,
 )
 
-# Deprecated monitoring stubs
-from .monitoring import (
-    tool_start_defect_monitoring,
-    tool_stop_defect_monitoring,
-)
-
 __all__ = [
     "get_inspection_prompt",
     # Analysis
@@ -83,7 +77,4 @@ __all__ = [
     "tool_generate_defect_report",
     "tool_generate_summary_report",
     "tool_query_pcb_inspections",
-    # Deprecated
-    "tool_start_defect_monitoring",
-    "tool_stop_defect_monitoring",
 ]

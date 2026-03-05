@@ -80,18 +80,6 @@ class AnalysisResult:
     @property
     def pcb_stable(self) -> Optional[bool]:
         return self.details.get("pcb_stable")
-    
-    @property
-    def person_count(self) -> int:
-        return self.details.get("person_count", 0)
-    
-    @property
-    def helmet_count(self) -> int:
-        return self.details.get("helmet_count", 0)
-    
-    @property
-    def no_helmet_count(self) -> int:
-        return self.details.get("no_helmet_count", 0)
 
 
 @dataclass
@@ -103,15 +91,6 @@ class AgenticResult:
     tool_results: List[Dict[str, Any]] = field(default_factory=list)
     raw_response: str = ""
     total_token_usage: Dict[str, int] = field(default_factory=dict)
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "analysis": self.analysis.to_dict() if self.analysis else None,
-            "tool_calls": self.tool_calls,
-            "tool_results": self.tool_results,
-            "raw_response": self.raw_response,
-            "total_token_usage": self.total_token_usage,
-        }
     
     @property
     def tools_used(self) -> List[str]:
@@ -138,33 +117,6 @@ class DetectionResult:
     should_alert: bool
     raw_response: str
     
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "detected": self.detected,
-            "confidence": self.confidence,
-            "reasoning": self.reasoning,
-            "pcb_count": self.pcb_count,
-            "pcb_stable": self.pcb_stable,
-            "should_alert": self.should_alert,
-            "raw_response": self.raw_response,
-        }
-    
-    def to_analysis_result(self) -> AnalysisResult:
-        return AnalysisResult(
-            task_type=TaskType.CUSTOM.value,
-            detected=self.detected,
-            confidence=self.confidence,
-            reasoning=self.reasoning,
-            should_alert=self.should_alert,
-            raw_response=self.raw_response,
-            details={
-                "pcb_count": self.pcb_count,
-                "pcb_stable": self.pcb_stable,
-            },
-        )
-
-
-
 
 
 class UnifiedVLMClient:
@@ -646,30 +598,6 @@ class UnifiedVLMClient:
 
         return result.get("response", "")
 
-    def run_structured_prompt(
-        self,
-        frame: np.ndarray,
-        prompt: str,
-        *,
-        temperature: Optional[float] = None,
-        max_tokens: int = 512,
-    ) -> Dict[str, Any]:
-        """Execute an ad-hoc structured prompt against the VLM.
-
-        Returns both the raw response and parsed JSON (if any) so callers can
-        inspect reasoning traces while still having structured data for control
-        flow.
-        """
-        base64_image = self._encode_frame(frame)
-        raw_response = self._send_vlm_request(
-            prompt,
-            base64_image,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-        parsed = self._parse_json_response(raw_response)
-        return {"raw": raw_response, "parsed": parsed}
-
     def analyze(
         self,
         frame: np.ndarray,
@@ -697,7 +625,14 @@ class UnifiedVLMClient:
             
             detected = bool(parsed.get("detected", False))
             confidence = float(parsed.get("confidence", 0.5))
-            reasoning = str(parsed.get("reasoning", raw_response[:200]))
+            raw_reasoning = parsed.get("reasoning", None)
+            reasoning = str(raw_reasoning) if raw_reasoning else ""
+
+            # When the VLM fills in structured details but leaves
+            # reasoning empty, synthesize a human-readable summary so
+            # that vision_description / diagnostic pages are not blank.
+            if not reasoning.strip():
+                reasoning = self._synthesize_reasoning(parsed, raw_response)
 
             # ── Alert condition — trust the VLM's structured output
             if custom_alert_condition:
@@ -764,6 +699,44 @@ class UnifiedVLMClient:
             raise
 
     @staticmethod
+    def _synthesize_reasoning(
+        parsed: Dict[str, Any],
+        raw_response: str,
+    ) -> str:
+        """Build a reasoning string from structured detail fields.
+
+        Called when the VLM returns an empty or whitespace-only
+        ``reasoning`` value.  Extracts component statuses from the
+        nested ``details`` dict produced by the PCB defect prompt and
+        formats them as a readable sentence.  Falls back to the first
+        200 chars of the raw response if no structured details exist.
+        """
+        inner = parsed.get("details", parsed)
+        if isinstance(inner, dict):
+            inner = inner.get("details", inner)  # handle nested {"details": {"details": ...}}
+
+        parts: list[str] = []
+        STATUS_LABELS = {
+            "power_jack_status": "Power jack",
+            "usb_port_status": "USB port",
+            "header_pins_status": "Header pins",
+        }
+        if isinstance(inner, dict):
+            for key, label in STATUS_LABELS.items():
+                val = inner.get(key)
+                if val:
+                    parts.append(f"{label}: {val}")
+            defects = inner.get("defects", [])
+            if isinstance(defects, list) and defects:
+                parts.append(f"Other defects: {', '.join(str(d) for d in defects)}")
+
+        if parts:
+            return "; ".join(parts) + "."
+
+        # No structured details — fall back to raw response excerpt.
+        return raw_response[:200] if raw_response else "No reasoning provided."
+
+    @staticmethod
     def _enforce_detail_consistency(
         detected: bool,
         should_alert: bool,
@@ -782,14 +755,10 @@ class UnifiedVLMClient:
         _DEFECT_STATUSES = {"missing", "damaged"}
 
         defect_signals = []
-        for key in ("power_jack_status", "usb_port_status"):
+        for key in ("power_jack_status", "usb_port_status", "header_pins_status"):
             val = str(inner.get(key, "")).lower()
             if val in _DEFECT_STATUSES:
                 defect_signals.append(f"{key}={val}")
-
-        uart = str(inner.get("uart_cap_status", "")).lower()
-        if "missing" in uart:
-            defect_signals.append(f"uart_cap_status={uart}")
 
         defect_list = inner.get("defects", [])
         if isinstance(defect_list, list) and len(defect_list) > 0:
@@ -822,16 +791,6 @@ class UnifiedVLMClient:
             raw_response=raw_response,
             details={"parse_error": True},
         )
-
-    def get_health_metrics(self) -> Dict[str, Any]:
-        """Return runtime health metrics for observability dashboards."""
-        total = int(self._metrics.get("total_requests", 0) or 0)
-        success = int(self._metrics.get("successful_requests", 0) or 0)
-        return {
-            **self._metrics,
-            "success_rate": (success / total) if total > 0 else 0.0,
-            "degraded_mode_active": bool(self._metrics.get("last_error")),
-        }
 
     def analyze_frame(
         self,

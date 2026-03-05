@@ -94,7 +94,10 @@ def tool_send_defect_alert(
         return {
             "success": True,
             "message": f"Defect alert sent to {len(recipients)} recipient(s)",
-            "email_result": result,
+            "data": {
+                "recipients_count": len(recipients),
+                "email_result": str(result),
+            },
         }
     except Exception as exc:
         return _safe_error("Failed to send defect alert", exc=exc)

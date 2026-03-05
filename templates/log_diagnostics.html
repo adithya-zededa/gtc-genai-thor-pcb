@@ -320,6 +320,16 @@
 
                     {% if decision.detected is defined %}
                     <div class="p-3 rounded-xl glass-ultra-thin">
+                        {% if decision.classification == 'PCB_DEFECT_INSPECTION' %}
+                        <p class="text-xs font-medium text-secondary mb-1">Defect Detected</p>
+                        <p class="text-sm font-semibold">
+                            {% if decision.detected is sameas(true) %}
+                                <span style="color: var(--system-red);"><i class="fas fa-exclamation-triangle mr-1"></i>Yes</span>
+                            {% else %}
+                                <span style="color: var(--system-green);"><i class="fas fa-check-circle mr-1"></i>No</span>
+                            {% endif %}
+                        </p>
+                        {% else %}
                         <p class="text-xs font-medium text-secondary mb-1">PCB Detected</p>
                         <p class="text-sm font-semibold">
                             {% if decision.detected is sameas(true) %}
@@ -328,6 +338,7 @@
                                 <span style="color: var(--system-red);"><i class="fas fa-times-circle mr-1"></i>No</span>
                             {% endif %}
                         </p>
+                        {% endif %}
                     </div>
                     {% endif %}
 

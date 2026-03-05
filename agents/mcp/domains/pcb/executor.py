@@ -48,8 +48,6 @@ class PCBExecutor(BaseDomainExecutor):
             tool_send_defect_alert,
             tool_log_defect,
             tool_generate_defect_report,
-            tool_start_defect_monitoring,
-            tool_stop_defect_monitoring,
             tool_query_pcb_inspections,
             # Monitoring analytics & chat queries
             tool_get_monitoring_status,
@@ -76,8 +74,6 @@ class PCBExecutor(BaseDomainExecutor):
             "send_defect_alert": tool_send_defect_alert,
             "log_defect": tool_log_defect,
             "generate_defect_report": tool_generate_defect_report,
-            "start_defect_monitoring": tool_start_defect_monitoring,
-            "stop_defect_monitoring": tool_stop_defect_monitoring,
             "query_pcb_inspections": tool_query_pcb_inspections,
             # Monitoring analytics & chat queries
             "get_monitoring_status": tool_get_monitoring_status,

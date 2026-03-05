@@ -42,9 +42,13 @@ def tool_log_event(
 
         return {
             "success": True,
-            "log_id": log_id,
-            "event_type": event_type,
+            "message": f"Event logged (type: {event_type}, severity: {severity})",
+            "data": {
+                "log_id": log_id,
+                "event_type": event_type,
+                "severity": severity,
+            },
         }
     except Exception as e:
         logger.error("Failed to log event (type=%s): %s", event_type, e)
-        return {"success": False, "error": str(e)}
+        return {"success": False, "message": f"Failed to log event: {e}"}

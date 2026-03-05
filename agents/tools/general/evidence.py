@@ -43,9 +43,12 @@ def tool_save_evidence(
 
         return {
             "success": True,
-            "filepath": str(filepath),
-            "filename": filename,
+            "message": f"Evidence saved as {filename}",
+            "data": {
+                "filepath": str(filepath),
+                "filename": filename,
+            },
         }
     except Exception as e:
         logger.error("Failed to save evidence: %s", e)
-        return {"success": False, "error": str(e)}
+        return {"success": False, "message": f"Failed to save evidence: {e}"}

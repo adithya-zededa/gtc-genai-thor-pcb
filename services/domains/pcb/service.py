@@ -68,13 +68,22 @@ def record_defect(
             defect_id, board_type, defect_type, severity,
             confidence, bool(image_path), description[:80] if description else "",
         )
-        return {"success": True, "defect_id": defect_id}
+        return {
+            "success": True,
+            "message": f"Defect recorded (id: {defect_id}, type: {defect_type}, severity: {severity})",
+            "data": {
+                "defect_id": defect_id,
+                "board_type": board_type,
+                "defect_type": defect_type,
+                "severity": severity,
+            },
+        }
     except Exception as e:
         logger.error(
             "Failed to record defect (board=%s type=%s): %s",
             board_type, defect_type, e,
         )
-        return {"success": False, "error": str(e)}
+        return {"success": False, "message": f"Failed to record defect: {e}"}
 
 
 def should_alert(
@@ -135,16 +144,20 @@ def generate_defect_report(board_type: Optional[str] = None) -> Dict[str, Any]:
         else:
             recent, _ = PCBDefectRepository.get_paginated(page=1, per_page=20)
 
+        recent_list = [d.to_dict() for d in recent]
         return {
             "success": True,
-            "summary": summary,
-            "recent_defects": [d.to_dict() for d in recent],
-            "report_generated_at": datetime.now().isoformat(),
-            "filter_board_type": board_type,
+            "message": f"Defect report generated: {len(recent_list)} recent defect(s)",
+            "data": {
+                "summary": summary,
+                "recent_defects": recent_list,
+                "report_generated_at": datetime.now().isoformat(),
+                "filter_board_type": board_type,
+            },
         }
     except Exception as e:
         logger.error("Failed to generate defect report: %s", e)
-        return {"success": False, "error": str(e)}
+        return {"success": False, "message": f"Failed to generate defect report: {e}"}
 
 
 def classify_board_from_analysis(analysis_result: Dict[str, Any]) -> str:
