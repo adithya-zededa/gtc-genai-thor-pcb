@@ -26,8 +26,9 @@ from core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Module-level cache
-_state: dict[str, Optional[str]] = {"detected_model": None}
+# Module-level cache, keyed by base_url — two independent servers (e.g. a
+# vision model and a text-only agent model) must not clobber each other.
+_detected_by_url: dict[str, str] = {}
 _detect_lock = threading.Lock()
 
 # How long to wait for server to become available (seconds)
@@ -56,12 +57,13 @@ def detect_model(
     base_url: Optional[str] = None,
     wait: bool = True,
     force: bool = False,
+    env_override: str = "VISION_MODEL",
 ) -> str:
-    """Return the model served by the vLLM backend.
+    """Return the model served by a vLLM backend.
 
     Resolution order:
-    1. ``VISION_MODEL`` env var (explicit override always wins).
-    2. Cached result from a prior detection.
+    1. ``env_override`` env var (explicit override always wins).
+    2. Cached result from a prior detection against this ``base_url``.
     3. Live query to the vLLM server (``/v1/models``).
 
     Parameters
@@ -75,6 +77,11 @@ def detect_model(
         starts up.  Set to *False* for a single non-blocking probe.
     force : bool
         Bypass the cache and re-query the server.
+    env_override : str
+        Name of the env var that, if set to a non-"auto" value, pins the
+        model without probing the server. Use a distinct value per
+        endpoint (e.g. ``"VISION_MODEL"`` vs ``"AGENT_MODEL"``) so two
+        servers detected in the same process don't share a result.
     """
     if backend and backend.lower() != "vllm":
         logger.debug(
@@ -83,19 +90,19 @@ def detect_model(
         )
 
     # 1. Explicit env override — never auto-detect
-    env_model = os.getenv("VISION_MODEL")
+    env_model = os.getenv(env_override)
     if env_model and env_model.strip() and env_model.strip().lower() != "auto":
         return env_model.strip()
 
-    # 2. Cached
-    if _state["detected_model"] and not force:
-        return _state["detected_model"]
+    url = (base_url or os.getenv("VLLM_URL", "http://localhost:8000")).rstrip("/")
+
+    # 2. Cached (per base_url)
+    cached = _detected_by_url.get(url)
+    if cached and not force:
+        return cached
 
     # 3. Live detection
-    url = (base_url or os.getenv("VLLM_URL", "http://localhost:8000")).rstrip("/")
-    fetch = _fetch_vllm_model
-
-    model = fetch(url)
+    model = _fetch_vllm_model(url)
 
     if model is None and wait:
         logger.info(
@@ -105,22 +112,22 @@ def detect_model(
         deadline = time.monotonic() + _MAX_WAIT
         while time.monotonic() < deadline:
             time.sleep(_POLL_INTERVAL)
-            model = fetch(url)
+            model = _fetch_vllm_model(url)
             if model:
                 break
 
     if model:
         with _detect_lock:
-            _state["detected_model"] = model
-        logger.info("Auto-detected model from vLLM: %s", model)
+            _detected_by_url[url] = model
+        logger.info("Auto-detected model from vLLM at %s: %s", url, model)
         return model
 
     # Final fallback
     fallback = "auto"
     logger.warning(
         "Could not auto-detect model from vLLM at %s — using fallback '%s'.  "
-        "Set VISION_MODEL env var to override.",
-        url, fallback,
+        "Set %s env var to override.",
+        url, fallback, env_override,
     )
     return fallback
 
@@ -128,4 +135,4 @@ def detect_model(
 def reset_cache() -> None:
     """Clear the cached model (for testing)."""
     with _detect_lock:
-        _state["detected_model"] = None
+        _detected_by_url.clear()

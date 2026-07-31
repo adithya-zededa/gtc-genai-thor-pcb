@@ -1,0 +1,124 @@
+{{- if .Values.vllmAgent.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "camera-agent.fullname" . }}-vllm-agent
+  labels:
+    {{- include "camera-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vllm-agent
+spec:
+  replicas: 1
+  # Same single-GPU deadlock as the vision vLLM deployment applies here too —
+  # see the note on vllm-deployment.yaml.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "camera-agent.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: vllm-agent
+  template:
+    metadata:
+      labels:
+        {{- include "camera-agent.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: vllm-agent
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.vllmAgent.runtimeClassName }}
+      runtimeClassName: {{ .Values.vllmAgent.runtimeClassName }}
+      {{- end }}
+      securityContext:
+        privileged: true
+      containers:
+        - name: vllm-agent
+          image: "{{ .Values.vllmAgent.image.repository }}:{{ .Values.vllmAgent.image.tag }}"
+          imagePullPolicy: {{ .Values.vllmAgent.image.pullPolicy }}
+          command: ["/bin/bash", "/workspace/start_vllm.sh"]
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: MODEL_NAME
+              value: "{{ .Values.vllmAgent.model }}"
+            - name: TENSOR_PARALLEL_SIZE
+              value: "{{ .Values.vllmAgent.args.tensorParallelSize | default 1 }}"
+            - name: GPU_MEMORY_UTILIZATION
+              value: "{{ .Values.vllmAgent.args.gpuMemoryUtilization | default 0.2 }}"
+            - name: MAX_MODEL_LEN
+              value: "{{ .Values.vllmAgent.args.maxModelLen | default 8192 }}"
+            - name: DTYPE
+              value: "{{ .Values.vllmAgent.args.dtype | default "auto" }}"
+            - name: TRUST_REMOTE_CODE
+              value: "{{ .Values.vllmAgent.args.trustRemoteCode | default true }}"
+            - name: ENABLE_PREFIX_CACHING
+              value: "{{ .Values.vllmAgent.args.enablePrefixCaching | default true }}"
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
+            - name: HF_HOME
+              value: "/root/.cache/huggingface"
+            - name: TRANSFORMERS_CACHE
+              value: "/root/.cache/huggingface"
+            {{- if or .Values.vllmAgent.huggingfaceToken .Values.secrets.existingSecret }}
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret | default (printf "%s-tokens" (include "camera-agent.fullname" .)) }}
+                  key: {{ .Values.secrets.huggingfaceTokenKey | default "hf-token" }}
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret | default (printf "%s-tokens" (include "camera-agent.fullname" .)) }}
+                  key: {{ .Values.secrets.huggingfaceTokenKey | default "hf-token" }}
+            {{- end }}
+            {{- range .Values.vllmAgent.env }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: {{ .Values.vllmAgent.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.vllmAgent.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.vllmAgent.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.vllmAgent.livenessProbe.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: {{ .Values.vllmAgent.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.vllmAgent.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.vllmAgent.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.vllmAgent.readinessProbe.failureThreshold }}
+          resources:
+            {{- toYaml .Values.vllmAgent.resources | nindent 12 }}
+          volumeMounts:
+            - name: huggingface-cache
+              mountPath: /root/.cache/huggingface
+            - name: vllm-agent-scripts
+              mountPath: /workspace/start_vllm.sh
+              subPath: start_vllm.sh
+      volumes:
+        - name: huggingface-cache
+          {{- if .Values.vllmAgent.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "camera-agent.fullname" . }}-vllm-agent-cache
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: vllm-agent-scripts
+          configMap:
+            name: {{ include "camera-agent.fullname" . }}-vllm-agent-scripts
+            defaultMode: 0755
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

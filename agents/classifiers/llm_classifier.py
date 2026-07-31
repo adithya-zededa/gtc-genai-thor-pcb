@@ -254,11 +254,14 @@ class LLMIntentClassifier:
 
     @property
     def base_url(self) -> str:
+        """URL for the direct-completion fallback path (used only if the
+        router is unavailable). Points at the agent/reasoning model, not
+        the vision model — classification is a text-only task."""
         if self._base_url:
             return self._base_url
         from core.config import get_config
         cfg = get_config()
-        return os.getenv("VLLM_URL", cfg.inference.vllm_url).rstrip("/")
+        return os.getenv("AGENT_LLM_URL", cfg.router.url).rstrip("/")
 
     @property
     def model(self) -> str:
@@ -269,7 +272,9 @@ class LLMIntentClassifier:
         if classifier_model:
             return classifier_model
         from core.model_detect import detect_model
-        return detect_model(backend="vllm", base_url=self._base_url, wait=False)
+        return detect_model(
+            backend="vllm", base_url=self.base_url, wait=False, env_override="AGENT_MODEL"
+        )
 
     # ------------------------------------------------------------------
     # Router integration

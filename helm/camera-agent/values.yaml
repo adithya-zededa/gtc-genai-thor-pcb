@@ -199,6 +199,79 @@ vllmServer:
       cpu: "8"
       nvidia.com/gpu: 1
 
+# Agent LLM server configuration — a second, independent vLLM deployment
+# serving a small text-only model for chat replies, intent classification,
+# and tool selection. Kept separate from vllmServer (the vision model) so
+# a slow/unavailable vision pass never blocks chat, and vice versa.
+vllmAgent:
+  # Enable the agent vLLM server deployment
+  enabled: false
+  # URL to connect to (auto-set when enabled, or override for external vLLM)
+  url: ""
+  # Model to serve - full Hugging Face model name
+  model: "Qwen/Qwen3.5-4B"
+  timeout: 300
+  temperature: 0.1
+  huggingfaceToken: ""
+  runtimeClassName: "nvidia"
+
+  image:
+    repository: nvcr.io/nvidia/tritonserver
+    tag: "26.07-vllm-python-py3"
+    pullPolicy: IfNotPresent
+
+  args:
+    tensorParallelSize: 1
+    # A 4B text model needs far less headroom than the vision model.
+    # Tune alongside vllmServer.args.gpuMemoryUtilization so the two
+    # deployments' shares fit within the node's total GPU memory.
+    gpuMemoryUtilization: 0.2
+    maxModelLen: 8192
+    dtype: "auto"
+    trustRemoteCode: true
+    enablePrefixCaching: true
+
+  extraArgs: []
+  env: []
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 20Gi
+
+  livenessProbe:
+    initialDelaySeconds: 180
+    periodSeconds: 30
+    timeoutSeconds: 15
+    failureThreshold: 10
+
+  readinessProbe:
+    initialDelaySeconds: 90
+    periodSeconds: 15
+    timeoutSeconds: 10
+    failureThreshold: 20
+
+  resources:
+    requests:
+      memory: "6Gi"
+      cpu: "2"
+    limits:
+      memory: "12Gi"
+      cpu: "4"
+      # Deliberately no `nvidia.com/gpu` request here. A node running this
+      # chart typically has exactly one GPU unit advertised to the device
+      # plugin, already claimed by vllmServer's resources.limits — a
+      # second whole-GPU request would leave this pod Pending forever.
+      # Actual GPU access comes from `privileged: true` +
+      # NVIDIA_VISIBLE_DEVICES=all + the nvidia runtimeClass, so both
+      # vLLM processes share the physical GPU in software (fine for two
+      # models this small); device-plugin accounting is not involved.
+
 # Model configuration for custom model loading
 model:
   name: "custom-model"

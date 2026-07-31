@@ -1,0 +1,47 @@
+{{- if .Values.vllmAgent.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "camera-agent.fullname" . }}-vllm-agent-scripts
+  labels:
+    {{- include "camera-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vllm-agent
+data:
+  start_vllm.sh: |
+    #!/bin/bash
+    # vLLM Server Startup Script (agent / text-only model)
+    set -e
+
+    echo "============================================"
+    echo "vLLM Inference Server — Agent"
+    echo "============================================"
+    echo "Model: ${MODEL_NAME}"
+    echo "Tensor Parallel Size: ${TENSOR_PARALLEL_SIZE:-1}"
+    echo "GPU Memory Utilization: ${GPU_MEMORY_UTILIZATION:-0.2}"
+    echo "Max Model Length: ${MAX_MODEL_LEN:-8192}"
+    echo "Dtype: ${DTYPE:-auto}"
+    echo "============================================"
+
+    # Check if model is downloaded
+    echo "Checking model availability..."
+
+    # Build extra args
+    EXTRA_ARGS=""
+    if [ "${TRUST_REMOTE_CODE}" = "true" ]; then
+      EXTRA_ARGS="${EXTRA_ARGS} --trust-remote-code"
+    fi
+    if [ "${ENABLE_PREFIX_CACHING}" = "true" ]; then
+      EXTRA_ARGS="${EXTRA_ARGS} --enable-prefix-caching"
+    fi
+
+    # Start the vLLM server
+    exec python3 -m vllm.entrypoints.openai.api_server \
+        --model "${MODEL_NAME}" \
+        --host 0.0.0.0 \
+        --port 8000 \
+        --tensor-parallel-size "${TENSOR_PARALLEL_SIZE:-1}" \
+        --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION:-0.2}" \
+        --max-model-len "${MAX_MODEL_LEN:-8192}" \
+        --dtype "${DTYPE:-auto}" \
+        ${EXTRA_ARGS}
+{{- end }}

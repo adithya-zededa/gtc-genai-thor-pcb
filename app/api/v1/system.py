@@ -320,7 +320,7 @@ def test_ollama():
     """Legacy endpoint — redirects to vLLM health check via router."""
     from router import get_router
     health = get_router().check_health()
-    available = health.get("vllm", False)
+    available = health.get("agent", False)
     return jsonify(
         {
             "success": available,

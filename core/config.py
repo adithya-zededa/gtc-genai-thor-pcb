@@ -77,10 +77,21 @@ class InferenceConfig:
 
 @dataclass
 class RouterConfig:
-    """LLM Router configuration (vLLM-only)."""
+    """Agent LLM Router configuration.
+
+    This is the text-only reasoning model (intent classification, tool
+    selection, chat replies) — distinct from ``InferenceConfig``, which is
+    the vision model used for frame analysis. Defaults to the same vLLM
+    deployment as the vision model when AGENT_LLM_URL isn't set, so a
+    single-model deployment keeps working unchanged.
+    """
     enabled: bool = True  # Always enabled — vLLM is the sole provider
     use_for_classification: bool = True  # Use router for intent classification
     use_for_chat: bool = True  # Use router for conversational responses
+    url: str = "http://localhost:8000"
+    model: str = ""  # auto-detected from running server; set AGENT_MODEL to override
+    timeout: int = 300
+    temperature: float = 0.1
 
 
 @dataclass
@@ -155,6 +166,12 @@ class Config:  # pylint: disable=too-many-instance-attributes
                 use_for_chat=(
                     os.getenv("LLM_ROUTER_FOR_CHAT", "true").lower()
                     in {"1", "true", "yes"}
+                ),
+                url=os.getenv("AGENT_LLM_URL", os.getenv(ENV_VLLM_URL, "http://localhost:8000")),
+                model=os.getenv("AGENT_MODEL", ""),
+                timeout=_safe_int_env("AGENT_LLM_TIMEOUT", _safe_int_env("VLLM_TIMEOUT", 300)),
+                temperature=_safe_float_env(
+                    "AGENT_LLM_TEMPERATURE", _safe_float_env("VLLM_TEMPERATURE", 0.1)
                 ),
             ),
         )

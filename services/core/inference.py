@@ -21,7 +21,7 @@ def _check_url(url: str, timeout: float) -> bool:
 
 
 def check_vllm_availability() -> bool:
-    """Check if vLLM server is available."""
+    """Check if the vision model's vLLM server is available."""
     config = get_config()
     return _check_url(
         f"{config.inference.vllm_url}/v1/models",
@@ -29,7 +29,19 @@ def check_vllm_availability() -> bool:
     )
 
 
+def check_agent_llm_availability() -> bool:
+    """Check if the agent (text-only reasoning) model's vLLM server is available."""
+    config = get_config()
+    return _check_url(
+        f"{config.router.url}/v1/models",
+        timeout=config.http_timeout,
+    )
+
 
 def check_inference_backend_availability() -> bool:
-    """Check if the vLLM inference backend is available."""
+    """Check if the vision model's vLLM inference backend is available.
+
+    Kept as the vision-specific name for backward compatibility with
+    existing callers; prefer ``check_vllm_availability`` for new code.
+    """
     return check_vllm_availability()

@@ -238,17 +238,22 @@ Key values in `helm/camera-agent/values.yaml`:
 
 | Value | Default | Description |
 |-------|---------|-------------|
-| `vllmServer.enabled` | `true` | Deploy vLLM server alongside camera-agent |
+| `vllmServer.enabled` | `true` | Deploy the vision vLLM server alongside camera-agent |
 | `vllmServer.model` | `nvidia/Cosmos-Reason2-8B` | VLM model to serve |
-| `vllmServer.image.tag` | `25.12-vllm-python-py3` | Triton + vLLM container tag |
+| `vllmServer.image.tag` | `26.07-vllm-python-py3` | Triton + vLLM container tag |
 | `vllmServer.args.gpuMemoryUtilization` | `0.5` | Fraction of GPU VRAM to use |
 | `vllmServer.args.maxModelLen` | `16000` | Max context length (tokens) |
 | `vllmServer.runtimeClassName` | `nvidia` | Kubernetes runtime class for GPU |
+| `vllmServer.localModel.enabled` | `false` | Load model weights from a hostPath instead of the HF Hub |
+| `vllmAgent.enabled` | `false` | Deploy a second, independent vLLM server for the text-only agent model (chat, intent classification, tool selection) |
+| `vllmAgent.model` | `Qwen/Qwen3.5-4B` | Agent model to serve |
+| `vllmAgent.args.gpuMemoryUtilization` | `0.2` | Fraction of GPU VRAM for the agent model — tune alongside `vllmServer.args.gpuMemoryUtilization` so both fit in the node's total GPU memory |
 | `camera.enabled` | `true` | Mount camera device into pod |
 | `camera.devicePath` | `/dev/video0` | Host camera device path |
 | `service.nodePort` | `30080` | NodePort for web dashboard |
 | `persistence.data.size` | `10Gi` | PVC size for app data |
-| `vllmServer.persistence.size` | `50Gi` | PVC size for model cache |
+| `vllmServer.persistence.size` | `50Gi` | PVC size for the vision model cache |
+| `vllmAgent.persistence.size` | `20Gi` | PVC size for the agent model cache |
 
 ---
 

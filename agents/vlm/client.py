@@ -156,9 +156,12 @@ class UnifiedVLMClient:
         }
         self._last_token_usage: Dict[str, int] = {}
 
-        # -- Router delegation -------------------------------------------------
+        # -- Router delegation ---------------------------------------------
+        # Vision requests must go through the vision-role router, not the
+        # (text-only) agent router used for chat/classification — the two
+        # can point at entirely different models/servers.
         from router import get_router
-        self._router = get_router()
+        self._router = get_router(role="vision")
 
         router_config = self._router.get_config()
         if router_config and router_config.model and router_config.model != self.model:

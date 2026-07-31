@@ -131,31 +131,42 @@ def reset_token_usage() -> None:
 
 class AgentLLMRouter:
     """
-    Single-provider router for vLLM.
+    Single-provider router for vLLM, with one instance per *role*.
 
-    All LLM requests are sent directly to the configured vLLM deployment.
-    Auto-configures from environment variables (VLLM_URL, VISION_MODEL).
+    Two roles are used today:
+    - ``"agent"`` (default) — the text-only reasoning model: chat replies,
+      intent classification, tool selection. Configured from
+      ``AGENT_LLM_URL``/``AGENT_MODEL`` (falling back to ``VLLM_URL``/
+      ``VISION_MODEL`` so a single-model deployment keeps working).
+    - ``"vision"`` — the vision-language model used for frame analysis.
+      Configured from ``VLLM_URL``/``VISION_MODEL`` directly.
+
+    Each role gets its own singleton instance (own connection, own
+    availability/status tracking), so a slow or unavailable vision model
+    never affects chat/classification and vice versa.
 
     Thread-Safety:
         All operations are thread-safe.
     """
 
-    _instance: Optional["AgentLLMRouter"] = None
+    _instances: Dict[str, "AgentLLMRouter"] = {}
     _lock = threading.Lock()
 
-    def __new__(cls, *args, **kwargs):
-        """Singleton pattern for global router instance."""
-        if cls._instance is None:
+    def __new__(cls, role: str = "agent"):
+        """Singleton-per-role pattern."""
+        if role not in cls._instances:
             with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._initialized = False
-        return cls._instance
+                if role not in cls._instances:
+                    instance = super().__new__(cls)
+                    instance._initialized = False
+                    cls._instances[role] = instance
+        return cls._instances[role]
 
-    def __init__(self):
+    def __init__(self, role: str = "agent"):
         if getattr(self, '_initialized', False):
             return
 
+        self._role = role
         self._adapter = VLLMAdapter()
         self._config: Optional[LLMProviderConfig] = None
         self._status: Optional[ProviderStatus] = None
@@ -165,29 +176,43 @@ class AgentLLMRouter:
         self._auto_configure()
 
         self._initialized = True
-        logger.info("AgentLLMRouter initialized (vLLM-only)")
+        logger.info("AgentLLMRouter initialized (role=%s, vLLM-only)", role)
 
     def _auto_configure(self) -> None:
-        """Auto-configure vLLM provider from environment variables."""
-        vllm_url = os.environ.get("VLLM_URL", "http://localhost:8000")
-        vllm_model = os.environ.get("VISION_MODEL", "")
-        vllm_timeout = int(os.environ.get("VLLM_TIMEOUT", "300"))
-        vllm_temperature = float(os.environ.get("VLLM_TEMPERATURE", "0.1"))
-        vllm_api_key = os.environ.get("VLLM_API_KEY")
+        """Auto-configure the vLLM provider for this role from environment variables."""
+        if self._role == "vision":
+            vllm_url = os.environ.get("VLLM_URL", "http://localhost:8000")
+            vllm_model = os.environ.get("VISION_MODEL", "")
+            vllm_timeout = int(os.environ.get("VLLM_TIMEOUT", "300"))
+            vllm_temperature = float(os.environ.get("VLLM_TEMPERATURE", "0.1"))
+            vllm_api_key = os.environ.get("VLLM_API_KEY")
+        else:
+            vllm_url = os.environ.get("AGENT_LLM_URL") or os.environ.get(
+                "VLLM_URL", "http://localhost:8000"
+            )
+            vllm_model = os.environ.get("AGENT_MODEL", "")
+            vllm_timeout = int(
+                os.environ.get("AGENT_LLM_TIMEOUT") or os.environ.get("VLLM_TIMEOUT", "300")
+            )
+            vllm_temperature = float(
+                os.environ.get("AGENT_LLM_TEMPERATURE")
+                or os.environ.get("VLLM_TEMPERATURE", "0.1")
+            )
+            vllm_api_key = os.environ.get("AGENT_LLM_API_KEY") or os.environ.get("VLLM_API_KEY")
 
         self._config = LLMProviderConfig(
-            name="vllm",
+            name=f"vllm-{self._role}",
             url=vllm_url,
             model=vllm_model or None,
             api_key=vllm_api_key,
             timeout=vllm_timeout,
             temperature=vllm_temperature,
             supports_tools=True,
-            supports_vision=True,
+            supports_vision=(self._role == "vision"),
         )
 
         self._status = ProviderStatus(
-            name="vllm",
+            name=f"vllm-{self._role}",
             available=False,
             last_check=0,
         )
@@ -196,7 +221,8 @@ class AgentLLMRouter:
         self._check_availability()
 
         logger.info(
-            "vLLM provider configured: url=%s model=%s",
+            "vLLM provider configured (role=%s): url=%s model=%s",
+            self._role,
             self._config.url,
             self._config.model or "auto",
         )
@@ -264,9 +290,9 @@ class AgentLLMRouter:
         return available
 
     def check_health(self) -> Dict[str, bool]:
-        """Check vLLM health. Returns dict for API compatibility."""
+        """Check vLLM health. Returns dict keyed by role for API compatibility."""
         available = self._check_availability()
-        return {"vllm": available}
+        return {self._role: available}
 
     def is_available(self) -> bool:
         """Check if vLLM is currently available."""
@@ -372,7 +398,7 @@ class AgentLLMRouter:
     def to_dict(self) -> Dict[str, Any]:
         """Export router state as dictionary."""
         return {
-            "provider": "vllm",
+            "provider": f"vllm-{self._role}",
             "config": self._config.to_dict() if self._config else None,
             "status": self._status.to_dict() if self._status else None,
             "active_provider": self.get_active_provider(),
@@ -383,9 +409,13 @@ class AgentLLMRouter:
 # Module-level convenience functions
 # =============================================================================
 
-def get_router() -> AgentLLMRouter:
-    """Get the global LLM router instance."""
-    return AgentLLMRouter()
+def get_router(role: str = "agent") -> AgentLLMRouter:
+    """Get the global LLM router instance for the given role.
+
+    role="agent" (default): text-only reasoning model (chat, classification).
+    role="vision": the vision-language model used for frame analysis.
+    """
+    return AgentLLMRouter(role)
 
 
 def chat(

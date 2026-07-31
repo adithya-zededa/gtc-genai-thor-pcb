@@ -12,7 +12,10 @@ from flask import jsonify, request
 
 from core.logging import get_logger
 from services.core.camera import check_camera_availability
-from services.core.inference import check_inference_backend_availability
+from services.core.inference import (
+    check_agent_llm_availability,
+    check_inference_backend_availability,
+)
 from services.core.monitoring import get_monitoring_service
 
 from . import api_bp
@@ -68,6 +71,12 @@ def get_status():
     if service and hasattr(service, "_serialize_stats"):
         stats = service._serialize_stats()  # pylint: disable=protected-access
 
+    from router import get_router
+    vision_provider = get_router(role="vision").get_active_provider() or {}
+    agent_provider = get_router(role="agent").get_active_provider() or {}
+    vision_status = vision_provider.get("status") or {}
+    agent_status = agent_provider.get("status") or {}
+
     status = {
         "monitoring_active": (
             (service.get_active_monitoring_mode() != "idle")
@@ -75,7 +84,22 @@ def get_status():
         ),
         "camera_available": check_camera_availability(),
         "inference_backend": "vllm",
+        # Kept for backward compatibility — mirrors the vision model.
         "inference_available": check_inference_backend_availability(),
+        "vision_model_available": check_inference_backend_availability(),
+        "agent_model_available": check_agent_llm_availability(),
+        "models": {
+            "vision": {
+                "name": vision_provider.get("model") or "auto",
+                "available": vision_status.get("available", False),
+                "latency_ms": vision_status.get("latency_ms", 0),
+            },
+            "agent": {
+                "name": agent_provider.get("model") or "auto",
+                "available": agent_status.get("available", False),
+                "latency_ms": agent_status.get("latency_ms", 0),
+            },
+        },
         "stats": stats,
     }
 

@@ -25,4 +25,4 @@ name: zededa-reference-agent-pcb-thor-vllm
 sources:
 - https://github.com/zededa/zededa-reference-agent-pcb-thor-vllm
 type: application
-version: 2.16.0
+version: 2.17.0

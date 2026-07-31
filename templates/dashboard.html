@@ -3,6 +3,60 @@
 {% block title %}Dashboard - ZEDEDA Camera Agent{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
 
+{% block extra_head %}
+<style>
+    .pipeline-strip {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        margin-top: 14px;
+    }
+    .pipeline-step {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        text-align: center;
+    }
+    .pipeline-step:not(:last-child)::after {
+        content: "";
+        position: absolute;
+        top: 19px;
+        left: 100%;
+        width: calc(100% - 8px);
+        height: 1.5px;
+        background: var(--border-separator);
+    }
+    .pipeline-node {
+        width: 38px;
+        height: 38px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1;
+        font-size: 15px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+    }
+    .pipeline-label {
+        font-size: 12px;
+        font-weight: 650;
+        color: var(--text-primary);
+        margin: 0;
+    }
+    .pipeline-sub {
+        font-size: 10.5px;
+        color: var(--text-tertiary);
+        margin: 0;
+    }
+    @media (max-width: 640px) {
+        .pipeline-strip { grid-template-columns: repeat(2, 1fr); row-gap: 20px; }
+        .pipeline-step:nth-child(2)::after { display: none; }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <!-- Hero Stats Row (Liquid Glass Cards) -->
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -127,7 +181,7 @@
                 <span>Refresh</span>
             </button>
         </div>
-        <div class="p-5 grid grid-cols-2 gap-3">
+        <div class="p-5 grid grid-cols-2 lg:grid-cols-3 gap-3">
             <div class="glass-ultra-thin rounded-xl p-4 flex items-center gap-3 liquid-hover">
                 <div class="h-10 w-10 rounded-xl flex items-center justify-center glass-green">
                     <i class="fas fa-server" style="color: var(--system-green);"></i>
@@ -147,15 +201,6 @@
                 </div>
             </div>
             <div class="glass-ultra-thin rounded-xl p-4 flex items-center gap-3 liquid-hover">
-                <div class="h-10 w-10 rounded-xl flex items-center justify-center glass-purple">
-                    <i class="fas fa-brain" style="color: var(--system-purple);"></i>
-                </div>
-                <div class="flex-1 min-w-0">
-                    <p class="text-footnote text-secondary">AI Backend</p>
-                    <p id="ollama-status-text" class="text-subhead font-semibold text-tertiary">Checking...</p>
-                </div>
-            </div>
-            <div class="glass-ultra-thin rounded-xl p-4 flex items-center gap-3 liquid-hover">
                 <div class="h-10 w-10 rounded-xl flex items-center justify-center glass-green">
                     <i class="fas fa-eye" style="color: var(--system-green);"></i>
                 </div>
@@ -165,6 +210,26 @@
                         <p id="monitoring-status-text" class="text-subhead font-semibold text-tertiary">Stopped</p>
                         <span id="agentic-mode-badge" class="hidden status-badge" style="background: var(--system-purple-glass); color: var(--system-purple); font-size: 10px; padding: 2px 6px;">AI</span>
                     </div>
+                </div>
+            </div>
+            <div class="glass-ultra-thin rounded-xl p-4 flex items-center gap-3 liquid-hover">
+                <div class="h-10 w-10 rounded-xl flex items-center justify-center glass-blue">
+                    <i class="fas fa-eye" style="color: var(--system-blue);"></i>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-footnote text-secondary">Vision Model</p>
+                    <p id="vision-model-status-text" class="text-subhead font-semibold text-tertiary">Checking...</p>
+                    <p id="vision-model-name" class="text-caption text-tertiary truncate" style="margin-top:1px;">&nbsp;</p>
+                </div>
+            </div>
+            <div class="glass-ultra-thin rounded-xl p-4 flex items-center gap-3 liquid-hover">
+                <div class="h-10 w-10 rounded-xl flex items-center justify-center glass-purple">
+                    <i class="fas fa-brain" style="color: var(--system-purple);"></i>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-footnote text-secondary">Agent Model</p>
+                    <p id="agent-model-status-text" class="text-subhead font-semibold text-tertiary">Checking...</p>
+                    <p id="agent-model-name" class="text-caption text-tertiary truncate" style="margin-top:1px;">&nbsp;</p>
                 </div>
             </div>
         </div>
@@ -215,6 +280,41 @@
         </div>
     </section>
 </div>
+
+<!-- Model Pipeline: camera -> vision model -> agent model -> action -->
+<section class="glass-card animate-slide-up mb-6" style="animation-delay: 60ms;">
+    <div class="flex items-center justify-between mb-1">
+        <div class="flex items-center gap-3">
+            <div class="h-9 w-9 rounded-xl flex items-center justify-center glass-blue">
+                <i class="fas fa-diagram-project" style="color: var(--system-blue);"></i>
+            </div>
+            <h3 class="text-headline">Model Pipeline</h3>
+        </div>
+        <p class="text-footnote text-tertiary">Vision reads the board. The agent decides what to do about it.</p>
+    </div>
+    <div class="pipeline-strip">
+        <div class="pipeline-step">
+            <div class="pipeline-node glass-blue"><i class="fas fa-video"></i></div>
+            <p class="pipeline-label">Camera</p>
+            <p class="pipeline-sub">CV gating</p>
+        </div>
+        <div class="pipeline-step">
+            <div class="pipeline-node glass-blue"><i class="fas fa-eye"></i></div>
+            <p class="pipeline-label" id="pipeline-vision-name">Vision</p>
+            <p class="pipeline-sub">frame analysis</p>
+        </div>
+        <div class="pipeline-step">
+            <div class="pipeline-node glass-purple"><i class="fas fa-brain"></i></div>
+            <p class="pipeline-label" id="pipeline-agent-name">Agent</p>
+            <p class="pipeline-sub">intent · tools · chat</p>
+        </div>
+        <div class="pipeline-step">
+            <div class="pipeline-node glass-green"><i class="fas fa-bolt"></i></div>
+            <p class="pipeline-label">Action</p>
+            <p class="pipeline-sub">log · alert · reply</p>
+        </div>
+    </div>
+</section>
 
 <!-- GPU Stats (Liquid Glass - Shown if GPU available) -->
 <section id="gpu-stats-section" class="glass rounded-2xl overflow-hidden mb-6 hidden animate-slide-up">
@@ -511,16 +611,28 @@
                     cameraStatus.style.color = 'var(--system-red)';
                 }
                 
-                // AI Backend status (supports both Ollama and VLLM)
-                const ollamaStatus = document.getElementById('ollama-status-text');
-                if (data.inference_available) {
-                    const backendName = (data.inference_backend || 'ai').toUpperCase();
-                    ollamaStatus.textContent = backendName + ' Online';
-                    ollamaStatus.style.color = 'var(--system-green)';
-                } else {
-                    ollamaStatus.textContent = 'Offline';
-                    ollamaStatus.style.color = 'var(--system-red)';
-                }
+                // Vision model + agent model status (two independent vLLM deployments)
+                const models = data.models || {};
+                const setModelTile = (statusId, nameId, pipelineId, info) => {
+                    const statusEl = document.getElementById(statusId);
+                    const nameEl = document.getElementById(nameId);
+                    const pipelineEl = pipelineId ? document.getElementById(pipelineId) : null;
+                    if (!statusEl) return;
+                    const available = !!(info && info.available);
+                    const name = (info && info.name) || 'auto';
+                    if (available) {
+                        const latency = info.latency_ms ? ` · ${Math.round(info.latency_ms)}ms` : '';
+                        statusEl.textContent = 'Online' + latency;
+                        statusEl.style.color = 'var(--system-green)';
+                    } else {
+                        statusEl.textContent = 'Offline';
+                        statusEl.style.color = 'var(--system-red)';
+                    }
+                    if (nameEl) nameEl.textContent = name;
+                    if (pipelineEl) pipelineEl.textContent = name.split('/').pop();
+                };
+                setModelTile('vision-model-status-text', 'vision-model-name', 'pipeline-vision-name', models.vision);
+                setModelTile('agent-model-status-text', 'agent-model-name', 'pipeline-agent-name', models.agent);
                 
                 // Monitoring status
                 const monitoringStatus = document.getElementById('monitoring-status-text');

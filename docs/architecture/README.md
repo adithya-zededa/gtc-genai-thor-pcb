@@ -124,10 +124,14 @@ Each domain has its own interpreter, executor, and tool registry:
 
 ### 7) Inference and routing
 
-- `UnifiedVLMClient` (`agents/vlm/client.py`) is the multi-backend VLM client supporting both **vLLM** and **Ollama** backends via the `VLMBackend` enum. Returns typed results: `AnalysisResult`, `AgenticResult`, `DetectionResult`.
-- VLM client creation is centralized in `services/infrastructure/vlm.py` (`create_vlm_client_from_config()`) with auto-detection of the available model via `core.model_detect`.
-- `AgentLLMRouter` (`router/llm_router.py`) is a vLLM-focused single-provider router using `VLLMAdapter` with token usage tracking (`TokenUsageTracker`).
-- VLM prompts are centralized in `agents/vlm/prompts.py`, including the default PCB inspection prompt for Arduino Uno R4 Minima boards.
+Inference is split across **two independent models**, each with its own vLLM deployment and its own `AgentLLMRouter` instance:
+
+- **Vision** (`role="vision"`) — the vision-language model used for frame analysis only. Configured from `VLLM_URL`/`VISION_MODEL`. `UnifiedVLMClient` (`agents/vlm/client.py`) is the multi-backend VLM client supporting both **vLLM** and **Ollama** backends via the `VLMBackend` enum, and always requests `get_router(role="vision")`. Returns typed results: `AnalysisResult`, `AgenticResult`, `DetectionResult`. VLM client creation is centralized in `services/infrastructure/vlm.py` (`create_vlm_client_from_config()`) with auto-detection via `core.model_detect`.
+- **Agent** (`role="agent"`, the default) — the text-only reasoning model used for chat replies, intent classification (`LLMIntentClassifier`), and tool selection. Configured from `AGENT_LLM_URL`/`AGENT_MODEL` (falling back to the vision model's env vars, so a single-model deployment still works unchanged).
+
+`AgentLLMRouter` (`router/llm_router.py`) is a vLLM-focused single-provider router using `VLLMAdapter` with token usage tracking (`TokenUsageTracker`); `get_router(role=...)` returns one singleton per role, each with its own connection, availability check, and status. `core.model_detect.detect_model()` caches its result per `base_url`, so detecting both models in the same process doesn't clobber either result.
+
+VLM prompts are centralized in `agents/vlm/prompts.py`, including the default PCB inspection prompt for Arduino Uno R4 Minima boards.
 
 ### 8) Data and persistence
 
@@ -164,22 +168,36 @@ Legacy routes (`/monitoring`, `/chat/v2`, `/configuration`) redirect to their cu
 
 Chart: `zededa-reference-agent-pcb-thor-vllm` (v2.15.0, appVersion 2.11.0).
 
-The Helm chart deploys **two workloads** into a Kubernetes cluster:
+The Helm chart deploys **two or three workloads** into a Kubernetes cluster:
 
 1. **camera-agent** — Flask web application container.
    - Image: `adithyazededa/gtc-genai-thor-pcb`
    - Port 8080 exposed via NodePort (30080)
    - Mounts camera device (`/dev/video0`) and optional speaker (`/dev/snd`)
    - Data PVC for SQLite database and detected images
-   - Connects to vLLM server via cluster-internal URL
+   - Connects to both vLLM servers via cluster-internal URLs
 
-2. **vLLM server** — GPU-accelerated inference server.
-   - Image: `nvcr.io/nvidia/tritonserver:25.12-vllm-python-py3`
+2. **vLLM server (vision)** — GPU-accelerated inference server, `vllmServer.*` values.
+   - Image: `nvcr.io/nvidia/tritonserver:26.07-vllm-python-py3`
    - Port 8000 via ClusterIP (cluster-internal)
-   - 1x NVIDIA GPU with configurable memory utilization
-   - Default model: `nvidia/Cosmos-Reason2-8B` (configurable)
+   - Default model: `nvidia/Cosmos-Reason2-8B` (configurable); can instead load a
+     pre-downloaded model from a hostPath via `vllmServer.localModel`
    - HuggingFace model cache PVC (50Gi)
-   - Configurable tensor parallelism, prefix caching, max model length
+   - Deployment `strategy: Recreate` — nodes running this chart typically have a
+     single GPU, and the default RollingUpdate would try to start a second vLLM
+     process before killing the first, which can never get enough free GPU memory
+
+3. **vLLM server (agent)** — second, independent inference server for the
+   text-only reasoning model, `vllmAgent.*` values. Disabled by default
+   (`vllmAgent.enabled: false`) so existing single-model deployments are
+   unaffected. Same shape as the vision server (own image tag, own PVC, own
+   `Recreate` strategy) but no `nvidia.com/gpu` resource request — the node's
+   single GPU unit is already claimed by the vision deployment, so a second
+   whole-GPU request would leave this pod permanently `Pending`. Both
+   processes share the physical GPU via `privileged: true` +
+   `NVIDIA_VISIBLE_DEVICES=all` + the `nvidia` runtimeClass instead, which is
+   sufficient for two models this size.
+   - Configurable tensor parallelism, prefix caching, max model length on both servers
 
 ### Docker Compose (`docker-compose.yml`)
 

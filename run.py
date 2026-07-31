@@ -41,32 +41,46 @@ def main():
     from core.config import get_config
     config = get_config()
     
-    # 2a. Auto-detect the served model if not explicitly set
+    # 2a. Auto-detect the served models if not explicitly set
     from core.model_detect import detect_model
-    detected = detect_model(
+    detected_vision = detect_model(
         backend="vllm",
         base_url=config.inference.vllm_url,
+        env_override="VISION_MODEL",
     )
     if not config.inference.model:
-        config.inference.model = detected
-    
+        config.inference.model = detected_vision
+
+    detected_agent = detect_model(
+        backend="vllm",
+        base_url=config.router.url,
+        env_override="AGENT_MODEL",
+    )
+    if not config.router.model:
+        config.router.model = detected_agent
+
     logger.info("=" * 60)
     logger.info("ZEDEDA Camera Monitoring Agent")
     logger.info("=" * 60)
     logger.info("Configuration loaded from: %s", os.getenv("CAMERA_AGENT_CONFIG", "config.yaml"))
     logger.info("Flask host: %s, port: %d", config.flask.host, config.flask.port)
     logger.info("Inference backend: vLLM")
-    logger.info("Vision model: %s", config.inference.model)
-    
-    # 2b. Initialize LLM router
+    logger.info("Vision model: %s (%s)", config.inference.model, config.inference.vllm_url)
+    logger.info("Agent model: %s (%s)", config.router.model, config.router.url)
+
+    # 2b. Initialize LLM routers (agent + vision are independent instances)
     try:
         from router import get_router
-        router = get_router()
-        providers = router.list_providers()
-        logger.info("LLM Router enabled – vLLM provider configured")
-        for p in providers:
-            status = "✅" if p.get("status", {}).get("available") else "❌"
-            logger.info("  %s %s model=%s", status, p["name"], p.get("model", "auto"))
+        agent_router = get_router(role="agent")
+        agent_router.configure(model=config.router.model)
+        vision_router = get_router(role="vision")
+        vision_router.configure(model=config.inference.model)
+
+        logger.info("LLM Router enabled – agent + vision providers configured")
+        for label, r in (("agent", agent_router), ("vision", vision_router)):
+            for p in r.list_providers():
+                status = "✅" if p.get("status", {}).get("available") else "❌"
+                logger.info("  %s [%s] %s model=%s", status, label, p["name"], p.get("model", "auto"))
     except Exception as exc:
         logger.warning("LLM Router failed to initialize: %s", exc)
     
