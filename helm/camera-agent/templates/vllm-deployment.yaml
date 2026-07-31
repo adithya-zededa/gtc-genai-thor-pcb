@@ -8,6 +8,12 @@ metadata:
     app.kubernetes.io/component: vllm
 spec:
   replicas: 1
+  # Nodes running this chart (e.g. a single Jetson Thor) typically have exactly
+  # one GPU. The default RollingUpdate strategy starts the new pod before
+  # killing the old one, so the new vLLM process can't get enough free GPU
+  # memory and crash-loops forever. Recreate avoids that deadlock.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "camera-agent.selectorLabels" . | nindent 6 }}
@@ -97,6 +103,11 @@ spec:
             - name: vllm-scripts
               mountPath: /workspace/start_vllm.sh
               subPath: start_vllm.sh
+            {{- if .Values.vllmServer.localModel.enabled }}
+            - name: local-model
+              mountPath: {{ .Values.vllmServer.localModel.mountPath }}
+              readOnly: true
+            {{- end }}
       volumes:
         - name: huggingface-cache
           {{- if .Values.vllmServer.persistence.enabled }}
@@ -109,6 +120,12 @@ spec:
           configMap:
             name: {{ include "camera-agent.fullname" . }}-vllm-scripts
             defaultMode: 0755
+        {{- if .Values.vllmServer.localModel.enabled }}
+        - name: local-model
+          hostPath:
+            path: {{ .Values.vllmServer.localModel.hostPath }}
+            type: Directory
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

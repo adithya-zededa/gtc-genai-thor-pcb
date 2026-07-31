@@ -112,8 +112,21 @@ vllmServer:
   enabled: true
   # URL to connect to vLLM server (auto-set when enabled, or override for external vLLM)
   url: ""
-  # Model to serve - full Hugging Face model name
+  # Model to serve - full Hugging Face model name, or a local filesystem path
+  # inside the container when localModel.enabled is true (see below).
   model: "nvidia/Cosmos-Reason2-8B"
+
+  # Load model weights from a pre-downloaded local directory on the node
+  # instead of having vLLM pull them from the Hugging Face Hub at startup.
+  # Useful for custom/fine-tuned models that were downloaded out-of-band.
+  localModel:
+    enabled: false
+    # Absolute path on the node's own filesystem holding the model files
+    # (config.json, *.safetensors, tokenizer files, etc.)
+    hostPath: ""
+    # Where to mount it inside the vLLM container - must match `model` above.
+    mountPath: ""
+
   # Inference timeout in seconds
   timeout: 300
   # Temperature for generation
@@ -128,7 +141,7 @@ vllmServer:
   # vLLM container image - using NVIDIA Triton Server with vLLM
   image:
     repository: nvcr.io/nvidia/tritonserver
-    tag: "25.12-vllm-python-py3"
+    tag: "26.07-vllm-python-py3"
     pullPolicy: IfNotPresent
   
   # vLLM server arguments
