@@ -570,6 +570,13 @@ class UnifiedVLMClient:
         precedence because they are the direct observational evidence.
         """
         inner = details.get("details", details)
+        if not isinstance(inner, dict):
+            # The model sometimes returns "details" as a free-text string
+            # (e.g. for generic, non-PCB-defect queries) instead of the
+            # nested component-status object this function expects. Fall
+            # back to the outer dict so a non-dict value never reaches the
+            # `.get()` calls below.
+            inner = details
 
         _DEFECT_STATUSES = {"missing", "damaged"}
 
