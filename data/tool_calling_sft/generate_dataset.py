@@ -3,13 +3,15 @@
 
 Pulls tool schemas live from the actual MCP tool registries (never
 hand-typed) and pairs them with hand-authored example utterances to
-produce OpenAI-style function-calling JSONL:
+produce JSONL:
 
     {"messages": [system, user, assistant], "tools": [...]}
 
-The assistant message either contains a "tool_calls" entry (for
-examples that should trigger a tool) or plain text content (for the
-no-tool-needed negative examples).
+Assistant tool calls are rendered in LFM2's native format: Pythonic
+call syntax wrapped in <|tool_call_start|>/<|tool_call_end|> and placed
+directly in the message's "content" string (see README.md, "Known
+issues" — verified against the actual tokenizer, this is not an OpenAI-
+style "tool_calls" field). No-tool-call examples use plain text content.
 
 Intended for fine-tuning a single model (LFM2.5-VL) to do both frame
 analysis *and* tool selection/intent classification, replacing the
@@ -220,16 +222,47 @@ NO_TOOL_EXAMPLES: List[Tuple[str, str]] = [
 
 
 def build_tool_schema(tool) -> Dict[str, Any]:
-    """OpenAI function-calling tool schema, trimmed to the standard fields."""
+    """Flat tool schema — {name, description, parameters} — matching the
+    format shown in LiquidAI's LFM2-1.2B-Tool model card, not the
+    OpenAI-nested {"type": "function", "function": {...}} wrapper."""
     schema = tool.to_json_schema()
     return {
-        "type": "function",
-        "function": {
-            "name": schema["function"]["name"],
-            "description": schema["function"]["description"],
-            "parameters": schema["function"]["parameters"],
-        },
+        "name": schema["function"]["name"],
+        "description": schema["function"]["description"],
+        "parameters": schema["function"]["parameters"],
     }
+
+
+def _py_literal(value: Any) -> str:
+    """Render a Python value as a literal for use inside a call expression.
+
+    Strings use double-quoted JSON syntax (a valid subset of Python string
+    syntax) to match the convention shown in LiquidAI's own LFM2-1.2B-Tool
+    model card examples, e.g. get_candidate_status(candidate_id="12345").
+    """
+    if isinstance(value, str):
+        return json.dumps(value)
+    if isinstance(value, bool):
+        return "True" if value else "False"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(_py_literal(v) for v in value) + "]"
+    if isinstance(value, dict):
+        return "{" + ", ".join(f"{_py_literal(k)}: {_py_literal(v)}" for k, v in value.items()) + "}"
+    raise TypeError(f"Unsupported argument type for tool-call rendering: {type(value)}")
+
+
+def render_tool_call(tool_name: str, arguments: Dict[str, Any]) -> str:
+    """Render a tool call in LFM2's native format.
+
+    Per LiquidAI/LFM2-1.2B-Tool's documented convention: a Python list
+    containing one function-call expression, wrapped in the model's
+    dedicated <|tool_call_start|>/<|tool_call_end|> special tokens, placed
+    directly in the assistant message's content string.
+    """
+    args_str = ", ".join(f"{k}={_py_literal(v)}" for k, v in arguments.items())
+    return f"<|tool_call_start|>[{tool_name}({args_str})]<|tool_call_end|>"
 
 
 def main() -> None:
@@ -258,17 +291,7 @@ def main() -> None:
                     {"role": "user", "content": utterance},
                     {
                         "role": "assistant",
-                        "content": None,
-                        "tool_calls": [
-                            {
-                                "id": f"call_{tool_name}",
-                                "type": "function",
-                                "function": {
-                                    "name": tool_name,
-                                    "arguments": json.dumps(arguments),
-                                },
-                            }
-                        ],
+                        "content": render_tool_call(tool_name, arguments),
                     },
                 ],
                 "tools": tool_schemas,

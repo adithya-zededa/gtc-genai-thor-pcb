@@ -46,6 +46,11 @@ regenerates `pcb_agent_tool_calls.jsonl` and the tool catalog below.
 - `pcb_agent_tool_calls.jsonl` — generated output.
 - `sync_registry.sh` — refreshes `mcp/` from an application repository
   checkout; see "Standalone package" above.
+- `validate_render.py` — renders every example in the dataset through a
+  real tokenizer (requires `transformers` and a local checkpoint or HF
+  repo id; not otherwise a dependency of this directory). Use this after
+  changing `generate_dataset.py` or before handing the dataset to a
+  training run — see "Verifying rendering" below.
 
 After editing `EXAMPLES`/`NO_TOOL_EXAMPLES`, or after running
 `sync_registry.sh`, regenerate:
@@ -64,25 +69,60 @@ python3 print_tool_catalog.py
 `LiquidAI/LFM2.5-VL-1.6B-Extract` for PCB defect inspection. 1.6B
 parameters, vision-language, served via vLLM.
 
+## Tool-call format
+
+Assistant tool calls are rendered in LFM2's native format — Pythonic call
+syntax wrapped in `<|tool_call_start|>`/`<|tool_call_end|>`, placed
+directly in the message's `content` string:
+
+```json
+{"role": "assistant", "content": "<|tool_call_start|>[start_monitoring_session(description=\"Watch for PCB defects on the conveyor\")]<|tool_call_end|>"}
+```
+
+Tool definitions in `tools` are flat objects (`{"name", "description",
+"parameters"}`), not the OpenAI-nested `{"type": "function", "function":
+{...}}` wrapper.
+
+This was verified, not assumed: an earlier version of this dataset used
+OpenAI-style `{"content": null, "tool_calls": [...]}` assistant messages.
+Loading the actual `LFM2.5-VL-1.6B-PCB-Inspect` tokenizer and calling
+`tokenizer.apply_chat_template()` on that format raised
+`TypeError: 'NoneType' object is not iterable` — its `chat_template.jinja`
+only reads `message["content"]` and has no branch for `tool_calls`, so it
+tries to iterate `None`. The tokenizer's vocabulary does have tool-calling
+special tokens (`tool_call_start`, `tool_call_end`, `tool_list_start`,
+`tool_list_end`, `tool_response_end`), and `LFM2.5-VL-1.6B-PCB-Inspect`'s
+`chat_template.jinja` and `tokenizer_config.json` are byte-identical to
+its base model, `LiquidAI/LFM2.5-VL-1.6B-Extract` — this gap is inherited
+from the base model, not something specific to the PCB fine-tune.
+
+The correct format above comes from `LiquidAI/LFM2-1.2B-Tool`, LiquidAI's
+dedicated tool-calling checkpoint, whose model card documents this exact
+convention. Its own `chat_template.jinja` doesn't reference `tool_calls`
+either — it wraps `tools` in `<|tool_list_start|>`/`<|tool_list_end|>` and
+otherwise passes `content` straight through — so the tool call has to be
+literal text in `content`, not a structured field, for any current LFM2
+chat template. Rendered this way, the dataset produces no errors against
+either `LFM2.5-VL-1.6B-PCB-Inspect`'s or `LFM2-1.2B-Tool`'s
+`apply_chat_template()` — checked against all 68 examples in this
+dataset, not spot-checked.
+
+## Verifying rendering
+
+`generate_dataset.py` cannot check that its own output actually renders —
+that requires a real tokenizer, which isn't part of this directory (see
+"Standalone package"). `validate_render.py` does that check: point it at
+a local checkpoint or HF repo id and it calls `apply_chat_template()` on
+every example.
+
+```bash
+pip install transformers
+python3 validate_render.py /path/to/LFM2.5-VL-1.6B-PCB-Inspect
+```
+
+Run this after any change to `generate_dataset.py`'s output shape.
+
 ## Known issues
-
-Findings from inspecting this checkpoint's tokenizer, `chat_template.jinja`,
-and model card, relevant to fine-tuning it on this dataset.
-
-**Chat template does not render `tool_calls`.** The tokenizer vocabulary
-includes tool-calling special tokens inherited from the base LFM2 line
-(`tool_call_start`, `tool_call_end`, `tool_list_start`, `tool_list_end`,
-`tool_response_end`), but this checkpoint's `chat_template.jinja` only
-reads `message["content"]`; it has no branch for `message["tool_calls"]`.
-The `tools` argument is flattened into a `"List of tools: [...]"` string
-in the system prompt, and assistant tool calls are not rendered at all.
-Calling `tokenizer.apply_chat_template()` on this dataset as-is will
-produce an empty assistant turn for every tool-calling example. Verify by
-rendering one example through the tokenizer before training. If the
-output is empty, either locate the tool-call format used by a base LFM2
-checkpoint that supports these tokens and pre-render assistant turns
-before this template is applied, or confirm the fine-tuning framework
-renders tool calls itself and does not depend on the shipped template.
 
 **Model was trained for a narrow extraction task, not for chat or tool
 use.** From the model card: "Trained for the schema style above;
@@ -498,7 +538,7 @@ Enable or disable email notifications for detected defects. Can also set minimum
 
 ## Dataset format
 
-One JSON object per line (JSONL), OpenAI-style function calling:
+One JSON object per line (JSONL):
 
 ```json
 {
@@ -507,28 +547,17 @@ One JSON object per line (JSONL), OpenAI-style function calling:
     {"role": "user", "content": "Start monitoring the conveyor for defects."},
     {
       "role": "assistant",
-      "content": null,
-      "tool_calls": [
-        {
-          "id": "call_start_monitoring_session",
-          "type": "function",
-          "function": {
-            "name": "start_monitoring_session",
-            "arguments": "{\"description\": \"Watch for PCB defects on the conveyor\"}"
-          }
-        }
-      ]
+      "content": "<|tool_call_start|>[start_monitoring_session(description=\"Watch for PCB defects on the conveyor\")]<|tool_call_end|>"
     }
   ],
   "tools": [ /* all 35 tool schemas, see the catalog above */ ]
 }
 ```
 
-`function.arguments` is a JSON-encoded string, not a nested object, per
-the OpenAI function-calling convention. Examples that should not trigger
+See "Tool-call format" above for why this shape was chosen over the more
+common OpenAI-style `tool_calls` field. Examples that should not trigger
 a tool call (greetings, thanks, out-of-scope requests — the system is
-scoped to PCB inspection) use a plain string `content` on the assistant
-turn instead of `tool_calls`.
+scoped to PCB inspection) use plain text `content` instead.
 
 ## Coverage
 
