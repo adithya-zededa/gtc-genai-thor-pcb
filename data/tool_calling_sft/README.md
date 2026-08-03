@@ -4,24 +4,55 @@ Sample dataset for fine-tuning LFM2.5-VL to perform tool selection and
 intent classification, as a replacement for the prompt-engineered
 classifier in `agents/classifiers/llm_classifier.py`.
 
-## Files
+## Standalone package
 
-- `generate_dataset.py` — generates `pcb_agent_tool_calls.jsonl`. Tool
-  schemas are pulled from `GeneralToolRegistry` and `PCBToolRegistry` at
-  generation time rather than hand-typed, so the dataset cannot drift
-  from the `input_schema` definitions in `tool_defs.py`. Tool names in
-  `EXAMPLES` are validated against the live registry; the script exits
-  with an error if a name doesn't match. Example utterances and argument
-  values are authored manually in the `EXAMPLES` / `NO_TOOL_EXAMPLES`
-  dicts.
-- `print_tool_catalog.py` — generates the tool catalog table below.
-- `pcb_agent_tool_calls.jsonl` — generated output.
+This directory has no dependency on the rest of the application
+repository. It can be copied out and used on its own — `mcp/` is a
+trimmed copy of the five files in `agents/mcp/` that define tool
+schemas (`schema.py`, `state_machine.py`, `registry.py`,
+`domains/general/tool_defs.py`, `domains/pcb/tool_defs.py`), with their
+imports rewritten to resolve locally instead of through the application
+package tree. The application's own `agents/mcp/__init__.py` and its
+sibling files (`manager.py`, `interpreter.py`, `executor.py`, etc.) pull
+in the database, camera, and detection-agent code; none of that is
+needed to read a tool's name, description, or parameters, so it is not
+included here.
 
-Regenerate both after changing tool schemas or examples:
+`mcp/` is a snapshot, not a live import — if a tool's schema changes in
+the application repository, this copy will not reflect that until
+`sync_registry.sh` is run again. From a checkout of the application
+repository:
 
 ```bash
-python3 data/tool_calling_sft/generate_dataset.py > data/tool_calling_sft/pcb_agent_tool_calls.jsonl
-python3 data/tool_calling_sft/print_tool_catalog.py
+data/tool_calling_sft/sync_registry.sh
+```
+
+This copies the five source files, rewrites their imports, and
+regenerates `pcb_agent_tool_calls.jsonl` and the tool catalog below.
+
+## Files
+
+- `mcp/` — vendored tool-schema definitions, see "Standalone package"
+  above.
+- `generate_dataset.py` — generates `pcb_agent_tool_calls.jsonl`. Tool
+  schemas are read from `GeneralToolRegistry` and `PCBToolRegistry` in
+  `mcp/` at generation time rather than hand-typed. Tool names in
+  `EXAMPLES` are validated against the registry; the script exits with
+  an error if a name doesn't match. Example utterances and argument
+  values are authored manually in the `EXAMPLES` / `NO_TOOL_EXAMPLES`
+  dicts.
+- `print_tool_catalog.py` — generates the tool catalog table below, from
+  the same `mcp/` registries.
+- `pcb_agent_tool_calls.jsonl` — generated output.
+- `sync_registry.sh` — refreshes `mcp/` from an application repository
+  checkout; see "Standalone package" above.
+
+After editing `EXAMPLES`/`NO_TOOL_EXAMPLES`, or after running
+`sync_registry.sh`, regenerate:
+
+```bash
+python3 generate_dataset.py > pcb_agent_tool_calls.jsonl
+python3 print_tool_catalog.py
 ```
 
 `print_tool_catalog.py`'s output replaces the section between the
@@ -89,7 +120,7 @@ registries.
 
 <!--
 TOOL_CATALOG_START
-Regenerate with: python3 data/tool_calling_sft/print_tool_catalog.py
+Regenerate with: python3 print_tool_catalog.py (from this directory)
 Paste the output between these markers, replacing what is there.
 -->
 

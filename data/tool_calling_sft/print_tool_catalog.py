@@ -2,10 +2,11 @@
 """Print a markdown catalog of every registered MCP tool.
 
 Pulls schemas live from GeneralToolRegistry / PCBToolRegistry (the same
-source generate_dataset.py uses) so the catalog embedded in data/README.md
-can never drift from the actual tool_defs.py definitions. Re-run this and
-paste the output into data/README.md whenever a tool is added, removed, or
-its schema changes:
+source generate_dataset.py uses) via the local mcp/ package, so the
+catalog embedded in README.md can never drift from the actual
+tool_defs.py definitions in that package. Re-run this and paste the
+output into README.md whenever a tool is added, removed, or its schema
+changes:
 
     python3 data/tool_calling_sft/print_tool_catalog.py
 """
@@ -13,20 +14,13 @@ its schema changes:
 from __future__ import annotations
 
 import sys
-import types
 from pathlib import Path
 
-try:
-    import cv2  # noqa: F401
-except ImportError:
-    sys.modules.setdefault("cv2", types.ModuleType("cv2"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT))
-
-from agents.mcp.domains.general.tool_defs import GeneralToolRegistry  # noqa: E402
-from agents.mcp.domains.pcb.tool_defs import PCBToolRegistry  # noqa: E402
-from agents.mcp.schema import MCPSchemaType  # noqa: E402
+from mcp.domains.general.tool_defs import GeneralToolRegistry  # noqa: E402
+from mcp.domains.pcb.tool_defs import PCBToolRegistry  # noqa: E402
+from mcp.schema import MCPSchemaType  # noqa: E402
 
 
 def render_param_row(p) -> str:

@@ -15,6 +15,11 @@ Intended for fine-tuning a single model (LFM2.5-VL) to do both frame
 analysis *and* tool selection/intent classification, replacing the
 current prompt-engineered classifier in agents/classifiers/llm_classifier.py.
 
+Imports the tool registries from the local mcp/ package (a trimmed
+snapshot of agents/mcp/, containing only the schema-definition files —
+see README.md). This script has no dependency on the rest of the
+application; it only needs this directory.
+
 Usage:
     python3 data/tool_calling_sft/generate_dataset.py \
         > data/tool_calling_sft/pcb_agent_tool_calls.jsonl
@@ -24,24 +29,13 @@ from __future__ import annotations
 
 import json
 import sys
-import types
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-# agents/__init__ pulls in agents.core.detection_agent, which imports cv2.
-# We only need the tool registries (pure dataclasses), so stub cv2 out if
-# it isn't installed in this environment rather than pull in the full
-# OpenCV dependency just to read schemas.
-try:
-    import cv2  # noqa: F401
-except ImportError:
-    sys.modules.setdefault("cv2", types.ModuleType("cv2"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT))
-
-from agents.mcp.domains.general.tool_defs import GeneralToolRegistry  # noqa: E402
-from agents.mcp.domains.pcb.tool_defs import PCBToolRegistry  # noqa: E402
+from mcp.domains.general.tool_defs import GeneralToolRegistry  # noqa: E402
+from mcp.domains.pcb.tool_defs import PCBToolRegistry  # noqa: E402
 
 
 SYSTEM_PROMPT = (
