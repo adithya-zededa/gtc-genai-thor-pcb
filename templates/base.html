@@ -480,6 +480,31 @@
                 return 'cid_fallback_' + Date.now();
             }
         }
+
+        function getStoredSessionToken() {
+            try {
+                return localStorage.getItem('agent_chat_session_token') || null;
+            } catch (error) {
+                return null;
+            }
+        }
+
+        // The server is the sole authority on session identity: it may
+        // return a different client_session_id (and a fresh token) than we
+        // sent, e.g. when our stored token was missing/invalid/expired.
+        // Always adopt whatever it returns so future reconnects use it.
+        function storeSessionCredentials(clientSessionId, sessionToken) {
+            try {
+                if (clientSessionId) {
+                    localStorage.setItem('agent_chat_client_session_id', clientSessionId);
+                }
+                if (sessionToken) {
+                    localStorage.setItem('agent_chat_session_token', sessionToken);
+                }
+            } catch (error) {
+                // localStorage unavailable (private browsing, etc.) — non-fatal
+            }
+        }
         
         // Offline state management - UI remains interactive
         function setOfflineState(offline) {
@@ -499,9 +524,11 @@
         // Initialize socket connection
         function initSocket() {
             const clientSessionId = getOrCreateClientSessionId();
+            const sessionToken = getStoredSessionToken();
             socket = io({
                 auth: {
-                    client_session_id: clientSessionId
+                    client_session_id: clientSessionId,
+                    session_token: sessionToken
                 }
             });
             
@@ -517,6 +544,7 @@
             // Handle chat_connected event from server
             socket.on('chat_connected', function(data) {
                 console.log('[Base] chat_connected received:', data);
+                storeSessionCredentials(data.client_session_id, data.session_token);
                 // Dispatch custom event so page-specific code can handle it
                 window.dispatchEvent(new CustomEvent('agent-chat-connected', { detail: data }));
             });

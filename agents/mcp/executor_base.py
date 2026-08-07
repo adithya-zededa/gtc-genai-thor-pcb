@@ -65,15 +65,14 @@ class BaseDomainExecutor:
         self._recent_hashes: Dict[str, float] = {}
         self._dedup_lock = threading.Lock()
 
+        self._context_lock = threading.Lock()
+
         self._pool = ThreadPoolExecutor(
             max_workers=max_workers,
             thread_name_prefix=f"{self._domain_label}-exec",
         )
 
     # ── context helpers ───────────────────────────────────────────────────
-
-    def update_context(self, **kwargs: Any) -> None:
-        self.context.update(kwargs)
 
     @property
     def current_session(self) -> Optional[MCPSession]:
@@ -187,6 +186,69 @@ class BaseDomainExecutor:
     def get_pending_proposals(self) -> List[Dict[str, Any]]:
         with self._proposals_lock:
             return [p.to_dict() for p in self._pending_proposals.values()]
+
+    def submit_agentic_call(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        context_updates: Optional[Dict[str, Any]] = None,
+        rationale: str = "",
+        session_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Submit a VLM-chosen tool call through the normal proposal pipeline.
+
+        Agentic tool calls are picked by the VLM from image/prompt content, which
+        can include untrusted text (prompt injection). Routing them through
+        ``submit_proposal`` (instead of calling ``_invoke`` directly) ensures the
+        same validation, state-machine gating, dedup, and ``requires_confirmation``
+        checks apply as for every other tool call. ``context_updates`` is applied
+        under ``_context_lock`` so concurrent callers can't race on shared state
+        such as ``image_data``.
+        """
+        tool = self.registry.get(tool_name)
+        if not tool:
+            return {
+                "success": False,
+                "status": "rejected",
+                "error": f"Unknown {self._domain_label} tool: {tool_name}",
+            }
+
+        with self._context_lock:
+            self.context.update(context_updates or {})
+            proposal = MCPToolCallProposal.create(
+                tool_name=tool_name,
+                arguments=arguments,
+                rationale=rationale,
+                confidence=1.0,
+                requires_confirmation=tool.requires_confirmation,
+                session_id=session_id,
+            )
+            result = self.submit_proposal(proposal)
+
+        return self._adapt_agentic_result(result)
+
+    @staticmethod
+    def _adapt_agentic_result(result: Dict[str, Any]) -> Dict[str, Any]:
+        """Ensure the dict returned to the VLM tool loop always has ``success``.
+
+        ``UnifiedVLMClient.analyze_with_tools`` defaults ``result.get("success", True)``
+        when the key is absent, so every status branch here must set it explicitly.
+        """
+        adapted = dict(result)
+        status = result.get("status")
+        if status == "executed":
+            output = result.get("result", {}).get("output")
+            adapted["success"] = bool(output.get("success", True)) if isinstance(output, dict) else True
+        elif status == "pending_approval":
+            adapted["success"] = False
+            adapted["error"] = result.get("confirmation_message") or "Awaiting user approval"
+        elif status == "rejected":
+            adapted["success"] = False
+            adapted["error"] = result.get("reason", "Tool call rejected")
+        else:
+            adapted["success"] = False
+            adapted["error"] = result.get("error", "Tool execution failed")
+        return adapted
 
     # ── execution ─────────────────────────────────────────────────────────
 

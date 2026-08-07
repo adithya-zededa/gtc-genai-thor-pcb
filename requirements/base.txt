@@ -5,6 +5,9 @@
 Flask>=3.0.0
 Flask-Cors>=4.0.0
 flask-socketio>=5.3.0
+# Signed chat-session tokens (app/websocket/chat.py). A Flask dependency, but
+# imported directly here, so pinned explicitly.
+itsdangerous>=2.1.0
 
 # Configuration
 python-dotenv>=1.0.1

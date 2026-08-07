@@ -442,25 +442,32 @@ def init_db() -> None:
     logger.info("Database initialized at %s", config.database.path)
 
 
+def _add_column_if_missing(cursor: sqlite3.Cursor, alter_sql: str) -> None:
+    """Run an ``ALTER TABLE ... ADD COLUMN`` migration, tolerating only
+    "already exists" errors (the expected case on repeated startups).
+
+    Any other ``OperationalError`` (locked database, disk full, corrupt
+    schema, etc.) is a real failure and must not be silently swallowed.
+    """
+    try:
+        cursor.execute(alter_sql)
+    except sqlite3.OperationalError as exc:
+        if "duplicate column" not in str(exc).lower():
+            logger.error("Migration failed for %r: %s", alter_sql, exc)
+            raise
+
+
 def _apply_migrations(cursor: sqlite3.Cursor) -> None:
     """Apply database schema migrations for existing tables."""
-    # Add vision_description column if missing
-    try:
-        cursor.execute("ALTER TABLE detection_logs ADD COLUMN vision_description TEXT")
-    except sqlite3.OperationalError:
-        pass
-
-    # Add decision_details column if missing
-    try:
-        cursor.execute("ALTER TABLE detection_logs ADD COLUMN decision_details TEXT")
-    except sqlite3.OperationalError:
-        pass
-
-    # Add tool_trace column for agentic mode
-    try:
-        cursor.execute("ALTER TABLE detection_logs ADD COLUMN tool_trace TEXT")
-    except sqlite3.OperationalError:
-        pass
+    _add_column_if_missing(
+        cursor, "ALTER TABLE detection_logs ADD COLUMN vision_description TEXT"
+    )
+    _add_column_if_missing(
+        cursor, "ALTER TABLE detection_logs ADD COLUMN decision_details TEXT"
+    )
+    _add_column_if_missing(
+        cursor, "ALTER TABLE detection_logs ADD COLUMN tool_trace TEXT"
+    )
 
 
 def _seed_log_settings(cursor: sqlite3.Cursor) -> None:

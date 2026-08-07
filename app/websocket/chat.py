@@ -16,6 +16,7 @@ Key principles:
 from __future__ import annotations
 
 import threading
+import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -23,6 +24,7 @@ import json as _json
 
 from flask import request
 from flask_socketio import emit, join_room, leave_room
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from agents.mcp.base import (
     AgentState,
@@ -41,6 +43,7 @@ from agents.mcp.manager import (
     DOMAIN_PCB,
     get_mcp_manager,
 )
+from core.config import get_config
 from core.logging import get_logger
 from app.database import ChatHistoryRepository
 
@@ -48,6 +51,49 @@ if TYPE_CHECKING:
     from flask_socketio import SocketIO
 
 logger = get_logger(__name__)
+
+# A client-supplied client_session_id is just a claim of identity, not proof —
+# anyone can guess or replay a UUID. Binding to an *existing* session (and its
+# chat history) therefore additionally requires a signed token that only the
+# server could have issued for that exact id. First-time binding of a new id
+# needs no token since there is no history to protect yet.
+_SESSION_TOKEN_SALT = "chat-client-session"
+_SESSION_TOKEN_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
+
+
+def _session_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(get_config().flask.secret_key, salt=_SESSION_TOKEN_SALT)
+
+
+def issue_session_token(client_session_id: str) -> str:
+    """Issue a signed token binding a client session id to this server."""
+    return _session_serializer().dumps(client_session_id)
+
+
+def _verify_session_token(client_session_id: str, token: Optional[str]) -> bool:
+    if not token:
+        return False
+    try:
+        decoded = _session_serializer().loads(token, max_age=_SESSION_TOKEN_MAX_AGE)
+    except (BadSignature, SignatureExpired):
+        return False
+    return decoded == client_session_id
+
+
+def _client_history_exists(client_session_id: str) -> bool:
+    """Whether persisted chat history exists for *client_session_id*.
+
+    Fails closed: if the lookup errors we treat history as present, so a DB
+    problem can't downgrade the token requirement into an open bind.
+    """
+    try:
+        return ChatHistoryRepository.has_messages(client_session_id)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.warning(
+            "Could not check persisted chat history for %s: %s — requiring token",
+            client_session_id, exc,
+        )
+        return True
 
 
 _TOOL_DISPLAY_NAMES: Dict[str, str] = {
@@ -299,11 +345,35 @@ class ChatSessionManager:
             return session
 
     def get_or_bind_client_session(
-        self, socket_session_id: str, client_session_id: str
+        self,
+        socket_session_id: str,
+        client_session_id: str,
+        session_token: Optional[str] = None,
     ) -> ChatSession:
-        """Get existing client-bound session or bind current socket to it."""
+        """Get existing client-bound session or bind current socket to it.
+
+        Reusing an *existing* bound session's history requires a valid signed
+        token for that client_session_id; a missing/invalid token falls back
+        to minting a brand-new id rather than granting access to someone
+        else's (guessed or replayed) session. "Existing" covers persisted
+        history too, not just the in-memory map — ``ChatSession.__init__``
+        rehydrates from SQLite, so a cold ``_client_sessions`` (fresh process,
+        second worker) must not become a way to claim someone else's history
+        without a token.
+        """
         with self._creation_lock:
             session = self._client_sessions.get(client_session_id)
+            if session is None and _client_history_exists(client_session_id):
+                needs_token = True
+            else:
+                needs_token = session is not None
+
+            if needs_token and not _verify_session_token(
+                client_session_id, session_token
+            ):
+                session = None
+                client_session_id = str(uuid.uuid4())
+
             if session is None:
                 session = ChatSession(
                     socket_session_id, client_session_id=client_session_id
@@ -335,12 +405,14 @@ def get_chat_session(session_id: str) -> ChatSession:
 
 
 def get_or_bind_chat_session(
-    socket_session_id: str, client_session_id: Optional[str]
+    socket_session_id: str,
+    client_session_id: Optional[str],
+    session_token: Optional[str] = None,
 ) -> ChatSession:
     """Get chat session, binding to a stable client session when provided."""
     if client_session_id:
         return _session_manager.get_or_bind_client_session(
-            socket_session_id, client_session_id
+            socket_session_id, client_session_id, session_token=session_token
         )
     return _session_manager.get_session(socket_session_id)
 
@@ -350,6 +422,7 @@ def _initialize_session(
     *,
     room: str | None = None,
     client_session_id: Optional[str] = None,
+    session_token: Optional[str] = None,
 ) -> None:
     """Core chat-session bootstrap shared by all connection paths.
 
@@ -361,7 +434,14 @@ def _initialize_session(
     audit_log = get_audit_log()
     state_machine = get_agent_state_machine()
 
-    chat_session = get_or_bind_chat_session(session_id, client_session_id)
+    chat_session = get_or_bind_chat_session(
+        session_id, client_session_id, session_token
+    )
+    issued_token = (
+        issue_session_token(chat_session.client_session_id)
+        if chat_session.client_session_id
+        else None
+    )
     join_room(session_id)
     history = chat_session.get_history(limit=0)
     is_restored_session = len(history) > 0
@@ -411,6 +491,8 @@ def _initialize_session(
         "chat_connected",
         {
             "chat_session_id": chat_session.id,
+            "client_session_id": chat_session.client_session_id,
+            "session_token": issued_token,
             "agent_state": current_state.value,
             "available_tools": available_tools,
             "pending_proposals": executor.get_pending_proposals(),
@@ -441,7 +523,9 @@ def _initialize_session(
 
 
 def initialize_chat_for_client(
-    session_id: str, client_session_id: Optional[str] = None
+    session_id: str,
+    client_session_id: Optional[str] = None,
+    session_token: Optional[str] = None,
 ) -> None:
     """Initialize chat session for a client on connect.
 
@@ -454,6 +538,7 @@ def initialize_chat_for_client(
         actual_sid,
         room=actual_sid,
         client_session_id=client_session_id,
+        session_token=session_token,
     )
 
 
@@ -485,8 +570,13 @@ def register_chat_handlers(socketio: "SocketIO") -> None:
                 if isinstance(data, dict)
                 else None
             )
+            session_token = (
+                data.get("session_token") if isinstance(data, dict) else None
+            )
             _initialize_session(
-                request.sid, client_session_id=client_session_id
+                request.sid,
+                client_session_id=client_session_id,
+                session_token=session_token,
             )
         except Exception as e:
             logger.error("Error in chat_connect handler: %s", e, exc_info=True)
@@ -1040,11 +1130,15 @@ def _process_user_message(
 
 
 def _get_chat_router():
-    """Get the LLM router for chat responses, or None if not configured."""
-    try:
-        from router import get_router
+    """Get the LLM router for chat responses, or None if not configured.
 
-        return get_router()
+    Chat is the agent model's job — it reasons over the vision model's
+    structured output and drives tools, and never needs to see pixels.
+    """
+    try:
+        from router import get_agent_router
+
+        return get_agent_router()
     except Exception as exc:
         logger.debug("LLM router not available for chat: %s", exc)
     return None

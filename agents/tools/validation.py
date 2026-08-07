@@ -1,7 +1,7 @@
 """Shared validation helpers for domain tool handlers.
 
-Consolidates duplicate email-validation, error-formatting, and input-clamping
-logic used by PCB domain tools.
+Consolidates duplicate email-validation, error-formatting, and severity
+sanitisation logic used by PCB domain tools.
 """
 
 from __future__ import annotations
@@ -50,21 +50,6 @@ def safe_error(internal_msg: str, *, exc: Optional[Exception] = None) -> Dict[st
     else:
         logger.error(internal_msg)
     return {"success": False, "message": "An internal error occurred. Please try again."}
-
-
-# ── Input clamping ─────────────────────────────────────────────────────────
-
-MAX_QUANTITY = 9999
-MIN_QUANTITY = 1
-
-
-def clamp_quantity(raw: Any) -> int:
-    """Coerce *raw* to an int in [MIN_QUANTITY, MAX_QUANTITY]."""
-    try:
-        q = int(raw)
-    except (ValueError, TypeError):
-        q = 1
-    return max(MIN_QUANTITY, min(MAX_QUANTITY, q))
 
 
 # ── Severity sanitisation ─────────────────────────────────────────────────

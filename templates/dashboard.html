@@ -59,32 +59,8 @@
     </div>
 </div>
 
-<!-- Defect Analytics Row -->
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-    <div class="glass-card liquid-hover hover-sweep group">
-        <div class="absolute inset-0 opacity-[0.08] rounded-[inherit]" style="background: linear-gradient(135deg, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0) 70%);"></div>
-        <div class="relative flex items-center justify-between">
-            <div>
-                <p class="text-caption">Defects (24h)</p>
-                <p class="mt-2 text-title-2 font-bold tabular-nums" id="defects-24h">0</p>
-            </div>
-            <div class="h-12 w-12 rounded-2xl flex items-center justify-center glass-orange" style="box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);">
-                <i class="fas fa-bug" style="color: var(--system-orange);"></i>
-            </div>
-        </div>
-    </div>
-    <div class="glass-card liquid-hover hover-sweep group">
-        <div class="absolute inset-0 opacity-[0.08] rounded-[inherit]" style="background: linear-gradient(135deg, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0) 70%);"></div>
-        <div class="relative flex items-center justify-between">
-            <div>
-                <p class="text-caption">High Severity</p>
-                <p class="mt-2 text-title-2 font-bold tabular-nums" id="high-severity-24h">0</p>
-            </div>
-            <div class="h-12 w-12 rounded-2xl flex items-center justify-center glass-red" style="box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);">
-                <i class="fas fa-exclamation-triangle" style="color: var(--system-red);"></i>
-            </div>
-        </div>
-    </div>
+<!-- Status Analytics Row -->
+<div class="grid grid-cols-2 gap-4 mb-6">
     <div class="glass-card liquid-hover hover-sweep group">
         <div class="absolute inset-0 opacity-[0.08] rounded-[inherit]" style="background: linear-gradient(135deg, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0) 70%);"></div>
         <div class="relative flex items-center justify-between">
@@ -139,12 +115,18 @@
             </div>
             <div class="glass-ultra-thin rounded-xl p-4 flex items-center gap-3 liquid-hover">
                 <div class="h-10 w-10 rounded-xl flex items-center justify-center glass-blue">
-                    <i class="fas fa-video" style="color: var(--system-blue);"></i>
+                    <i id="camera-source-icon" class="fas fa-video" style="color: var(--system-blue);"></i>
                 </div>
                 <div class="flex-1 min-w-0">
                     <p class="text-footnote text-secondary">Camera</p>
                     <p id="camera-status-text" class="text-subhead font-semibold text-tertiary">Checking...</p>
                 </div>
+                <label class="toggle-glass" style="transform: scale(0.65);" title="Toggle simulated video feed">
+                    <input id="simulated-video-toggle" type="checkbox" onchange="toggleVideoSource(this.checked)">
+                    <div class="toggle-track">
+                        <div class="toggle-thumb"></div>
+                    </div>
+                </label>
             </div>
             <div class="glass-ultra-thin rounded-xl p-4 flex items-center gap-3 liquid-hover">
                 <div class="h-10 w-10 rounded-xl flex items-center justify-center glass-purple">
@@ -503,12 +485,23 @@
             .then(data => {
                 // Camera status
                 const cameraStatus = document.getElementById('camera-status-text');
-                if (data.camera_available) {
+                const simToggle = document.getElementById('simulated-video-toggle');
+                const sourceIcon = document.getElementById('camera-source-icon');
+                if (data.video_simulated) {
+                    cameraStatus.textContent = 'Simulated';
+                    cameraStatus.style.color = 'var(--system-blue)';
+                    sourceIcon.className = 'fas fa-film';
+                    simToggle.checked = true;
+                } else if (data.camera_available) {
                     cameraStatus.textContent = 'Online';
                     cameraStatus.style.color = 'var(--system-green)';
+                    sourceIcon.className = 'fas fa-video';
+                    simToggle.checked = false;
                 } else {
                     cameraStatus.textContent = 'Offline';
                     cameraStatus.style.color = 'var(--system-red)';
+                    sourceIcon.className = 'fas fa-video';
+                    simToggle.checked = false;
                 }
                 
                 // AI Backend status (supports both Ollama and VLLM)
@@ -751,6 +744,21 @@
         }
     }
     
+    // Escape text destined for an innerHTML sink. Activity messages carry
+    // server- and VLM-derived text (defect summaries, API error strings),
+    // neither of which is trusted markup.
+    function escapeHtml(value) {
+        if (value === null || value === undefined) {
+            return '';
+        }
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     // Add activity item
     function addActivity(message, type = 'info') {
         const feed = document.getElementById('activity-feed');
@@ -772,7 +780,7 @@
         item.innerHTML = `
             <i class="${config.icon}" style="color: ${config.color}; margin-top: 2px;"></i>
             <div class="flex-1">
-                <p class="text-sm text-primary">${message}</p>
+                <p class="text-sm text-primary">${escapeHtml(message)}</p>
                 <p class="text-xs mt-0.5 text-secondary">${new Date().toLocaleTimeString()}</p>
             </div>
         `;
@@ -818,6 +826,37 @@
         updateStats(data.stats);
     }
     
+    // Toggle between live camera and simulated video feed
+    function toggleVideoSource(simulated) {
+        const toggle = document.getElementById('simulated-video-toggle');
+        const statusText = document.getElementById('camera-status-text');
+        statusText.textContent = 'Switching…';
+        statusText.style.color = 'var(--text-tertiary)';
+
+        fetch('/api/system/video_source', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ simulated: simulated }),
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                addActivity(data.message, 'info');
+                // Refresh status to pick up new state
+                updateSystemStatusText();
+            } else {
+                addActivity('Failed to switch video source: ' + (data.error || 'unknown'), 'alert');
+                toggle.checked = !simulated; // revert toggle
+                updateSystemStatusText();
+            }
+        })
+        .catch(() => {
+            addActivity('Network error switching video source', 'alert');
+            toggle.checked = !simulated;
+            updateSystemStatusText();
+        });
+    }
+
     // Initialize dashboard
     document.addEventListener('DOMContentLoaded', function() {
         initPerformanceChart();
@@ -965,10 +1004,10 @@
                     } else {
                         container.innerHTML = types.map(t => `
                             <div class="flex items-center justify-between glass-ultra-thin rounded-lg p-2.5">
-                                <span class="text-subhead truncate" style="max-width: 120px;" title="${t.defect_type}">${t.defect_type || 'Unknown'}</span>
+                                <span class="text-subhead truncate" style="max-width: 120px;" title="${escapeHtml(t.defect_type)}">${escapeHtml(t.defect_type || 'Unknown')}</span>
                                 <div class="flex items-center gap-2">
-                                    <span class="text-subhead font-semibold">${t.count}</span>
-                                    <span class="text-caption text-tertiary">${t.percentage}%</span>
+                                    <span class="text-subhead font-semibold">${escapeHtml(t.count)}</span>
+                                    <span class="text-caption text-tertiary">${escapeHtml(t.percentage)}%</span>
                                 </div>
                             </div>
                         `).join('');
@@ -994,7 +1033,7 @@
                                 <i class="fas fa-exclamation-circle mt-0.5" style="color: var(--system-red);"></i>
                                 <div>
                                     <p class="text-subhead font-medium">${a.type === 'rate_exceeded' ? 'Rate Exceeded' : 'High Severity Alert'}</p>
-                                    <p class="text-footnote text-secondary mt-0.5">${a.message}</p>
+                                    <p class="text-footnote text-secondary mt-0.5">${escapeHtml(a.message)}</p>
                                 </div>
                             </div>
                         `).join('');
@@ -1045,7 +1084,7 @@
                             return `
                                 <div class="glass-ultra-thin rounded-xl p-3 flex items-start gap-3">
                                     <i class="fas ${icon} mt-0.5" style="color: ${color};"></i>
-                                    <p class="text-subhead text-secondary">${r}</p>
+                                    <p class="text-subhead text-secondary">${escapeHtml(r)}</p>
                                 </div>
                             `;
                         }).join('');

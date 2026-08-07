@@ -43,7 +43,7 @@ def create_app(config_override: dict = None) -> Flask:
     cors_origins = config.flask.socketio_cors
     if cors_origins and "," in cors_origins:
         cors_origins = [o.strip() for o in cors_origins.split(",") if o.strip()]
-    socketio.init_app(app, cors_allowed_origins=cors_origins or "*")
+    socketio.init_app(app, cors_allowed_origins=cors_origins)
 
     # Register blueprints
     from app.api import register_api_versions

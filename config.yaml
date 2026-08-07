@@ -45,6 +45,13 @@ proactive:
   selector_quality_improvement_delta: 0.08  # Require quality gain for re-attempt
   selector_max_attempts_per_board: 3  # Hard cap VLM attempts per stopped board
   selector_near_deadline_seconds: 0.7  # Use best cached frame near timeout
+  # Camera-focus settle window (after a board stops, before inspection).
+  # The loop exits as soon as focus stops improving instead of always waiting
+  # the full window, and inspects the sharpest in-zone frame it observed.
+  settle_max_seconds: 4.0  # Upper bound; previous behaviour was a fixed 4s wait
+  settle_min_seconds: 0.4  # Never exit before auto-focus has begun reacting
+  settle_focus_plateau_frames: 5  # Consecutive non-improving frames => focused
+  settle_focus_improve_ratio: 1.02  # Focus gain that still counts as improving
   stability_frame_count: 6  # Stability hint for LLM (not a rule)
   observation_temperature: 0.1  # Lower = consistent observations
   decision_temperature: 0.2  # Balanced for intelligent decisions

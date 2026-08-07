@@ -129,33 +129,46 @@ def reset_token_usage() -> None:
 # Agent LLM Router (vLLM-only)
 # =============================================================================
 
+ROLE_VISION = "vision"
+ROLE_AGENT = "agent"
+ROLES = (ROLE_VISION, ROLE_AGENT)
+
+
 class AgentLLMRouter:
     """
-    Single-provider router for vLLM.
+    Single-provider router for one vLLM deployment.
 
-    All LLM requests are sent directly to the configured vLLM deployment.
-    Auto-configures from environment variables (VLLM_URL, VISION_MODEL).
+    The system serves two models from two separate vLLM pods, so there is one
+    router instance per *role* rather than one global instance:
+
+    ``vision``
+        The fine-tuned VLM that looks at frames. Configured from ``VLLM_URL``
+        and ``VISION_MODEL``.
+    ``agent``
+        The text model that classifies intent, answers chat, and drives tool
+        calls. Configured from ``AGENT_LLM_URL`` and ``AGENT_MODEL``, each
+        falling back to the vision endpoint so a single-pod deployment (or a
+        chart with ``agentServer.enabled=false``) keeps working unchanged.
+
+    Instances are cached per role — ``get_router(role)`` is the entry point.
+    Each role also gets its own concurrency limiter, so a slow vision
+    inference cannot starve the agent model of request slots.
 
     Thread-Safety:
         All operations are thread-safe.
     """
 
-    _instance: Optional["AgentLLMRouter"] = None
+    _instances: Dict[str, "AgentLLMRouter"] = {}
     _lock = threading.Lock()
 
-    def __new__(cls, *args, **kwargs):
-        """Singleton pattern for global router instance."""
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._initialized = False
-        return cls._instance
-
-    def __init__(self):
+    def __init__(self, role: str = ROLE_VISION):
         if getattr(self, '_initialized', False):
             return
 
+        if role not in ROLES:
+            raise ValueError(f"Unknown LLM role {role!r}; expected one of {ROLES}")
+
+        self.role = role
         self._adapter = VLLMAdapter()
         self._config: Optional[LLMProviderConfig] = None
         self._status: Optional[ProviderStatus] = None
@@ -165,29 +178,47 @@ class AgentLLMRouter:
         self._auto_configure()
 
         self._initialized = True
-        logger.info("AgentLLMRouter initialized (vLLM-only)")
+        logger.info("AgentLLMRouter initialized (role=%s)", role)
 
     def _auto_configure(self) -> None:
-        """Auto-configure vLLM provider from environment variables."""
-        vllm_url = os.environ.get("VLLM_URL", "http://localhost:8000")
-        vllm_model = os.environ.get("VISION_MODEL", "")
-        vllm_timeout = int(os.environ.get("VLLM_TIMEOUT", "300"))
-        vllm_temperature = float(os.environ.get("VLLM_TEMPERATURE", "0.1"))
-        vllm_api_key = os.environ.get("VLLM_API_KEY")
+        """Auto-configure the vLLM provider for this role from the environment."""
+        vision_url = os.environ.get("VLLM_URL", "http://localhost:8000")
+        vision_model = os.environ.get("VISION_MODEL", "")
+
+        if self.role == ROLE_AGENT:
+            # Falling back to the vision endpoint keeps single-pod deployments
+            # working: the agent role then shares the vision server.
+            url = os.environ.get("AGENT_LLM_URL") or vision_url
+            model = os.environ.get("AGENT_MODEL", "") or vision_model
+            timeout = int(os.environ.get("AGENT_LLM_TIMEOUT", os.environ.get("VLLM_TIMEOUT", "300")))
+            temperature = float(os.environ.get("AGENT_LLM_TEMPERATURE", "0.2"))
+            api_key = os.environ.get("AGENT_LLM_API_KEY") or os.environ.get("VLLM_API_KEY")
+            supports_vision = False
+        else:
+            url = vision_url
+            model = vision_model
+            timeout = int(os.environ.get("VLLM_TIMEOUT", "300"))
+            temperature = float(os.environ.get("VLLM_TEMPERATURE", "0.1"))
+            api_key = os.environ.get("VLLM_API_KEY")
+            supports_vision = True
+
+        # The provider name doubles as the concurrency-limiter key, so the two
+        # roles must not share it.
+        provider_name = f"vllm-{self.role}"
 
         self._config = LLMProviderConfig(
-            name="vllm",
-            url=vllm_url,
-            model=vllm_model or None,
-            api_key=vllm_api_key,
-            timeout=vllm_timeout,
-            temperature=vllm_temperature,
+            name=provider_name,
+            url=url,
+            model=model or None,
+            api_key=api_key,
+            timeout=timeout,
+            temperature=temperature,
             supports_tools=True,
-            supports_vision=True,
+            supports_vision=supports_vision,
         )
 
         self._status = ProviderStatus(
-            name="vllm",
+            name=provider_name,
             available=False,
             last_check=0,
         )
@@ -196,10 +227,17 @@ class AgentLLMRouter:
         self._check_availability()
 
         logger.info(
-            "vLLM provider configured: url=%s model=%s",
+            "vLLM provider configured: role=%s url=%s model=%s",
+            self.role,
             self._config.url,
             self._config.model or "auto",
         )
+
+    def shares_endpoint_with(self, other: "AgentLLMRouter") -> bool:
+        """Whether this role is served by the same vLLM endpoint as *other*."""
+        if not self._config or not other._config:
+            return False
+        return (self._config.url or "") == (other._config.url or "")
 
     # =========================================================================
     # Configuration
@@ -263,10 +301,16 @@ class AgentLLMRouter:
 
         return available
 
-    def check_health(self) -> Dict[str, bool]:
-        """Check vLLM health. Returns dict for API compatibility."""
+    def check_health(self) -> Dict[str, Any]:
+        """Check vLLM health. Returns dict with status, url, model, latency."""
         available = self._check_availability()
-        return {"vllm": available}
+        return {
+            "vllm": available,
+            "available": available,
+            "url": self._config.url if self._config else None,
+            "model": self._config.model if self._config else None,
+            "latency_ms": self._status.latency_ms if self._status else None,
+        }
 
     def is_available(self) -> bool:
         """Check if vLLM is currently available."""
@@ -383,15 +427,50 @@ class AgentLLMRouter:
 # Module-level convenience functions
 # =============================================================================
 
-def get_router() -> AgentLLMRouter:
-    """Get the global LLM router instance."""
-    return AgentLLMRouter()
+def get_router(role: str = ROLE_VISION) -> AgentLLMRouter:
+    """Get the cached router for *role* (``"vision"`` or ``"agent"``).
+
+    Defaults to the vision role, which preserves the pre-split behaviour for
+    any caller that has not been updated: it is the one configured from
+    ``VLLM_URL``/``VISION_MODEL``.
+    """
+    if role not in ROLES:
+        raise ValueError(f"Unknown LLM role {role!r}; expected one of {ROLES}")
+
+    instance = AgentLLMRouter._instances.get(role)
+    if instance is None:
+        with AgentLLMRouter._lock:
+            instance = AgentLLMRouter._instances.get(role)
+            if instance is None:
+                instance = AgentLLMRouter(role)
+                AgentLLMRouter._instances[role] = instance
+    return instance
+
+
+def get_agent_router() -> AgentLLMRouter:
+    """Router for the text/agent model — intent, chat, and tool calling."""
+    return get_router(ROLE_AGENT)
+
+
+def get_vision_router() -> AgentLLMRouter:
+    """Router for the vision model — frame analysis only."""
+    return get_router(ROLE_VISION)
+
+
+def reset_routers() -> None:
+    """Drop cached routers so the next call re-reads the environment.
+
+    Used by tests and by config endpoints that change endpoint settings.
+    """
+    with AgentLLMRouter._lock:
+        AgentLLMRouter._instances.clear()
 
 
 def chat(
     messages: List[Dict[str, Any]],
     tools: Optional[List[Dict[str, Any]]] = None,
+    role: str = ROLE_VISION,
     **kwargs
 ) -> ChatResponse:
-    """Send a chat request using the global router."""
-    return get_router().chat(messages, tools, **kwargs)
+    """Send a chat request using the router for *role*."""
+    return get_router(role).chat(messages, tools, **kwargs)

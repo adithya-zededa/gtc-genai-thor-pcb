@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
 import re
 from datetime import datetime
 from dataclasses import dataclass, field
@@ -27,10 +28,12 @@ from .task_types import TaskType
 from .prompts import (
     DEFAULT_DETECTION_PROMPT,
     build_prompt,
+    build_prompt_parts,
     build_agentic_prompt,
     build_tool_continuation_prompt,
     build_tools_prompt,
 )
+from .schemas import STRUCTURED_MAX_TOKENS, schema_for_prompt
 
 
 if TYPE_CHECKING:
@@ -134,6 +137,7 @@ class UnifiedVLMClient:
         prompt: Optional[str] = None,
         default_task_type: TaskType = TaskType.CUSTOM,
         temperature: float = 0.1,
+        structured_output: Optional[bool] = None,
     ):
         if not model:
             raise ValueError("Vision model name must be provided")
@@ -143,6 +147,17 @@ class UnifiedVLMClient:
         self.default_task_type = default_task_type
         self.temperature = temperature
         self.prompt = prompt or DEFAULT_DETECTION_PROMPT
+        # Constrain decoding to the response schema. On by default: without
+        # it the model is free to emit JSON that parses but is mistyped
+        # (e.g. "detected": "missing", which bool() coerces to True), and
+        # `details` may come back as a string instead of the object the UI
+        # renders. Set VLM_STRUCTURED_OUTPUT=0 to fall back to free-form.
+        self.structured_output = (
+            structured_output
+            if structured_output is not None
+            else os.getenv("VLM_STRUCTURED_OUTPUT", "1").strip().lower()
+            not in ("0", "false", "no")
+        )
 
         self._metrics: Dict[str, Any] = {
             "total_requests": 0,
@@ -204,19 +219,6 @@ class UnifiedVLMClient:
             )
         else:
             logger.info("Model '%s' is available", self.model)
-
-    def test_connection(self) -> bool:
-        """Test connectivity to the vLLM backend via the router."""
-        try:
-            health = self._router.check_health()
-            if health.get("vllm", False):
-                logger.info("vLLM connection test successful (via router)")
-                return True
-            logger.warning("vLLM connection test: server not available")
-            return False
-        except Exception as exc:
-            logger.error("vLLM connection test failed: %s", exc)
-            return False
 
     # ------------------------------------------------------------------
     # Image encoding
@@ -361,6 +363,36 @@ class UnifiedVLMClient:
     # Inference - all requests go through the router
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def build_vision_message(
+        prompt: str,
+        base64_image: str,
+        per_frame_note: str = "",
+    ) -> Dict[str, Any]:
+        """Build the user message for a vision request.
+
+        Content order is deliberate: the stable instruction block first, then
+        the image, then any per-frame text. vLLM's prefix cache matches a
+        token *prefix* and stops at the first divergence, so keeping the
+        instructions byte-identical across inspections lets later boards reuse
+        their KV, and keeping per-frame text behind the image avoids
+        invalidating it.
+
+        Worth what it costs, but keep it in proportion: on the deployed model
+        the whole prefill is ~50 ms warm and ~200 ms cold against a ~1250 ms
+        inspection, so this is a small term. Decode dominates.
+        """
+        content: List[Dict[str, Any]] = [
+            {"type": "text", "text": prompt},
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
+            },
+        ]
+        if per_frame_note:
+            content.append({"type": "text", "text": per_frame_note})
+        return {"role": "user", "content": content}
+
     def _send_vlm_request(
         self,
         prompt: str,
@@ -368,41 +400,59 @@ class UnifiedVLMClient:
         *,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        per_frame_note: str = "",
+        response_schema: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Send a vision request to vLLM via the centralized router.
+        """Send a single-turn vision request to vLLM via the router."""
+        return self._send_messages(
+            [self.build_vision_message(prompt, base64_image, per_frame_note)],
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_schema=response_schema,
+        )
+
+    def _send_messages(
+        self,
+        messages: List[Dict[str, Any]],
+        *,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        response_schema: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Send a full message list to vLLM via the centralized router.
 
         The router handles connection pooling, retries with exponential
         backoff, concurrency limiting, and global token-usage tracking.
         Vision-specific payload fields (repetition_penalty, etc.) are
         passed through the router's ``extra_body`` mechanism.
-        """
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
-                    }
-                ]
-            }
-        ]
 
-        logger.debug("Sending vision request via router (prompt length: %d)", len(prompt))
-        response = self._router.chat(
-            messages=messages,
-            extra_body={
-                "model": self.model,
-                "max_tokens": max_tokens if max_tokens is not None else 2048,
-                "temperature": temperature if temperature is not None else self.temperature,
-                # Penalise repeated tokens to break degenerate reasoning loops
-                "repetition_penalty": 1.15,
-                "frequency_penalty": 0.3,
-                # Disable Qwen3 thinking mode for structured JSON output
-                "chat_template_kwargs": {"enable_thinking": False},
-            },
-        )
+        A *response_schema* constrains decoding to that JSON Schema, making a
+        malformed or mistyped response impossible. It is sent via OpenAI's
+        ``response_format``; the older ``guided_json`` field is silently
+        ignored by vLLM 0.24 (verified against the deployed server) and must
+        not be used.
+        """
+        extra_body: Dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": max_tokens if max_tokens is not None else 2048,
+            "temperature": temperature if temperature is not None else self.temperature,
+            # Penalise repeated tokens to break degenerate reasoning loops
+            "repetition_penalty": 1.15,
+            "frequency_penalty": 0.3,
+            # Disable Qwen3 thinking mode for structured JSON output
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+        if response_schema is not None:
+            extra_body["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "vlm_analysis",
+                    "schema": response_schema,
+                },
+            }
+
+        logger.debug("Sending vision request via router (%d messages)", len(messages))
+        response = self._router.chat(messages=messages, extra_body=extra_body)
 
         # Extract token usage from the router's ChatResponse
         if response.usage:
@@ -434,9 +484,23 @@ class UnifiedVLMClient:
 
         try:
             base64_image = self._encode_frame(frame)
-            prompt = self._build_prompt(effective_task_type, cv_context, user_query)
-            raw_response = self._send_vlm_request(prompt, base64_image, max_tokens=2048)
-            
+            instructions, per_frame_note = build_prompt_parts(
+                effective_task_type, cv_context, user_query
+            )
+            schema = (
+                schema_for_prompt(instructions) if self.structured_output else None
+            )
+            raw_response = self._send_vlm_request(
+                instructions,
+                base64_image,
+                # A schema-constrained response is bounded by construction, so
+                # the generous free-form ceiling only serves to make a runaway
+                # expensive. See agents/vlm/schemas.py.
+                max_tokens=STRUCTURED_MAX_TOKENS if schema else 2048,
+                per_frame_note=per_frame_note,
+                response_schema=schema,
+            )
+
             parsed = self._parse_json_response(raw_response)
             if not parsed:
                 self._metrics["parse_failures"] += 1
@@ -627,8 +691,8 @@ class UnifiedVLMClient:
             detected=result.detected,
             confidence=result.confidence,
             reasoning=result.reasoning,
-            pcb_count=result.details.get("pcb_count", 0),
-            pcb_stable=result.details.get("pcb_stable"),
+            pcb_count=result.pcb_count,
+            pcb_stable=result.pcb_stable,
             should_alert=result.should_alert,
             raw_response=result.raw_response,
         )
@@ -673,6 +737,21 @@ class UnifiedVLMClient:
             tools_prompt=tools_prompt,
         )
 
+        # One growing conversation rather than a fresh single-turn request per
+        # round, so the model sees its own prior tool calls. Previously each
+        # round sent a brand-new prompt containing only the tool *results*,
+        # with no record of having requested them — the model was asked to
+        # decide follow-up actions from output whose cause it could not see.
+        #
+        # This is a correctness fix, not a latency one: measured against the
+        # deployed LFM2.5-VL-1.6B, prefill is ~50 ms warm / ~200 ms for a
+        # novel image against a ~1250 ms call that is 96% decode, so re-sending
+        # the image was never the expensive part. Carrying the history costs
+        # ~7 ms per extra round.
+        conversation: List[Dict[str, Any]] = [
+            self.build_vision_message(agentic_prompt, base64_image)
+        ]
+
         all_tool_calls: List[ToolCall] = []
         all_tool_results: List[Dict[str, Any]] = []
         analysis_result: Optional[AnalysisResult] = None
@@ -685,7 +764,10 @@ class UnifiedVLMClient:
         }
 
         for round_num in range(max_tool_rounds):
-            raw_response = self._send_vlm_request(agentic_prompt, base64_image)
+            # Deliberately unconstrained: this response carries JSON *and*
+            # ```tool_call fences, and a JSON schema would forbid the fences.
+            # Structured decoding applies to the analysis-only path.
+            raw_response = self._send_messages(conversation)
 
             if self._last_token_usage:
                 total_token_usage["prompt_tokens"] += self._last_token_usage.get("prompt_tokens", 0)
@@ -770,7 +852,13 @@ class UnifiedVLMClient:
                 for r in results
             ])
 
-            agentic_prompt = build_tool_continuation_prompt(results_text)
+            # Append this round's exchange so the next round sees what the
+            # model asked for alongside what came back.
+            conversation.append({"role": "assistant", "content": raw_response})
+            conversation.append({
+                "role": "user",
+                "content": build_tool_continuation_prompt(results_text),
+            })
 
         if total_token_usage.get("total_tokens", 0) > 0:
             logger.info(

@@ -12,7 +12,7 @@ from flask import jsonify, request
 from app.database import LogSettingsRepository
 from core.config import get_config
 from core.logging import apply_log_preferences, get_logger
-from services.core.camera import check_camera_availability
+from services.core.camera import check_camera_availability, reset_publisher
 from services.core.inference import (
     check_inference_backend_availability,
     check_vllm_availability,
@@ -24,6 +24,17 @@ logger = get_logger(__name__)
 
 # Track application start time
 APP_START_TIME = time.time()
+
+# Keys the /system/environment POST endpoint is allowed to write. This
+# endpoint has no auth gate, so writes must be restricted to the specific
+# runtime knobs the UI exposes rather than arbitrary process environment
+# variables.
+ALLOWED_ENV_VARS = frozenset({
+    "CAMERA_INDEX",
+    "DIFF_THRESHOLD",
+    "CAPTURE_INTERVAL",
+    "LOG_LEVEL",
+})
 
 
 def _get_jetson_gpu_stats():
@@ -151,7 +162,8 @@ def system_status():
 
         return jsonify({"success": True, "status": status})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        logger.exception("Failed to get system status: %s", e)
+        return jsonify({"success": False, "error": "Failed to get system status"}), 500
 
 
 @api_bp.route("/system/environment", methods=["GET", "POST"])
@@ -164,6 +176,12 @@ def system_environment():
             data = request.get_json()
             if not isinstance(data, dict):
                 return jsonify({"success": False, "error": "Invalid payload"}), 400
+            unknown = [key for key in data if key not in ALLOWED_ENV_VARS]
+            if unknown:
+                return jsonify({
+                    "success": False,
+                    "error": f"Unsupported environment variable(s): {', '.join(sorted(unknown))}",
+                }), 400
             for key, value in data.items():
                 os.environ[key] = str(value)
             return jsonify(
@@ -173,7 +191,8 @@ def system_environment():
                 }
             )
         except Exception as e:
-            return jsonify({"success": False, "error": str(e)})
+            logger.exception("Failed to update environment variables: %s", e)
+            return jsonify({"success": False, "error": "Failed to update environment variables"}), 500
 
     try:
         env_vars = {
@@ -187,7 +206,8 @@ def system_environment():
         }
         return jsonify({"success": True, "environment": env_vars})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        logger.exception("Failed to get system environment: %s", e)
+        return jsonify({"success": False, "error": "Failed to get environment variables"}), 500
 
 
 @api_bp.route("/system/logging", methods=["GET", "POST"])
@@ -254,6 +274,61 @@ def system_logging():
         return jsonify({"success": False, "error": "Failed to save log settings"}), 500
 
 
+@api_bp.route("/system/video_source", methods=["GET", "POST"])
+def video_source():
+    """Query or switch between live camera and simulated video feed."""
+    config = get_config()
+
+    if request.method == "GET":
+        return jsonify({
+            "success": True,
+            "simulated": bool(config.camera.video_source),
+            "video_source": config.camera.video_source or "",
+        })
+
+    # POST — toggle
+    data = request.get_json(silent=True) or {}
+    simulated = data.get("simulated", False)
+
+    if simulated:
+        source = data.get("path") or os.getenv("CAMERA_VIDEO_SOURCE", "")
+        if not source:
+            return jsonify({"success": False, "error": "No video file configured (set CAMERA_VIDEO_SOURCE)"}), 400
+
+        # This endpoint has no auth gate, so the requested path must be
+        # confined to the video directory the deployment ships/mounts —
+        # otherwise a caller could point video capture at an arbitrary
+        # file on disk.
+        video_dir = config.video_dir.resolve()
+        try:
+            resolved_source = Path(source).resolve()
+        except OSError:
+            return jsonify({"success": False, "error": f"Invalid video path: {source}"}), 400
+
+        if not resolved_source.is_relative_to(video_dir):
+            return jsonify({
+                "success": False,
+                "error": f"Video path must be inside {video_dir}",
+            }), 400
+        if not resolved_source.is_file():
+            return jsonify({"success": False, "error": f"Video file not found: {source}"}), 400
+        config.camera.video_source = str(resolved_source)
+    else:
+        config.camera.video_source = None
+
+    # Restart publisher so it picks up the new source
+    reset_publisher()
+
+    mode = "simulated video" if simulated else "live camera"
+    logger.info("Video source switched to %s", mode)
+    return jsonify({
+        "success": True,
+        "simulated": bool(config.camera.video_source),
+        "video_source": config.camera.video_source or "",
+        "message": f"Switched to {mode}",
+    })
+
+
 @api_bp.route("/test_camera")
 def test_camera():
     """Test camera functionality."""
@@ -272,7 +347,8 @@ def test_camera():
         else:
             return jsonify({"success": False, "error": "Cannot open camera"})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        logger.exception("Camera test failed: %s", e)
+        return jsonify({"success": False, "error": "Camera test failed"}), 500
 
 
 @api_bp.route("/test_inference")
@@ -339,4 +415,5 @@ def ollama_models():
         models = get_router().list_models()
         return jsonify({"success": True, "models": models})
     except Exception as exc:
-        return jsonify({"success": False, "error": str(exc), "models": []})
+        logger.exception("Failed to list vLLM models: %s", exc)
+        return jsonify({"success": False, "error": "Unable to list models", "models": []})

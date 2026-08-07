@@ -12,6 +12,8 @@ from agents.mcp.lifecycle import MCPToolCallProposal
 from agents.mcp.registry import MCPToolRegistry
 from agents.mcp.state_machine import AgentState
 
+from .tool_defs import TOOL_PARAM_ALLOWLIST
+
 logger = get_logger(__name__)
 
 
@@ -62,6 +64,19 @@ class MCPInterpreter:
         if not result.tool:
             return None
 
+        # Remap deprecated tool names to their current equivalents
+        _DEPRECATED_TOOL_MAP = {
+            "start_defect_monitoring": "start_monitoring_session",
+            "stop_defect_monitoring": "end_session",
+        }
+        tool_name = _DEPRECATED_TOOL_MAP.get(result.tool, result.tool)
+        if tool_name != result.tool:
+            logger.info(
+                "General interpreter: remapped deprecated tool '%s' -> '%s'",
+                result.tool, tool_name,
+            )
+            result.tool = tool_name
+
         tool_def = self.registry.get(result.tool)
         if not tool_def:
             return None
@@ -69,8 +84,10 @@ class MCPInterpreter:
         # Runtime state policy is enforced by the executor.
 
         arguments: Dict[str, Any] = {}
-        if result.params:
-            arguments.update(result.params)
+        allowed = TOOL_PARAM_ALLOWLIST.get(result.tool, frozenset())
+        for key, value in (result.params or {}).items():
+            if key in allowed and value is not None:
+                arguments[key] = value
 
         if result.tool == "analyze_current_frame" and "query" not in arguments:
             arguments["query"] = user_message
@@ -97,27 +114,6 @@ class MCPInterpreter:
         )
 
         return self._finalize_proposal(proposal, start_time, session_id)
-
-    def _create_state_violation_proposal(
-        self,
-        tool_name: str,
-        current_state: AgentState,
-        allowed_states: tuple,
-        session_id: Optional[str],
-    ) -> MCPToolCallProposal:
-        proposal = MCPToolCallProposal.create(
-            tool_name=tool_name,
-            arguments={},
-            rationale=f"Tool '{tool_name}' not available in state '{current_state.value}'",
-            confidence=0.0,
-            requires_confirmation=False,
-            session_id=session_id,
-        )
-        proposal.reject(
-            f"Cannot execute '{tool_name}' in state '{current_state.value}'. "
-            f"Allowed states: {[s.value for s in allowed_states]}"
-        )
-        return proposal
 
     def _finalize_proposal(
         self,

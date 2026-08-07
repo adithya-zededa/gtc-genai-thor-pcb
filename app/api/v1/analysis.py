@@ -319,9 +319,15 @@ def analyze_agentic():
         tool_schemas = get_agentic_tool_schemas()
 
         def tool_dispatch(tool_name, arguments):
-            mcp_executor.context["image_data"] = image_bytes
-            mcp_executor.context["recipients"] = recipients
-            return mcp_executor._invoke(tool_name, arguments)
+            # Same rationale as StreamlinedAgent.analyze_agentic: VLM-chosen
+            # calls go through the proposal pipeline (validation, state gating,
+            # confirmation) with context mutated under the executor's lock.
+            return mcp_executor.submit_agentic_call(
+                tool_name,
+                arguments,
+                context_updates={"image_data": image_bytes, "recipients": recipients},
+                rationale=f"VLM agentic tool call from /analyze_agentic ({task_type.value})",
+            )
 
         result = vlm_client.analyze_with_tools(
             frame=frame,

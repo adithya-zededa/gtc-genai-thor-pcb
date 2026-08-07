@@ -335,6 +335,21 @@ class ChatHistoryRepository:
             conn.commit()
         return True
 
+    @staticmethod
+    def has_messages(client_session_id: str) -> bool:
+        """Whether any persisted history exists for *client_session_id*.
+
+        Used to decide whether binding to a claimed client session id needs
+        to be gated on a signed token — history that survived a restart is
+        just as sensitive as history still held in memory.
+        """
+        with get_db_connection() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM chat_messages WHERE client_session_id = ? LIMIT 1",
+                (client_session_id,),
+            ).fetchone()
+        return row is not None
+
 
 class ConfigHistoryRepository:  # pylint: disable=too-few-public-methods
     """Repository for ConfigHistory data operations."""

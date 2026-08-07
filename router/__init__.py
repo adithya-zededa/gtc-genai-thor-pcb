@@ -22,7 +22,13 @@ from .base import LLMAdapter
 
 from .llm_router import (
     AgentLLMRouter,
+    ROLE_AGENT,
+    ROLE_VISION,
+    ROLES,
     get_router,
+    get_agent_router,
+    get_vision_router,
+    reset_routers,
     chat,
     get_token_usage,
     reset_token_usage,
@@ -63,7 +69,13 @@ __all__ = [
     "LLMAdapter",
     # Router
     "AgentLLMRouter",
+    "ROLE_AGENT",
+    "ROLE_VISION",
+    "ROLES",
     "get_router",
+    "get_agent_router",
+    "get_vision_router",
+    "reset_routers",
     "chat",
     # Token tracking
     "get_token_usage",

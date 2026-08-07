@@ -98,9 +98,12 @@ class PCBInterpreter:
         if result.domain != "pcb" or not result.tool:
             return None
 
+        # Deprecated PCB monitoring tools belong to the general domain —
+        # return None so the manager falls back to the general interpreter
+        # which will remap them to the correct tool names.
         if result.tool in ("start_defect_monitoring", "stop_defect_monitoring"):
             logger.info(
-                "PCB interpreter: deprecated tool '%s' suggested; deferring to general session tools",
+                "PCB interpreter: deprecated tool '%s' — deferring to general interpreter",
                 result.tool,
             )
             return None

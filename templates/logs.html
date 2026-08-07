@@ -167,7 +167,7 @@
                     </th>
                     <th class="px-5 py-3 text-left text-xs font-medium uppercase tracking-wider cursor-pointer transition text-secondary" onclick="sortTable('status')">
                         <div class="flex items-center">
-                            Status
+                            Defect Status
                             <i class="fas fa-sort ml-1.5 opacity-50"></i>
                         </div>
                     </th>
@@ -266,6 +266,27 @@
     const formatPreview = (value) => {
         if (!value) return 'View LLM conversation';
         const trimmed = value.trim();
+        // Try to parse JSON and show a human-readable component status summary
+        try {
+            let parsed = trimmed;
+            if (typeof parsed === 'string') {
+                // Strip markdown code fences if present
+                const jsonMatch = parsed.match(/```(?:json)?\s*([\s\S]*?)```/);
+                if (jsonMatch) parsed = jsonMatch[1].trim();
+                parsed = JSON.parse(parsed);
+            }
+            const details = parsed.details || parsed;
+            if (typeof details === 'object' && details !== null) {
+                const parts = [];
+                for (const [key, val] of Object.entries(details)) {
+                    if (typeof val === 'string') {
+                        const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                        parts.push(`${label}: ${val}`);
+                    }
+                }
+                if (parts.length > 0) return escapeHtml(parts.join(' · '));
+            }
+        } catch {}
         const truncated = trimmed.length > 160 ? `${trimmed.slice(0, 160)}…` : trimmed;
         return escapeHtml(truncated);
     };
@@ -667,7 +688,7 @@
                             style="background: var(--system-blue-glass); color: var(--system-blue);"
                             data-image="${encodeURIComponent(log.image_path || '')}"
                             data-analysis="${encodeURIComponent(analysisText)}"
-                            data-timestamp="${log.timestamp}"
+                            data-timestamp="${escapeHtml(log.timestamp)}"
                         >
                             <i class="fas fa-image mr-1.5"></i>View
                         </button>
@@ -675,10 +696,10 @@
                 </td>
                 <td class="px-5 py-3.5 whitespace-nowrap text-sm">
                     <div class="flex items-center gap-2">
-                        <button onclick="openLogDetails('${log.id}')" class="p-1.5 rounded-md transition" style="color: var(--system-blue);" title="Open event">
+                        <button class="open-log-btn p-1.5 rounded-md transition" data-log-id="${escapeHtml(log.id)}" style="color: var(--system-blue);" title="Open event">
                             <i class="fas fa-external-link-alt text-xs"></i>
                         </button>
-                        <button onclick="deleteLog('${log.id}')" class="p-1.5 rounded-md transition" style="color: var(--system-red);" title="Delete event">
+                        <button class="delete-log-btn p-1.5 rounded-md transition" data-log-id="${escapeHtml(log.id)}" style="color: var(--system-red);" title="Delete event">
                             <i class="fas fa-trash text-xs"></i>
                         </button>
                     </div>
@@ -696,6 +717,23 @@
                     showImage(imagePath, analysis, timestamp);
                 });
             }
+
+            // Bound as listeners rather than inline onclick="...('${log.id}')":
+            // an inline handler is HTML-decoded before it is parsed as JS, so
+            // no amount of HTML escaping makes interpolation into it safe.
+            const openButton = row.querySelector('.open-log-btn');
+            if (openButton) {
+                openButton.addEventListener('click', () => {
+                    openLogDetails(openButton.dataset.logId || '');
+                });
+            }
+
+            const deleteButton = row.querySelector('.delete-log-btn');
+            if (deleteButton) {
+                deleteButton.addEventListener('click', () => {
+                    deleteLog(deleteButton.dataset.logId || '');
+                });
+            }
         });
     }
     
@@ -707,8 +745,8 @@
     // Get status badge
     function getStatusBadge(status) {
         const badges = {
-            'detected': '<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium" style="background: var(--system-green-glass); color: var(--system-green);">Detected</span>',
-            'no_detection': '<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium glass-ultra-thin text-secondary">No Detection</span>'
+            'detected': '<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium" style="background: var(--system-red-glass, rgba(255,59,48,0.12)); color: var(--system-red);">Detected</span>',
+            'no_detection': '<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium" style="background: var(--system-green-glass); color: var(--system-green);">No Detection</span>'
         };
         return badges[status] || badges['no_detection'];
     }

@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from flask import jsonify, request
 
+from core.config import get_config
 from core.logging import get_logger
 from services.core.camera import check_camera_availability
 from services.core.inference import check_inference_backend_availability
@@ -68,12 +69,14 @@ def get_status():
     if service and hasattr(service, "_serialize_stats"):
         stats = service._serialize_stats()  # pylint: disable=protected-access
 
+    config = get_config()
     status = {
         "monitoring_active": (
             (service.get_active_monitoring_mode() != "idle")
             if service else False
         ),
         "camera_available": check_camera_availability(),
+        "video_simulated": bool(config.camera.video_source),
         "inference_backend": "vllm",
         "inference_available": check_inference_backend_availability(),
         "stats": stats,

@@ -147,6 +147,11 @@ class MonitoringLoop:
         "defect inspection instructions."
     )
 
+    # Longest edge the focus metric operates on. Large enough to separate
+    # in-focus from soft frames, small enough to keep the per-frame Laplacian
+    # in the low-millisecond range at the settle-window frame rate.
+    _FOCUS_MAX_DIMENSION = 640
+
     DEFAULTS: Dict[str, Any] = {
         "frame_interval_seconds": 0.1,
         "stationary_motion_threshold": 1.8,
@@ -160,6 +165,15 @@ class MonitoringLoop:
         "absence_confirm_frames": 3,
         "track_iou_threshold": 0.22,
         "track_max_lost_frames": 5,
+        # Camera-focus settle window. The loop waits after a board stops so
+        # auto-focus can converge before the inspection frame is captured.
+        # It exits as soon as focus stops improving rather than always
+        # burning the full window — on a camera that focuses quickly this is
+        # the largest single latency saving in the board-stopped path.
+        "settle_max_seconds": 4.0,
+        "settle_min_seconds": 0.4,
+        "settle_focus_plateau_frames": 5,
+        "settle_focus_improve_ratio": 1.02,
     }
 
     def __init__(
@@ -194,6 +208,10 @@ class MonitoringLoop:
         self._absence_confirm = int(cfg["absence_confirm_frames"])
         self._iou_threshold = float(cfg["track_iou_threshold"])
         self._max_lost = int(cfg["track_max_lost_frames"])
+        self._settle_max = float(cfg["settle_max_seconds"])
+        self._settle_min = float(cfg["settle_min_seconds"])
+        self._settle_plateau_frames = int(cfg["settle_focus_plateau_frames"])
+        self._settle_improve_ratio = float(cfg["settle_focus_improve_ratio"])
 
         # Thread / loop state
         self._thread: Optional[threading.Thread] = None
@@ -271,16 +289,6 @@ class MonitoringLoop:
             "inspected_board_count": len(self._inspected_signatures),
         }
 
-    def get_performance_metrics(self) -> Dict[str, Any]:
-        """Get performance metrics for the monitoring loop."""
-        return {
-            "frames_processed": self.context.frames_processed,
-            "inspections_completed": self.context.inspections_completed,
-            "defect_found": self.context.defect_found_count,
-            "no_defect": self.context.no_defect_count,
-            "unique_boards_inspected": len(self._inspected_signatures),
-        }
-
     # ── Main loop ─────────────────────────────────────────────────────
 
     def _loop(self) -> None:
@@ -325,24 +333,27 @@ class MonitoringLoop:
                             for _ in range(to_remove):
                                 self._inspected_signatures.discard(next(it))
 
-                        # Wait for camera to auto-focus after board stops,
-                        # then grab a fresh, sharp frame for inspection.
-                        logger.info(
-                            "Board stopped — waiting 4 s for camera focus before inspection"
-                        )
-                        self._stop_event.wait(timeout=4.0)
+                        # Let the camera's auto-focus converge before the
+                        # inspection frame is captured, then hand the LLM the
+                        # sharpest frame observed rather than whatever happens
+                        # to arrive when the timer expires.
+                        settle = self._settle_for_focus()
                         if self._stop_event.is_set():
                             break
-                        # Acquire a fresh frame after the settle delay
-                        focused_frame_obj = self._publisher.get_frame(
-                            self._subscriber_id, timeout=2.0
-                        )
-                        inspection_frame = (
-                            focused_frame_obj.raw_frame
-                            if focused_frame_obj is not None
-                            else frame_obj.raw_frame
-                        )
-                        self._fire_board_ready(inspection_frame, obs)
+
+                        inspection_frame = settle.get("frame")
+                        if inspection_frame is None:
+                            # No usable in-zone frame during the window — fall
+                            # back to a fresh grab, then to the trigger frame.
+                            focused_frame_obj = self._publisher.get_frame(
+                                self._subscriber_id, timeout=2.0
+                            )
+                            inspection_frame = (
+                                focused_frame_obj.raw_frame
+                                if focused_frame_obj is not None
+                                else frame_obj.raw_frame
+                            )
+                        self._fire_board_ready(inspection_frame, obs, settle)
 
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error(
@@ -371,8 +382,136 @@ class MonitoringLoop:
         self._last_frame_ts = now
         return frame_obj
 
+    def _settle_for_focus(self) -> Dict[str, Any]:
+        """Hold for camera auto-focus, exiting once focus stops improving.
+
+        Keeps observing throughout (so ``frames_processed`` / motion tracking
+        stay current) and retains the sharpest in-zone frame seen, which is a
+        better inspection input than whatever frame happens to arrive when a
+        fixed timer expires.
+
+        Returns a dict with the chosen ``frame`` (or ``None`` if no in-zone
+        frame was observed) plus timing/quality telemetry for the caller.
+        """
+        started = time.time()
+        deadline = started + self._settle_max
+        best_focus = 0.0
+        best_frame: Optional[np.ndarray] = None
+        frames_seen = 0
+        plateau = 0
+        exit_reason = "deadline"
+
+        while time.time() < deadline:
+            remaining = deadline - time.time()
+            if self._stop_event.wait(
+                timeout=min(self._frame_interval, max(remaining, 0.0))
+            ):
+                exit_reason = "stopped"
+                break
+
+            settle_frame_obj = self._acquire_frame()
+            if settle_frame_obj is None:
+                continue
+            settle_obs = self._observe(settle_frame_obj)
+            if settle_obs is None:
+                continue
+
+            self.context.frames_processed += 1
+            self.context.last_observation = settle_obs
+            frames_seen += 1
+
+            board_stopped = (
+                settle_obs.board_in_zone and not settle_obs.motion_moving
+            )
+            if board_stopped:
+                self._store_frame(settle_frame_obj, settle_obs)
+            # Keep prev_board_stopped in sync so the outer loop's just_stopped
+            # check doesn't re-fire for the same board after the window ends.
+            self._prev_board_stopped = board_stopped
+
+            # Only frames that still show a stationary board are inspection
+            # candidates — an empty or blurred-through frame can score higher
+            # on focus while being useless to inspect.
+            if not board_stopped:
+                plateau = 0
+                continue
+
+            focus = self._focus_score(settle_frame_obj.raw_frame)
+            if focus is None:
+                continue
+
+            improved = focus > best_focus * self._settle_improve_ratio
+            if focus > best_focus:
+                best_focus = focus
+                best_frame = settle_frame_obj.raw_frame
+            plateau = 0 if improved else plateau + 1
+
+            if (
+                (time.time() - started) >= self._settle_min
+                and plateau >= self._settle_plateau_frames
+            ):
+                exit_reason = "focus_plateau"
+                break
+
+        elapsed = time.time() - started
+        logger.info(
+            "Focus settle finished in %.2fs (%s, %d frames, best focus %.1f)",
+            elapsed, exit_reason, frames_seen, best_focus,
+        )
+        return {
+            "frame": best_frame,
+            "seconds": round(elapsed, 3),
+            "exit_reason": exit_reason,
+            "frames_observed": frames_seen,
+            "focus_score": round(best_focus, 2),
+            "max_seconds": self._settle_max,
+        }
+
+    def _focus_score(self, frame: Optional[np.ndarray]) -> Optional[float]:
+        """Variance-of-Laplacian focus measure over the inspection zone.
+
+        Deliberately not ``_compute_quality``'s ``sharpness``: that runs on a
+        160x120 *Gaussian-blurred* ROI, which attenuates the high-frequency
+        content that distinguishes an in-focus frame from a soft one. Here the
+        blur is skipped and the crop is only downscaled far enough to bound
+        the per-frame cost.
+        """
+        if frame is None:
+            return None
+        try:
+            gray = (
+                cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                if frame.ndim == 3
+                else frame
+            )
+            h, w = gray.shape[:2]
+            top = int(max(0, min(h - 1, h * self._zone_top)))
+            bottom = int(max(top + 1, min(h, h * self._zone_bottom)))
+            roi = gray[top:bottom, :w]
+            if roi.size == 0:
+                return None
+
+            longest = max(roi.shape[:2])
+            if longest > self._FOCUS_MAX_DIMENSION:
+                scale = self._FOCUS_MAX_DIMENSION / longest
+                roi = cv2.resize(
+                    roi,
+                    (max(1, int(roi.shape[1] * scale)), max(1, int(roi.shape[0] * scale))),
+                    interpolation=cv2.INTER_AREA,
+                )
+
+            lap = cv2.Laplacian(roi, cv2.CV_32F)
+            return float(lap.var())
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Focus score computation failed: %s", exc)
+            return None
+
     def _fire_board_ready(
-        self, frame: np.ndarray, obs: Observation
+        self,
+        frame: np.ndarray,
+        obs: Observation,
+        settle: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Delegate the inspection decision to the LLM / callback."""
         context = {
@@ -381,6 +520,10 @@ class MonitoringLoop:
             "instruction": self.context.instruction,
             "boards_inspected": len(self._inspected_signatures),
         }
+        if settle is not None:
+            context["settle"] = {
+                k: v for k, v in settle.items() if k != "frame"
+            }
         try:
             self._on_board_ready(frame, context)
             self.context.last_action_time = time.time()

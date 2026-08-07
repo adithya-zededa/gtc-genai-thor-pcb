@@ -52,9 +52,11 @@ class CameraFeedPublisher:
         width: int = 640,
         height: int = 480,
         fps: int = 30,
+        video_source: Optional[str] = None,
     ):
         """Initialize the camera feed publisher."""
         self.camera_index = camera_index
+        self.video_source = video_source  # Path/URL to video file; overrides camera index
         self.width = width
         self.height = height
         self.fps = fps
@@ -87,8 +89,9 @@ class CameraFeedPublisher:
 
         self._presence_detector = OpenCvPcbPresenceDetector(DetectorConfig())
 
+        source_label = video_source if video_source else f"camera index {camera_index}"
         logger.info(
-            f"CameraFeedPublisher initialized: camera={camera_index}, "
+            f"CameraFeedPublisher initialized: source={source_label}, "
             f"resolution={width}x{height}, fps={fps}"
         )
 
@@ -100,20 +103,30 @@ class CameraFeedPublisher:
                 return True
 
             try:
-                self.camera = cv2.VideoCapture(self.camera_index)
+                source = self.video_source if self.video_source else self.camera_index
+                self.camera = cv2.VideoCapture(source)
                 if not self.camera.isOpened():
-                    error_msg = f"Failed to open camera at index {self.camera_index}"
+                    source_label = self.video_source or f"index {self.camera_index}"
+                    error_msg = f"Failed to open video source: {source_label}"
                     logger.error(error_msg)
                     self.stats["last_error"] = error_msg
                     return False
 
-                self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-                self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-                self.camera.set(cv2.CAP_PROP_FPS, self.fps)
+                if self.video_source:
+                    # Use the video file's native FPS for realistic playback
+                    video_fps = self.camera.get(cv2.CAP_PROP_FPS)
+                    if video_fps > 0:
+                        self.frame_interval = 1.0 / video_fps
+                        logger.info("Video simulator: detected %.1f FPS", video_fps)
+                else:
+                    self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+                    self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+                    self.camera.set(cv2.CAP_PROP_FPS, self.fps)
 
                 actual_width = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
                 actual_height = int(self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                logger.info("Camera initialized: %dx%d", actual_width, actual_height)
+                source_label = self.video_source or f"camera index {self.camera_index}"
+                logger.info("Video source opened: %s at %dx%d", source_label, actual_width, actual_height)
 
                 return True
 
@@ -237,8 +250,16 @@ class CameraFeedPublisher:
 
                 ret, frame = self.camera.read()
                 if not ret:
-                    time.sleep(0.01)
-                    continue
+                    if self.video_source:
+                        # End of video file — loop back to beginning
+                        self.camera.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        ret, frame = self.camera.read()
+                        if not ret:
+                            time.sleep(0.01)
+                            continue
+                    else:
+                        time.sleep(0.01)
+                        continue
 
                 self.frame_number += 1
 
@@ -355,11 +376,24 @@ def get_camera_publisher(
             idx = camera_index if camera_index is not None else config.camera.index
             _publisher_instance = CameraFeedPublisher(
                 camera_index=idx,
+                video_source=config.camera.video_source,
                 width=width,
                 height=height,
                 fps=fps,
             )
         return _publisher_instance
+
+
+def reset_publisher() -> None:
+    """Stop and discard the global publisher so the next call to
+    ``get_camera_publisher`` creates a fresh instance (potentially
+    with a different video source)."""
+    global _publisher_instance
+
+    with _publisher_lock:
+        if _publisher_instance is not None:
+            _publisher_instance.stop()
+            _publisher_instance = None
 
 
 def check_camera_availability() -> bool:

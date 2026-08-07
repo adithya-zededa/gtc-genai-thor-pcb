@@ -11,12 +11,9 @@ import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+import yaml
+
 from core.logging import get_logger
-from agents.tools.validation import (
-    validate_emails as _validate_emails,
-    safe_error as _safe_error,
-    sanitise_severity as _sanitise_severity,
-)
 
 logger = get_logger(__name__)
 
@@ -54,8 +51,8 @@ def get_inspection_prompt() -> str:
         custom = (cfg.get("detection") or {}).get("inspection_prompt", "") or ""
         if isinstance(custom, str) and custom.strip():
             return custom.strip()
-    except Exception:  # pylint: disable=broad-exception-caught
-        pass
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        logger.debug("Falling back to default inspection prompt: %s", exc)
 
     from agents.vlm.prompts import DEFAULT_MONITORING_DEFECT_PROMPT
     return DEFAULT_MONITORING_DEFECT_PROMPT
@@ -337,6 +334,6 @@ def _auto_generate_defect_summary() -> str:
                 lines.append(entry)
 
         return "\n".join(lines)
-    except Exception as exc:
-        logger.warning("Failed to auto-generate defect summary: %s", exc)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.exception("Failed to auto-generate defect summary: %s", exc)
         return "Unable to retrieve defect logs automatically."

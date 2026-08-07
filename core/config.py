@@ -5,6 +5,7 @@ Centralized configuration loaded from environment variables and YAML files.
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from dataclasses import dataclass, field
@@ -12,6 +13,10 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import yaml
+
+# Plain stdlib logger: core.logging configures handlers using values that come
+# from here, so this module must not depend on it.
+logger = logging.getLogger(__name__)
 
 
 # Environment variable names
@@ -21,15 +26,66 @@ ENV_SOCKETIO_CORS = "SOCKETIO_CORS"
 ENV_DB_PATH = "CAMERA_AGENT_DB"
 ENV_DETECTED_DIR = "DETECTED_IMAGES_DIR"
 ENV_PROCESSED_DIR = "PROCESSED_FRAMES_DIR"
+ENV_VIDEO_DIR = "CAMERA_VIDEO_DIR"
 ENV_VLLM_URL = "VLLM_URL"
+ENV_AGENT_LLM_URL = "AGENT_LLM_URL"
+ENV_AGENT_MODEL = "AGENT_MODEL"
 ENV_HTTP_TIMEOUT = "HTTP_REQUEST_TIMEOUT"
 ENV_CONFIG_PATH = "CAMERA_AGENT_CONFIG"
 
 # Defaults
 DEFAULT_SECRET_KEY_BYTES = 24
-DEFAULT_SOCKETIO_CORS = "*"
+DEFAULT_SOCKETIO_CORS = None  # None => flask-socketio's same-origin-only default
 DEFAULT_HTTP_TIMEOUT = 5.0
 DEFAULT_CONFIG_PATH = "config.yaml"
+
+
+def _get_or_create_secret_key(data_dir: Path) -> str:
+    """Load a persisted Flask secret key, generating one on first run.
+
+    Regenerating the key on every process start (the old behavior) invalidates
+    signed tokens (e.g. chat-session tokens) across restarts, so the key is
+    persisted to ``<data_dir>/.secret_key`` with owner-only permissions.
+    """
+    key_path = data_dir / ".secret_key"
+    try:
+        existing = key_path.read_text(encoding="utf-8").strip()
+        if existing:
+            return existing
+    except OSError:
+        pass
+
+    key = os.urandom(DEFAULT_SECRET_KEY_BYTES).hex()
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        key_path.write_text(key, encoding="utf-8")
+        os.chmod(key_path, 0o600)
+    except OSError:
+        pass  # fall back to an in-memory-only key for this process
+    return key
+
+
+def _resolve_video_source() -> Optional[str]:
+    """Resolve ``CAMERA_VIDEO_SOURCE``, ignoring a path that isn't there.
+
+    The Docker image sets this to a baked-in simulator clip that is a local-only
+    asset and may be absent from the build context. ``cv2.VideoCapture`` on a
+    missing file just fails to open, leaving no feed at all, so an unusable
+    path is dropped here and the live camera index is used instead. Non-path
+    sources (e.g. an RTSP/HTTP URL) are passed through untouched.
+    """
+    source = os.getenv("CAMERA_VIDEO_SOURCE") or None
+    if not source:
+        return None
+    if "://" in source:
+        return source
+    if Path(source).expanduser().is_file():
+        return source
+    logger.warning(
+        "CAMERA_VIDEO_SOURCE=%s does not exist — falling back to the live camera",
+        source,
+    )
+    return None
 
 
 def _safe_int_env(key: str, default: int) -> int:
@@ -63,16 +119,39 @@ class CameraConfig:
     fps: int = 30
     save_detection_images: bool = False
     detection_image_dir: Path = field(default_factory=lambda: Path("detected_images"))
+    video_source: Optional[str] = None  # Path/URL to video file; overrides camera index
 
 
 @dataclass
 class InferenceConfig:
-    """vLLM inference configuration."""
+    """Vision-model inference configuration (the VLM that sees frames)."""
     backend: str = "vllm"
     vllm_url: str = "http://localhost:8000"
     model: str = ""  # auto-detected from running server; set VISION_MODEL to override
     timeout: int = 300
     temperature: float = 0.1
+
+
+@dataclass
+class AgentInferenceConfig:
+    """Text/agent-model inference configuration.
+
+    The agent model is served by its own vLLM pod and handles intent
+    classification, chat, and tool calling — everything that reasons over the
+    vision model's output rather than over pixels.
+
+    ``url``/``model`` empty means "no separate agent server": callers fall
+    back to the vision endpoint, so a single-pod deployment keeps working.
+    """
+    url: str = ""
+    model: str = ""
+    timeout: int = 300
+    temperature: float = 0.2
+
+    @property
+    def enabled(self) -> bool:
+        """Whether a distinct agent endpoint is configured."""
+        return bool(self.url)
 
 
 @dataclass
@@ -90,7 +169,7 @@ class FlaskConfig:
     debug: bool = False
     host: str = "0.0.0.0"
     port: int = 8080
-    socketio_cors: str = "*"
+    socketio_cors: Optional[str] = None
 
 
 @dataclass
@@ -104,6 +183,7 @@ class Config:  # pylint: disable=too-many-instance-attributes
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
     inference: InferenceConfig = field(default_factory=InferenceConfig)
+    agent_inference: AgentInferenceConfig = field(default_factory=AgentInferenceConfig)
     flask: FlaskConfig = field(default_factory=FlaskConfig)
     router: RouterConfig = field(default_factory=RouterConfig)
 
@@ -131,6 +211,7 @@ class Config:  # pylint: disable=too-many-instance-attributes
                 detection_image_dir=Path(
                     os.getenv(ENV_DETECTED_DIR, str(data_dir / "detected_images"))
                 ).expanduser(),
+                video_source=_resolve_video_source(),
             ),
             inference=InferenceConfig(
                 backend="vllm",
@@ -138,6 +219,12 @@ class Config:  # pylint: disable=too-many-instance-attributes
                 model=os.getenv("VISION_MODEL", ""),  # resolved lazily via detect_model()
                 timeout=_safe_int_env("VLLM_TIMEOUT", 300),
                 temperature=_safe_float_env("VLLM_TEMPERATURE", 0.1),
+            ),
+            agent_inference=AgentInferenceConfig(
+                url=os.getenv(ENV_AGENT_LLM_URL, ""),
+                model=os.getenv(ENV_AGENT_MODEL, ""),
+                timeout=_safe_int_env("AGENT_LLM_TIMEOUT", _safe_int_env("VLLM_TIMEOUT", 300)),
+                temperature=_safe_float_env("AGENT_LLM_TEMPERATURE", 0.2),
             ),
             flask=FlaskConfig(
                 secret_key=os.getenv(ENV_SECRET_KEY) or "",
@@ -159,9 +246,9 @@ class Config:  # pylint: disable=too-many-instance-attributes
             ),
         )
 
-        # Generate secret key if not provided
+        # Generate (or load a previously-persisted) secret key if not provided
         if not config.flask.secret_key:
-            config.flask.secret_key = os.urandom(DEFAULT_SECRET_KEY_BYTES).hex()
+            config.flask.secret_key = _get_or_create_secret_key(data_dir)
 
         return config
 
@@ -204,6 +291,16 @@ class Config:  # pylint: disable=too-many-instance-attributes
         return Path(
             os.getenv(ENV_PROCESSED_DIR, str(self.data_dir / "processed_frames"))
         ).expanduser()
+
+    @property
+    def video_dir(self) -> Path:
+        """Get the directory simulated-video-source files must live under.
+
+        Matches the Dockerfile's ``/app/video`` (relative ``video`` when the
+        app's cwd is ``/app``), independent of ``data_dir`` since the video
+        simulator asset ships baked into the image, not on the data volume.
+        """
+        return Path(os.getenv(ENV_VIDEO_DIR, "video")).expanduser()
 
 
 # Global singleton instance

@@ -48,16 +48,6 @@ class ClassificationResult:
     rationale: str = ""
     source: str = "llm"                  # "llm", "circuit_breaker", or "llm_error"
 
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "domain": self.domain,
-            "tool": self.tool,
-            "confidence": self.confidence,
-            "params": self.params,
-            "rationale": self.rationale,
-            "source": self.source,
-        }
-
 
 # ---------------------------------------------------------------------------
 # Per-request classification cache
@@ -141,8 +131,6 @@ Scope constraint:
 | send_defect_alert      | User wants to email/alert someone about a defect. Should only be used after inspecting a frame. |
 | log_defect             | ONLY use when the user EXPLICITLY asks to manually record / save / log a defect. Inspection tools auto-log defects to the DB — do NOT pick this after an inspection or proactively. |
 | generate_defect_report | User wants a report or summary of past defects (legacy report tool). |
-| start_defect_monitoring | Deprecated. Avoid selecting this tool; prefer general-domain session controls. |
-| stop_defect_monitoring | Deprecated. Avoid selecting this tool; prefer `end_session` or `go_idle`. |
 | query_pcb_inspections  | User asks about past inspections, how many defects were found, pass/fail rates, PCB history, what PCBs were detected, or any question about previously inspected boards. Supports time-window filtering via `hours` parameter. |
 | get_monitoring_status  | User asks about the current monitoring status — is it running, what's been detected so far, how many defects total, recent activity. |
 | toggle_email_notifications | User wants to enable, disable, or configure email notifications for defects. Also use when user sets severity threshold or adds/removes notification recipients. |
@@ -254,36 +242,51 @@ class LLMIntentClassifier:
 
     @property
     def base_url(self) -> str:
+        """Endpoint for the direct (non-router) classification path.
+
+        Points at the agent model's server. ``AGENT_LLM_URL`` falls back to
+        the vision endpoint so a single-pod deployment still classifies.
+        """
         if self._base_url:
             return self._base_url
         from core.config import get_config
         cfg = get_config()
-        return os.getenv("VLLM_URL", cfg.inference.vllm_url).rstrip("/")
+        return (
+            os.getenv("AGENT_LLM_URL")
+            or cfg.agent_inference.url
+            or os.getenv("VLLM_URL", cfg.inference.vllm_url)
+        ).rstrip("/")
 
     @property
     def model(self) -> str:
         if self._model:
             return self._model
-        # Prefer a smaller / faster model for classification if set
-        classifier_model = os.getenv("CLASSIFIER_MODEL")
+        # Explicit override wins, then the configured agent model.
+        classifier_model = os.getenv("CLASSIFIER_MODEL") or os.getenv("AGENT_MODEL")
         if classifier_model:
             return classifier_model
         from core.model_detect import detect_model
-        return detect_model(backend="vllm", base_url=self._base_url, wait=False)
+        # Detect against the agent endpoint, not whatever VLLM_URL points at.
+        return detect_model(backend="vllm", base_url=self.base_url, wait=False)
 
     # ------------------------------------------------------------------
     # Router integration
     # ------------------------------------------------------------------
 
     def _get_router(self):
-        """Lazily initialise and return the LLM router, or None."""
+        """Lazily initialise and return the LLM router, or None.
+
+        Intent classification is text-only, so it runs on the agent model.
+        Before the model split this issued a full VLM forward pass just to
+        pick a tool name from a table.
+        """
         if self._router_checked:
             return self._router
         self._router_checked = True
         try:
-            from router import get_router
-            self._router = get_router()
-            logger.info("LLM classifier using vLLM router")
+            from router import get_agent_router
+            self._router = get_agent_router()
+            logger.info("LLM classifier using the agent-model router")
         except Exception as exc:
             logger.warning("Failed to initialise LLM router for classifier: %s", exc)
         return self._router
@@ -424,13 +427,31 @@ class LLMIntentClassifier:
             # Disable Qwen3 thinking mode for structured classification output
             "chat_template_kwargs": {"enable_thinking": False},
         }
-        resp = self._session.post(
-            f"{self.base_url}/v1/chat/completions",
-            json=payload,
-            timeout=self._timeout,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        max_attempts = 2
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                resp = self._session.post(
+                    f"{self.base_url}/v1/chat/completions",
+                    json=payload,
+                    timeout=self._timeout,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                break
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                last_exc = exc
+                if attempt < max_attempts:
+                    logger.warning(
+                        "vLLM classification request failed (attempt %d/%d): %s — retrying",
+                        attempt, max_attempts, exc,
+                    )
+                    time.sleep(0.5 * attempt)
+                    continue
+                raise
+        else:
+            # Unreachable in practice — the loop always breaks or raises.
+            raise last_exc  # type: ignore[misc]
         choices = data.get("choices", [])
         if choices:
             msg = choices[0].get("message", {})

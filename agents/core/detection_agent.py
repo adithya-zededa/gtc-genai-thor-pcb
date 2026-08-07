@@ -159,7 +159,7 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
                 logger.debug("Saved detection image: %s", filepath)
             return str(filepath)
         except Exception as e:  # pylint: disable=broad-exception-caught
-            logger.error("Failed to save detection image: %s", e)
+            logger.exception("Failed to save detection image: %s", e)
             return ""
 
     @classmethod
@@ -194,7 +194,9 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
         try:
             resized = cv2.resize(frame, self._ssim_reference_size)
             return cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
-        except Exception:  # pylint: disable=broad-exception-caught
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Failed to build similarity reference: %s", e)
             return None
 
     def _fast_similarity(self, ref: np.ndarray, current: np.ndarray) -> float:
@@ -206,23 +208,10 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
         try:
             result = cv2.matchTemplate(ref, current, cv2.TM_CCOEFF_NORMED)
             return float(result[0][0])
-        except Exception:  # pylint: disable=broad-exception-caught
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Fast similarity comparison failed: %s", e)
             return 0.0
-
-    def invalidate_ssim_cache(self, reason: str = "external") -> None:
-        """Invalidate the SSIM frame cache.
-
-        Call this when external context changes (e.g. a new board enters
-        the inspection zone) so that the next ``analyze_frame`` is
-        guaranteed to run a fresh VLM inference.
-        """
-        with self._ssim_lock:
-            self._last_similarity_frame = None
-            self._last_processed_event = None
-            self._last_analysis_time = 0.0
-            self._last_board_signature = None
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("SSIM cache invalidated (reason=%s)", reason)
 
     def _check_ssim_skip(
         self,
@@ -243,10 +232,19 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
             if self._last_similarity_frame is None or self._last_processed_event is None:
                 return False, None
 
+            # A signature that failed to derive is an unknown board — never
+            # reuse a stale verdict for it, even if the previous board also
+            # had no signature.
+            if board_signature is None:
+                self._last_similarity_frame = None
+                self._last_processed_event = None
+                self._last_analysis_time = 0.0
+                self._last_board_signature = None
+                return False, None
+
             # Invalidate cache when the board identity changes
             if (
-                board_signature is not None
-                and self._last_board_signature is not None
+                self._last_board_signature is not None
                 and board_signature != self._last_board_signature
             ):
                 self._last_similarity_frame = None
@@ -506,7 +504,7 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
             return event
 
         except Exception as e:  # pylint: disable=broad-exception-caught
-            logger.error("Analysis failed for %s: %s", task_type.value, e)
+            logger.exception("Analysis failed for %s: %s", task_type.value, e)
             return None
 
     def analyze_agentic(  # pylint: disable=too-many-locals
@@ -538,9 +536,12 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
         tool_schemas = get_agentic_tool_schemas()
 
         def tool_dispatch(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-            mcp_executor.context["image_data"] = image_bytes
-            mcp_executor.context["recipients"] = recipients or []
-            return mcp_executor._invoke(tool_name, arguments)
+            return mcp_executor.submit_agentic_call(
+                tool_name,
+                arguments,
+                context_updates={"image_data": image_bytes, "recipients": recipients or []},
+                rationale=f"VLM agentic tool call during {effective_task_type.value} analysis",
+            )
 
         try:
             # Run agentic analysis
@@ -641,24 +642,8 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
             return event
 
         except Exception as e:  # pylint: disable=broad-exception-caught
-            logger.error("Agentic analysis failed: %s", e)
+            logger.exception("Agentic analysis failed: %s", e)
             return None
-
-    def process_detection(
-        self,
-        event: DetectionEvent,
-        image_data: bytes | None = None,
-    ) -> bool:
-        """Deprecated — alerting is now decided by the LLM via MCP tools.
-
-        Kept as a no-op for backward compatibility.
-        """
-        if event.should_alert:
-            logger.info(
-                "Detection flagged for alert: %s (LLM should call send_alert_email tool)",
-                event.primary_label,
-            )
-        return False
 
     def _remember_event(self, event: DetectionEvent, source: str = "analysis") -> None:
         """Store event in memory for tracking."""

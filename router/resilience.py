@@ -337,21 +337,30 @@ class ConcurrencyLimiter:
         return False
 
 
-# Global concurrency limiter (lazy-initialized)
-_concurrency_limiter: Optional[ConcurrencyLimiter] = None
+# Concurrency limiters, one per provider/endpoint (lazy-initialized).
+# The vision and agent models are served by separate vLLM pods, so they must
+# not share a semaphore — otherwise a multi-second vision inference holds
+# slots the agent model needs to answer a chat turn, and the two models are
+# serialised against each other despite running on independent servers.
+_concurrency_limiters: Dict[str, ConcurrencyLimiter] = {}
 _limiter_lock = threading.Lock()
 
 
-def get_concurrency_limiter() -> ConcurrencyLimiter:
-    """Get the global concurrency limiter."""
-    global _concurrency_limiter
-    if _concurrency_limiter is None:
+def get_concurrency_limiter(name: str = "default") -> ConcurrencyLimiter:
+    """Get the concurrency limiter for *name* (a provider identifier)."""
+    limiter = _concurrency_limiters.get(name)
+    if limiter is None:
         with _limiter_lock:
-            if _concurrency_limiter is None:
+            limiter = _concurrency_limiters.get(name)
+            if limiter is None:
                 config = get_rate_limit_config()
-                _concurrency_limiter = ConcurrencyLimiter(config.max_concurrency)
-                logger.info(f"Initialized concurrency limiter with max_concurrent={config.max_concurrency}")
-    return _concurrency_limiter
+                limiter = ConcurrencyLimiter(config.max_concurrency)
+                _concurrency_limiters[name] = limiter
+                logger.info(
+                    "Initialized concurrency limiter '%s' with max_concurrent=%d",
+                    name, config.max_concurrency,
+                )
+    return limiter
 
 
 # ============================================================================
@@ -860,7 +869,12 @@ class RateLimitException(Exception):
 def get_resilience_stats() -> Dict[str, Any]:
     """Get statistics about rate limit handling and resilience."""
     return {
-        "concurrency": get_concurrency_limiter().get_stats(),
+        # One entry per provider/endpoint — the vision and agent models have
+        # independent limiters.
+        "concurrency": {
+            name: limiter.get_stats()
+            for name, limiter in sorted(_concurrency_limiters.items())
+        },
         "deduplication": get_deduplicator().get_stats(),
         "config": get_rate_limit_config().to_dict(),
     }
@@ -868,9 +882,9 @@ def get_resilience_stats() -> Dict[str, Any]:
 
 def reset_resilience_stats():
     """Reset all resilience statistics (for testing)."""
-    global _concurrency_limiter, _deduplicator
+    global _deduplicator
     with _limiter_lock:
-        _concurrency_limiter = None
+        _concurrency_limiters.clear()
     with _dedup_lock:
         _deduplicator = None
 

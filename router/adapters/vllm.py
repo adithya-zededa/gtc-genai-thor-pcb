@@ -94,9 +94,11 @@ class VLLMAdapter(LLMAdapter):
         if tools and config.supports_tools:
             payload["tools"] = self._convert_tools_to_openai_format(tools)
         
-        # Resilience: retry with exponential backoff
+        # Resilience: retry with exponential backoff. The limiter is keyed on
+        # the provider name so each vLLM endpoint (vision, agent) gets its own
+        # slot pool rather than competing for one shared semaphore.
         rate_config = get_rate_limit_config()
-        limiter = get_concurrency_limiter()
+        limiter = get_concurrency_limiter(config.name)
         request_id = generate_request_id()
         metrics = RequestMetrics(
             request_id=request_id,
@@ -247,9 +249,9 @@ class VLLMAdapter(LLMAdapter):
         if tools and config.supports_tools:
             payload["tools"] = self._convert_tools_to_openai_format(tools)
         
-        # Acquire concurrency slot
+        # Acquire concurrency slot (per-endpoint, see chat())
         rate_config = get_rate_limit_config()
-        limiter = get_concurrency_limiter()
+        limiter = get_concurrency_limiter(config.name)
         request_id = generate_request_id()
         
         logger.info(

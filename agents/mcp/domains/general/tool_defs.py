@@ -6,7 +6,7 @@ alerting, evidence, logging, history, and agent control.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, FrozenSet, List
 
 from agents.mcp.schema import MCPSchemaType, MCPParameterSchema, MCPOutputSchema, standard_output_schema
 from agents.mcp.state_machine import AgentState
@@ -380,3 +380,23 @@ class GeneralToolRegistry(MCPToolRegistry):
             TOOL_ACKNOWLEDGE_ERROR,
         ]:
             self.register(tool)
+
+
+# ── Parameter allowlist ──────────────────────────────────────────────────
+# Restricts which classifier-derived params may be merged into a tool call's
+# arguments, keyed by tool name. Mirrors the PCB domain's allowlist pattern.
+TOOL_PARAM_ALLOWLIST: Dict[str, FrozenSet[str]] = {
+    "start_monitoring_session": frozenset(["description"]),
+    "end_session": frozenset(),
+    "get_session_summary": frozenset(["session_id"]),
+    "get_agent_status": frozenset(),
+    "analyze_current_frame": frozenset(["query"]),
+    "send_alert_email": frozenset(["recipients", "subject", "body", "include_image", "priority"]),
+    "save_evidence": frozenset(["label", "notes"]),
+    "log_event": frozenset(["event_type", "description", "severity"]),
+    "query_history": frozenset(["limit", "event_type"]),
+    "set_detection_task": frozenset(["task_type", "custom_instructions"]),
+    "go_idle": frozenset(),
+    "shutdown_agent": frozenset(),
+    "acknowledge_error": frozenset(),
+}

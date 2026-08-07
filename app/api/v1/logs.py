@@ -133,12 +133,14 @@ def export_logs():
                 },
             )
     except sqlite3.Error as exc:
+        logger.exception("Failed to export logs: %s", exc)
         return (
-            jsonify({"success": False, "error": f"Failed to export logs: {exc}"}),
+            jsonify({"success": False, "error": "Failed to export logs"}),
             500,
         )
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        logger.exception("Failed to export logs: %s", e)
+        return jsonify({"success": False, "error": "Failed to export logs"}), 500
 
 
 @api_bp.route("/image/<path:image_path>")
@@ -151,15 +153,16 @@ def serve_image(image_path: str):
 
         detected_dir = config.detected_images_dir.resolve()
         processed_dir = config.processed_frames_dir.resolve()
-        data_dir = config.data_dir.resolve()
 
         paths_to_try = []
 
         if candidate_path.is_absolute():
-            paths_to_try.append(candidate_path.resolve())
+            # Detection logs persist absolute paths whenever DETECTED_IMAGES_DIR
+            # is absolute (which it is under Docker/Helm: /app/data/...), so the
+            # absolute form must stay serveable. The is_relative_to() gate below
+            # is what confines it to the two image directories.
+            paths_to_try.append(candidate_path)
         else:
-            paths_to_try.append((data_dir / candidate_path).resolve())
-            paths_to_try.append(Path.cwd() / candidate_path)
             paths_to_try.append(detected_dir / candidate_path.name)
             paths_to_try.append(processed_dir / candidate_path.name)
 
@@ -176,10 +179,8 @@ def serve_image(image_path: str):
             try:
                 resolved = try_path.resolve()
                 if resolved.exists() and resolved.is_file():
-                    if (
-                        resolved.is_relative_to(detected_dir)
-                        or resolved.is_relative_to(processed_dir)
-                        or resolved.is_relative_to(data_dir)
+                    if resolved.is_relative_to(detected_dir) or resolved.is_relative_to(
+                        processed_dir
                     ):
                         resolved_path = resolved
                         break
@@ -192,8 +193,8 @@ def serve_image(image_path: str):
             logger.warning(f"Image not found: {image_path}")
             return jsonify({"error": "Image not found"}), 404
     except Exception as e:
-        logger.error(f"Error serving image {image_path}: {e}")
-        return jsonify({"error": str(e)}), 500
+        logger.exception("Error serving image %s: %s", image_path, e)
+        return jsonify({"error": "Failed to serve image"}), 500
 
 
 @api_bp.route("/recent_images")

@@ -137,10 +137,6 @@ class AgentStateMachine:
 
             return transition
 
-    def add_listener(self, callback: Callable[[AgentState, AgentState, str], None]) -> None:
-        """Add a state change listener."""
-        self._listeners.append(callback)
-
     def set_session(self, session_id: Optional[str]) -> None:
         """Set the current session ID for transition logging."""
         self._current_session_id = session_id

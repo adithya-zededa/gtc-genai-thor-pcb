@@ -13,6 +13,8 @@ so these endpoints work with any configured adapter.
 
 # pylint: disable=broad-exception-caught,import-outside-toplevel
 
+from urllib.parse import urlparse
+
 from flask import jsonify, request
 
 from core.logging import get_logger
@@ -20,6 +22,33 @@ from core.logging import get_logger
 from . import api_bp
 
 logger = get_logger(__name__)
+
+# Cloud instance-metadata endpoints. These have no auth of their own and are
+# the highest-value SSRF target (credential theft) reachable through a
+# provider-URL field on an unauthenticated endpoint. This is a partial
+# mitigation only — private/loopback hosts are intentionally NOT blocked,
+# since the app's own vLLM target is legitimately a private address.
+_BLOCKED_HOSTS = frozenset({
+    "169.254.169.254",
+    "fd00:ec2::254",
+    "metadata.google.internal",
+})
+
+
+def _validate_provider_url(url):
+    """Reject non-http(s) schemes and known cloud-metadata hosts.
+
+    Returns an error string if *url* is invalid/unsafe, else ``None``.
+    Empty/missing URLs are not this function's concern — callers only
+    invoke it when a URL was actually supplied.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return f"Unsupported URL scheme: {parsed.scheme or '(none)'!r}"
+    hostname = (parsed.hostname or "").lower()
+    if hostname in _BLOCKED_HOSTS:
+        return "URL host is not allowed"
+    return None
 
 
 def _get_router():
@@ -76,17 +105,40 @@ def list_llm_providers():
 
 @api_bp.route("/llm/health", methods=["GET"])
 def check_llm_health():
-    """Check health of the configured LLM provider(s)."""
-    router = _get_router()
-    if router is None:
+    """Check health of every configured LLM role.
+
+    The system serves two models from two vLLM pods, so this reports each
+    role separately — a healthy vision model with a down agent model still
+    breaks chat and tool calling, and vice versa.
+    """
+    try:
+        from router import ROLES, get_router
+    except Exception:
         return jsonify({"success": False, "error": "LLM router not available"}), 200
 
-    results = router.check_health()
+    roles = {}
+    for role in ROLES:
+        try:
+            router = get_router(role)
+            health = router.check_health()
+            config = router.get_config()
+            roles[role] = {
+                "available": bool(health.get("available", False)),
+                "url": config.url if config else None,
+                "model": config.model if config else None,
+                "detail": health,
+            }
+        except Exception as exc:
+            logger.exception("Health check failed for LLM role %s: %s", role, exc)
+            roles[role] = {"available": False, "error": "Health check failed"}
+
     return jsonify(
         {
             "success": True,
-            "health": results,
-            "all_healthy": all(results.values()) if results else False,
+            "roles": roles,
+            # Retained for existing callers that read a single provider's health.
+            "health": roles.get("vision", {}).get("detail", {}),
+            "all_healthy": all(r.get("available") for r in roles.values()),
         }
     )
 
@@ -144,10 +196,15 @@ def update_llm_config():
         return jsonify({"success": False, "error": "LLM router not available"}), 400
 
     data = request.get_json() or {}
+    url = data.get("url")
+    if url:
+        error = _validate_provider_url(url)
+        if error:
+            return jsonify({"success": False, "error": error}), 400
 
     try:
         router.configure(
-            url=data.get("url"),
+            url=url,
             model=data.get("model"),
             api_key=data.get("api_key"),
             timeout=data.get("timeout"),
@@ -165,7 +222,8 @@ def update_llm_config():
             }
         )
     except Exception as exc:
-        return jsonify({"success": False, "error": str(exc)}), 400
+        logger.exception("Failed to update LLM config: %s", exc)
+        return jsonify({"success": False, "error": "Failed to update configuration"}), 400
 
 
 # =============================================================================
@@ -193,12 +251,13 @@ def list_llm_models():
             }
         )
     except Exception as exc:
+        logger.exception("Failed to list LLM models: %s", exc)
         return jsonify(
             {
                 "success": True,
                 "provider": provider_name,
                 "models": [],
-                "error": str(exc),
+                "error": "Unable to list models",
             }
         )
 
@@ -221,6 +280,11 @@ def fetch_models_for_provider():
     data = request.get_json() or {}
     url = data.get("url")
     provider_type = data.get("provider_type")
+
+    if url:
+        error = _validate_provider_url(url)
+        if error:
+            return jsonify({"success": False, "error": error}), 400
 
     try:
         from router.adapters import get_adapter
@@ -248,8 +312,10 @@ def fetch_models_for_provider():
         models = adapter.list_models(temp_config)
         return jsonify({"success": True, "models": models})
     except Exception as exc:
-        logger.warning("Model fetch failed: %s", exc)
-        return jsonify({"success": True, "models": [], "error": str(exc)})
+        logger.exception("Model fetch failed: %s", exc)
+        return jsonify(
+            {"success": True, "models": [], "error": "Unable to fetch models"}
+        )
 
 
 # =============================================================================
@@ -266,7 +332,8 @@ def get_llm_token_usage():
         usage = get_token_usage()
         return jsonify({"success": True, "usage": usage})
     except Exception as exc:
-        return jsonify({"success": False, "error": str(exc)}), 500
+        logger.exception("Failed to get token usage: %s", exc)
+        return jsonify({"success": False, "error": "Unable to retrieve token usage"}), 500
 
 
 @api_bp.route("/llm/usage", methods=["DELETE"])
@@ -278,7 +345,8 @@ def reset_llm_token_usage():
         reset_token_usage()
         return jsonify({"success": True, "message": "Token usage reset"})
     except Exception as exc:
-        return jsonify({"success": False, "error": str(exc)}), 500
+        logger.exception("Failed to reset token usage: %s", exc)
+        return jsonify({"success": False, "error": "Unable to reset token usage"}), 500
 
 
 # =============================================================================
@@ -316,11 +384,12 @@ def llm_test_chat():
             }
         )
     except Exception as exc:
+        logger.exception("Test chat failed: %s", exc)
         return (
             jsonify(
                 {
                     "success": False,
-                    "error": str(exc),
+                    "error": "Chat request failed",
                 }
             ),
             500,
