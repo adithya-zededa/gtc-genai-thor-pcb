@@ -1,0 +1,49 @@
+{{/*
+  NVIDIA device-plugin time-slicing config.
+
+  Two vLLM pods each request `nvidia.com/gpu: 1`, but a Jetson has one
+  physical GPU. Time slicing makes the device plugin advertise N schedulable
+  replicas of that GPU so both pods can be admitted; the GPU is then
+  context-switched between them.
+
+  DISABLED BY DEFAULT, on purpose. This ConfigMap is cluster infrastructure
+  living in the device plugin's namespace, not application state, and on many
+  clusters it is already managed elsewhere — on the reference Jetson Thor
+  cluster it is applied as a k3s addon (owner `nvidia-timeslicing`), and a
+  second manager for the same object would fight over it. Enable this only on
+  a cluster where nothing else owns the ConfigMap.
+
+  Two things this does NOT do, both of which matter:
+
+  * It does not partition GPU memory. Both pods see the whole device, so
+    their vLLM `gpuMemoryUtilization` fractions must sum to well under 1.0
+    or the second server will OOM at KV-cache allocation.
+  * It does not isolate failures. A crash or OOM in one pod can disturb the
+    other, since they share one device context.
+
+  After enabling, the device plugin must be restarted to pick up the change:
+      kubectl -n kube-system rollout restart ds/nvidia-device-plugin-daemonset
+
+  Verify with:
+      kubectl get node -o jsonpath='{.items[0].status.capacity.nvidia\.com/gpu}'
+*/}}
+{{- if (.Values.gpuTimeSlicing).enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ (.Values.gpuTimeSlicing).configMapName | default "nvidia-device-plugin-config" }}
+  namespace: {{ (.Values.gpuTimeSlicing).namespace | default "kube-system" }}
+  labels:
+    {{- include "camera-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gpu-timeslicing
+  annotations:
+    "helm.sh/resource-policy": keep
+data:
+  {{ (.Values.gpuTimeSlicing).configKey | default "config.yaml" }}: |
+    version: v1
+    sharing:
+      timeSlicing:
+        resources:
+        - name: nvidia.com/gpu
+          replicas: {{ (.Values.gpuTimeSlicing).replicas | default 2 }}
+{{- end }}

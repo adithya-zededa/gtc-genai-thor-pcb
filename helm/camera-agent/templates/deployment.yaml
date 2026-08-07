@@ -71,6 +71,25 @@ spec:
               value: {{ .Values.vllmServer.timeout | default 300 | quote }}
             - name: VLLM_TEMPERATURE
               value: {{ .Values.vllmServer.temperature | default 0.1 | quote }}
+            {{- if or .Values.vllmAgent.enabled .Values.vllmAgent.url }}
+            {{/*
+              Agent (text) model endpoint. When these are unset the app falls
+              back to VLLM_URL/VISION_MODEL, so a single-pod deployment keeps
+              working with both roles served by the vision pod.
+            */}}
+            - name: AGENT_LLM_URL
+              {{- if and .Values.vllmAgent.enabled (not .Values.vllmAgent.url) }}
+              value: "http://{{ include "camera-agent.fullname" . }}-vllm-agent:{{ .Values.vllmAgent.service.port }}"
+              {{- else }}
+              value: {{ .Values.vllmAgent.url | quote }}
+              {{- end }}
+            - name: AGENT_MODEL
+              value: {{ .Values.vllmAgent.model | quote }}
+            - name: AGENT_LLM_TIMEOUT
+              value: {{ .Values.vllmAgent.timeout | default 300 | quote }}
+            - name: AGENT_LLM_TEMPERATURE
+              value: {{ .Values.vllmAgent.temperature | default 0.2 | quote }}
+            {{- end }}
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}

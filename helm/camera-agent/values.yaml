@@ -5,7 +5,7 @@ replicaCount: 1
 image:
   repository: adithyazededa/gtc-genai-thor-pcb
   pullPolicy: Always
-  tag: "v52"
+  tag: "v57"
 
 imagePullSecrets: []
 nameOverride: ""
@@ -25,6 +25,9 @@ podAnnotations: {}
 podSecurityContext:
   # Add video group (44) for camera access and audio group (29) for speaker access
   supplementalGroups: [44, 29]
+  # Matches the non-root appuser (UID/GID 1000) baked into the image, so
+  # the PVC-backed /app/data volume is group-writable by that user.
+  fsGroup: 1000
 
 securityContext:
   privileged: true  # Required for camera and GPU access
@@ -47,7 +50,9 @@ ingress:
 
 # Resources for camera-agent (NOTE: when vllmServer.enabled=true, GPU is on vLLM pod)
 resources:
-  limits: {}
+  limits:
+    memory: "4Gi"
+    cpu: "2"
     # nvidia.com/gpu: 1  # Only needed if running local inference
   requests:
     memory: "2Gi"
@@ -106,14 +111,50 @@ gpu:
   # specifically requires a RuntimeClass for GPU access.
   runtimeClassName: ""
 
-# vLLM Server configuration
+# ── Two-model topology ──────────────────────────────────────────────────
+# The agent runs two models on two vLLM pods sharing one physical GPU via
+# device-plugin time slicing:
+#
+#   vllmServer (vision) — looks at frames, emits a structured defect verdict
+#   vllmAgent  (agent)  — classifies intent, answers chat, drives tools;
+#                         never sees pixels, only the vision model's output
+#
+# Time slicing shares GPU memory rather than partitioning it, so the two
+# gpuMemoryUtilization values below must sum to well under 1.0. Defaults are
+# 0.30 + 0.25 = 0.55, leaving headroom for the app pod and the OS on a
+# 128 GB unified-memory Thor.
+#
+# Prerequisite: the node must advertise at least 2 nvidia.com/gpu replicas.
+# Check with:
+#   kubectl get node -o jsonpath='{.items[0].status.capacity.nvidia\.com/gpu}'
+# If it reports 1, enable gpuTimeSlicing below (or configure the device
+# plugin out-of-band) or the second pod stays Pending.
+
+# vLLM Server configuration — VISION model
 vllmServer:
   # Enable vLLM server deployment
   enabled: true
   # URL to connect to vLLM server (auto-set when enabled, or override for external vLLM)
   url: ""
-  # Model to serve - full Hugging Face model name
-  model: "nvidia/Cosmos-Reason2-8B"
+  # Model to serve — a Hugging Face repo id, or the in-container mount path
+  # when localModel.enabled is true (the two must match).
+  model: "LiquidAI/LFM2.5-VL-1.6B-PCB-Inspect"
+
+  # Load weights from a directory already on the node instead of pulling from
+  # the Hugging Face Hub at startup. The reference Thor deployment uses this
+  # for the fine-tuned inspection model, which is downloaded out-of-band:
+  #   localModel:
+  #     enabled: true
+  #     hostPath: /home/nvidia/models/LFM2.5-VL-1.6B-PCB-Inspect
+  #     mountPath: /models/LFM2.5-VL-1.6B-PCB-Inspect
+  #   model: /models/LFM2.5-VL-1.6B-PCB-Inspect
+  localModel:
+    enabled: false
+    # Absolute path on the node holding config.json, *.safetensors, tokenizer
+    hostPath: ""
+    # Where to mount it inside the container — must equal `model` above
+    mountPath: ""
+
   # Inference timeout in seconds
   timeout: 300
   # Temperature for generation
@@ -122,8 +163,20 @@ vllmServer:
   # DO NOT commit real tokens here — pass via --set at install time,
   # or use secrets.existingSecret to reference a pre-created K8s Secret.
   huggingfaceToken: ""
+  # NGC API key for pulling images from nvcr.io and accessing NGC resources
+  # DO NOT commit real keys here — pass via --set at install time,
+  # or use secrets.existingSecret to reference a pre-created K8s Secret.
+  ngcApiKey: ""
   # RuntimeClassName for GPU access (optional)
   runtimeClassName: "nvidia"
+  # Pod security context. Defaults to privileged since Helm can't know
+  # whether the target cluster's GPU device plugin needs full privilege
+  # for passthrough — scope this down on clusters where it doesn't.
+  securityContext:
+    privileged: true
+  # Single-GPU nodes cannot safely roll this deployment. Recreate avoids
+  # upgrade deadlocks where the old pod keeps the only GPU allocated.
+  deploymentStrategy: Recreate
   
   # vLLM container image - using NVIDIA Triton Server with vLLM
   image:
@@ -135,8 +188,9 @@ vllmServer:
   args:
     # Tensor parallel size
     tensorParallelSize: 1
-    # GPU memory utilization (0.0 - 1.0)
-    gpuMemoryUtilization: 0.5
+    # GPU memory utilization (0.0 - 1.0). Shared device: keep this plus
+    # vllmAgent.args.gpuMemoryUtilization comfortably below 1.0.
+    gpuMemoryUtilization: 0.30
     # Maximum model length (needs to be large enough for image tokens + tools prompt)
     maxModelLen: 16000
     # Data type (auto, float16, bfloat16, float32)
@@ -186,6 +240,107 @@ vllmServer:
       cpu: "8"
       nvidia.com/gpu: 1
 
+# vLLM Server configuration — AGENT (text) model
+# Second pod on the same GPU. See the topology notes above vllmServer for the
+# shared-memory budget constraint.
+vllmAgent:
+  # Enable the agent vLLM server deployment
+  enabled: true
+  # URL to connect to (auto-set when enabled, or override for external vLLM)
+  url: ""
+  # Text model driving intent classification, chat, and tool calls.
+  model: "LiquidAI/LFM2.5-2.6B"
+  timeout: 300
+  # Above the vision model's 0.1: this one writes prose and selects tools
+  # rather than filling a fixed schema.
+  temperature: 0.2
+  huggingfaceToken: ""
+  runtimeClassName: "nvidia"
+  securityContext:
+    privileged: true
+  # Same rationale as vllmServer: a rolling update deadlocks waiting for a GPU
+  # slice the outgoing pod still holds.
+  deploymentStrategy: Recreate
+
+  # As with the vision model, weights can come from a node directory instead
+  # of the Hub. Note that only the vision model is pre-staged under
+  # /home/nvidia/models on the reference node — the agent model is pulled
+  # from Hugging Face unless it is downloaded there first.
+  localModel:
+    enabled: false
+    hostPath: ""
+    mountPath: ""
+
+  image:
+    repository: nvcr.io/nvidia/tritonserver
+    tag: "25.12-vllm-python-py3"
+    pullPolicy: IfNotPresent
+
+  args:
+    tensorParallelSize: 1
+    # A 2.6B text model needs far less headroom than the VLM; its KV cache is
+    # also cheaper (no image tokens).
+    gpuMemoryUtilization: 0.25
+    maxModelLen: 16000
+    dtype: "auto"
+    trustRemoteCode: true
+    enablePrefixCaching: true
+
+  extraArgs: []
+  env: []
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  # Separate from the vision cache: a ReadWriteOnce PVC cannot be mounted
+  # writable by both pods.
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 30Gi
+
+  livenessProbe:
+    initialDelaySeconds: 600
+    periodSeconds: 60
+    timeoutSeconds: 30
+    failureThreshold: 10
+
+  readinessProbe:
+    initialDelaySeconds: 300
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 30
+
+  resources:
+    requests:
+      memory: "8Gi"
+      cpu: "2"
+    limits:
+      memory: "16Gi"
+      cpu: "4"
+      nvidia.com/gpu: 1
+
+# ── GPU time slicing ────────────────────────────────────────────────────
+# Makes the NVIDIA device plugin advertise `replicas` schedulable copies of
+# each physical GPU, so both vLLM pods can be admitted on a single-GPU node.
+#
+# Disabled by default: this ConfigMap belongs to the device plugin, not to
+# this application, and is frequently managed elsewhere (on the reference
+# Thor cluster it is applied as a k3s addon). Enabling it where something
+# else already owns the object will cause the two to fight.
+#
+# When enabled, restart the plugin to pick up the change:
+#   kubectl -n kube-system rollout restart ds/nvidia-device-plugin-daemonset
+gpuTimeSlicing:
+  enabled: false
+  replicas: 2
+  namespace: kube-system
+  daemonsetName: nvidia-device-plugin-daemonset
+  configMapName: nvidia-device-plugin-config
+  configKey: config.yaml
+
 # Model configuration for custom model loading
 model:
   name: "custom-model"
@@ -224,6 +379,8 @@ secrets:
   existingSecret: ""
   # Key inside the secret that holds the HuggingFace token
   huggingfaceTokenKey: "hf-token"
+  # Key inside the secret that holds the NGC API key
+  ngcApiKeyKey: "ngc-api-key"
 
 # Persistence configuration
 persistence:
