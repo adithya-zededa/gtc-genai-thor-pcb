@@ -13,7 +13,7 @@ docker build -t camera-agent .
 ```bash
 docker run -d \
   --name camera-agent \
-  -p 5005:5005 \
+  -p 8080:8080 \
   -v $(pwd)/config.yaml:/app/config.yaml \
   camera-agent
 ```
@@ -33,18 +33,18 @@ A Helm chart is provided in `helm/camera-agent/`.
 
 ```bash
 helm install camera-agent ./helm/camera-agent \
-  --set image.tag=latest \
-  --set vllm.enabled=true
+  --set image.tag=v57 \
+  --set vllmServer.enabled=true
 ```
 
 Key values:
 
 | Value                 | Default       | Description                     |
 |---------------------- |-------------- |-------------------------------- |
-| `image.repository`    | `camera-agent`| Container image                 |
-| `image.tag`           | `latest`      | Image tag                       |
-| `vllm.enabled`        | `false`       | Deploy vLLM sidecar             |
-| `vllm.model`          | `Qwen/Qwen2.5-VL-3B-Instruct` | VLM model name  |
+| `image.repository`    | `adithyazededa/gtc-genai-thor-pcb`| Container image |
+| `image.tag`           | `v57`         | Image tag                       |
+| `vllmServer.enabled`  | `true`        | Deploy vLLM server alongside camera-agent |
+| `vllmServer.model`    | `nvidia/Cosmos-Reason2-8B` | VLM model name  |
 | `ingress.enabled`     | `false`       | Expose via Ingress              |
 
 See [helm/camera-agent/values.yaml](../../helm/camera-agent/values.yaml) for

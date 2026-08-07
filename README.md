@@ -4,13 +4,13 @@ An AI-powered camera monitoring system that inspects printed circuit boards (PCB
 
 ## Overview
 
-The ZEDEDA Camera Monitoring Agent captures video from a camera device and features a proactive, LLM-directed monitoring loop. The agent continuously observes the conveyor feed, maintains temporal context, reasons about PCB motion and stability, and decides when to run lightweight checks versus full defect inspections. Alerts are generated only when the LLM concludes that the user's natural-language instruction requires action (e.g., a PCB defect).
+The ZEDEDA Camera Monitoring Agent captures video from a camera device and runs a deterministic computer-vision observation loop that watches the conveyor feed for motion, board presence, and board identity. When a board stops in the inspection zone, the loop hands off to an LLM-driven agent that performs the actual inspection via MCP tool calls. Alerts are generated only when the LLM concludes that the user's natural-language instruction requires action (e.g., a PCB defect).
 
 ## Key Features
 
-- **Proactive Monitoring Loop**: Two-stage LLM pipeline (observation + decision) keeps temporal context and autonomously triggers analyses.
+- **Deterministic Monitoring Loop**: Pure CV observation (frame-diff motion, board segmentation, presence debouncing, IoU tracking) detects when a board stops in the inspection zone and fires a single `on_board_ready` callback — no CV-side judgment calls.
 - **Instruction-Aware Reasoning**: User prompts like "watch for PCB defects" or "inspect stopped boards under the camera" guide agent behavior without code changes.
-- **Adaptive Actions**: LLM chooses between `wait`, `quick_check`, and `full_inspection`, eliminating rigid threshold heuristics.
+- **Agentic Tool Calling**: The VLM decides what to do next — inspect, classify, alert, log — by calling MCP tools directly, eliminating rigid threshold heuristics.
 - **Agent Memory & Summaries**: Rolling memory plus scene signatures prevent redundant inspections.
 - **Agentic Tooling & Alerts**: Full inspections use the Unified VLM + alert stack (email, WebSocket, DB logging).
 - **Real-time Dashboard**: Flask web UI with live feed, logs, and proactive status snapshots.
@@ -307,11 +307,11 @@ Camera Feed → CV Gating → VLM (Cosmos Reason 2 8B) → Tool Execution → Al
 
 ## Proactive Monitoring Loop
 
-The proactive agent runs a continuous LLM-driven loop:
+`MonitoringLoop` (`agents/core/monitoring_loop.py`) is the only deterministic component in the agent system. It never decides *what* to do — only *when* something needs attention:
 
-1. **Observe** – CV gating detects motion and board presence in the camera ROI. Only stable, high-quality frames are forwarded to the VLM.
-2. **Decide** – The VLM consumes temporal context (user intent, last action, stability counters, inspection history) and selects `wait`, `quick_check`, or `full_inspection`.
-3. **Act** – `quick_check` performs a cheap confirmation; `full_inspection` reuses the VLM analysis/alert stack; `wait` keeps monitoring.
+1. **Observe** – Frames are pulled from the camera publisher and scored with pure CV sensors: frame-diff motion score, edge density, board segmentation, presence debouncing, and IoU-based board tracking. These are sensor readings, not decisions.
+2. **Detect a state change** – When a tracked board transitions from moving to stopped inside the inspection zone (and its signature hasn't already been inspected), the loop waits ~4 seconds for the camera to auto-focus, grabs a fresh frame, and fires a single `on_board_ready(frame, context)` callback.
+3. **Decide & act** – The callback owner invokes the LLM-driven inspection (`StreamlinedAgent.analyze_agentic` in `agents/core/detection_agent.py`), which uses `UnifiedVLMClient.analyze_with_tools` (`agents/vlm/client.py`) to let the vision-language model call MCP tools — `inspect_pcb`, `classify_board`, `send_defect_alert`, `log_defect`, and more — against the MCP tool layer. There is no separate `wait` / `quick_check` / `full_inspection` selection step anymore; every board-ready event goes straight to a single LLM-driven inspection.
 
 ### Start Proactive Monitoring via API
 
@@ -387,21 +387,38 @@ curl -X POST http://<JETSON_IP>:30080/api/monitoring/proactive/stop
 | `GET` | `/api/health` | Health check |
 | `GET` | `/api/config` | Get configuration |
 | `POST` | `/api/config` | Update configuration |
-| `GET` | `/api/monitoring/status` | Monitoring status |
+| `GET` | `/api/status` | Comprehensive system status (circuit breaker, agent stats) |
+| `GET` | `/api/monitoring/status` | Dashboard monitoring overview — agent state + defect counts (`app/api/v1/defects.py`) |
 | `GET` | `/api/monitoring/proactive/status` | Proactive agent snapshot |
 | `POST` | `/api/monitoring/proactive/start` | Start/update proactive monitoring |
 | `POST` | `/api/monitoring/proactive/stop` | Stop proactive monitoring |
-| `POST` | `/api/analysis/analyze` | Analyze single frame |
+| `POST` | `/api/analyze_prompt` | Analyze the current camera frame with a dynamic prompt |
+| `POST` | `/api/analyze_agentic` | Analyze the current frame with agentic MCP tool calling |
+| `POST` | `/api/analyze_uploaded_image` | Analyze an uploaded image (agentic or single-shot) |
+| `GET` | `/api/defects/summary` | Defect summary for a time window |
+| `GET` | `/api/tools` | List available MCP tools |
 | `GET` | `/api/logs` | Detection logs |
+
+> This is a quick-reference subset. See [`docs/api/endpoints.md`](docs/api/endpoints.md) for the full, exhaustive endpoint list (analysis, camera, config, defects, health, LLM, logs, MCP, monitoring, system, users).
 
 ## WebSocket Events
 
-| Event | Description |
-|-------|-------------|
-| `connect` | Client connected |
-| `status_update` | Monitoring status changed |
-| `new_detection` | New detection event |
-| `frame_update` | Live frame preview |
+Socket.IO events are handled in `app/websocket/chat.py` and `app/websocket/__init__.py`.
+
+| Event | Direction | Description |
+|-------|-----------|-------------|
+| `connect` | client → server | Client connects; auto-initializes the chat session |
+| `chat_connected` | server → client | Session bootstrap payload (agent state, tools, history) |
+| `chat_message` | both | Submit user input / echo user, assistant, and tool messages |
+| `agent_activity` | server → client | Real-time activity chips (in-progress/completed/failed) |
+| `agent_state_changed` | server → client | Broadcast agent state transitions |
+| `tool_confirmation_required` | server → client | A proposed tool call needs user approval |
+| `detection_event` / `chat_detection` | server → client | Detection broadcast (generic / rendered as a chat message) |
+| `frame_update` | server → client | Live frame preview (base64 image + metadata) |
+| `monitoring_status` | server → client | Monitoring status update |
+| `alert` | server → client | Alert broadcast |
+
+> See [`docs/api/endpoints.md`](docs/api/endpoints.md) for the full event list, including the proposal-approval workflow and conversation utility events.
 
 ## Configuration
 

@@ -161,7 +161,6 @@ Zone crop, segmentation, and tracking parameters are also available in
 
 ## Next steps
 
-- [Proactive monitoring architecture](../architecture/proactive-monitoring.md)
-- [Runtime details](../architecture/proactive-monitoring-runtime.md)
+- [Proactive monitoring architecture](../architecture/README.md)
 - [API endpoints](../api/endpoints.md)
-- [Agent core README](../../agents/core/README.md)
+- [Agent core README](../agent/README.md)

@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - (Optional) Docker & Docker Compose for containerised runs
 - (Optional) NVIDIA GPU + CUDA for local vLLM inference
 
@@ -10,7 +10,7 @@
 
 ```bash
 # Clone the repository
-git clone <repo-url> && cd agent-attempt-2
+git clone <repo-url> && cd gtc-genai-thor-pcb
 
 # Create a virtual environment
 python -m venv .venv && source .venv/bin/activate

@@ -1,463 +1,450 @@
 # Agent LLM Router
 
-The Agent LLM Router enables users to interact with the AI agent regardless of which LLM service they're running. It provides a unified interface for routing chat requests to different LLM backends with automatic failover, health monitoring, and multiple routing strategies.
+A single-provider router that sends all LLM requests to the project's vLLM
+deployment. There is no multi-provider registry, failover, or routing
+strategy — `AgentLLMRouter` auto-configures one vLLM connection from
+environment variables and exposes a small `chat()` / `chat_stream()` API on
+top of it.
 
-## Architecture
+## What it is (and isn't)
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Agent LLM Router                            │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │
-│  │  Registry   │  │  Selector   │  │  Health Monitor        │ │
-│  │ (providers) │◄─┤  (routing)  │◄─┤  (availability check)  │ │
-│  └──────┬──────┘  └─────────────┘  └─────────────────────────┘ │
-│         │                                                       │
-│  ┌──────▼──────────────────────────────────────────────────┐   │
-│  │                    LLM Adapters                          │   │
-│  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ │   │
-│  │  │Anthropic│ │ OpenAI │ │ Ollama │ │  vLLM  │ │  TGI   │ │   │
-│  │  └────────┘ └────────┘ └────────┘ └────────┘ └────────┘ │   │
-│  └──────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-```
+- **Is**: a thin, resilient wrapper around a single OpenAI-compatible vLLM
+  endpoint (retries, backoff, concurrency limiting, token-usage tracking,
+  streaming).
+- **Isn't**: a multi-provider router. There is no `register_provider()`,
+  no `RoutingStrategy`, no round-robin/priority/failover selection, and no
+  support for Anthropic/OpenAI/Google/Ollama/TGI/LM Studio backends. Only
+  vLLM is implemented (`router/adapters/vllm.py`).
 
-## Supported LLM Providers
+## Module layout
 
-| Provider | Type | Description |
-|----------|------|-------------|
-| **Anthropic** | Cloud API | Claude models (claude-sonnet-4-20250514, etc.) |
-| **OpenAI** | Cloud API | GPT models (gpt-4o, gpt-4-turbo, etc.) |
-| **Google** | Cloud API | Gemini models (gemini-1.5-pro, etc.) |
-| **Ollama** | Local | Run open-source LLMs locally |
-| **vLLM** | Self-hosted | High-throughput LLM serving |
-| **TGI** | Self-hosted | Hugging Face Text Generation Inference |
-| **LM Studio** | Local | Desktop app for running LLMs |
-| **OpenAI-Compatible** | Any | Any API following OpenAI's format |
+| File | Contents |
+|------|----------|
+| `router/llm_router.py` | `AgentLLMRouter` (singleton), module-level `get_router()`/`chat()`, token usage tracking |
+| `router/config.py` | `LLMProviderConfig`, `ProviderStatus`, `ChatMessage`, `ChatResponse` dataclasses |
+| `router/base.py` | `LLMAdapter` abstract base class shared by all adapters |
+| `router/adapters/vllm.py` | `VLLMAdapter` — the only concrete adapter today |
+| `router/rate_limit_config.py` | `RateLimitConfig` (retry/backoff/concurrency env vars) |
+| `router/resilience.py` | Concurrency limiter, backoff calculator, request metrics/logging |
 
-## Quick Start
+## Singleton pattern
 
-### 1. Environment Variables (Auto-Discovery)
-
-The router automatically discovers providers from environment variables:
-
-```bash
-# Cloud APIs (set API keys)
-export ANTHROPIC_API_KEY="sk-ant-..."
-export OPENAI_API_KEY="sk-..."
-export GOOGLE_API_KEY="..."
-
-# Local/Self-hosted (set URLs)
-export OLLAMA_URL="http://localhost:11434"
-export OLLAMA_MODEL="llama3.2"
-
-export LLM_SERVER_URL="http://localhost:8000/v1"
-export LLM_MODEL_NAME="my-model"
-```
-
-### 2. Programmatic Registration
+`AgentLLMRouter` uses a classic double-checked-locking singleton:
 
 ```python
-from webapp.router import AgentLLMRouter, LLMProviderConfig, LLMProviderType
+class AgentLLMRouter:
+    _instance: Optional["AgentLLMRouter"] = None
+    _lock = threading.Lock()
 
-router = AgentLLMRouter()
-
-# Register Ollama
-router.register_provider(LLMProviderConfig(
-    name="ollama-local",
-    provider_type=LLMProviderType.OLLAMA,
-    url="http://localhost:11434",
-    model="llama3.2",
-    priority=1,
-    supports_tools=True
-))
-
-# Register vLLM
-router.register_provider(LLMProviderConfig(
-    name="vllm-server",
-    provider_type=LLMProviderType.VLLM,
-    url="http://gpu-server:8000",
-    model="meta-llama/Llama-3.2-8B-Instruct",
-    priority=2
-))
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
 ```
 
-### 3. Send Chat Requests
+`__init__` only runs its body once (guarded by `_initialized`), calling
+`self._adapter = VLLMAdapter()` and `self._auto_configure()`. Every call to
+`AgentLLMRouter()` — or the convenience `get_router()` — returns the same
+instance, so configuration changes made via `configure()` are visible
+everywhere in the process.
 
 ```python
-# Chat through the router (automatic provider selection)
-response = router.chat(messages=[
-    {"role": "system", "content": "You are a helpful assistant."},
-    {"role": "user", "content": "Hello!"}
-])
+from router import get_router
 
-print(f"Response from {response.provider}: {response.content}")
-
-# Chat with specific provider
-response = router.chat(
-    messages=[{"role": "user", "content": "What's 2+2?"}],
-    provider_name="ollama-local"
-)
-
-# Chat with function calling
-response = router.chat(
-    messages=[{"role": "user", "content": "What's the weather?"}],
-    tools=[{
-        "name": "get_weather",
-        "description": "Get current weather",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "location": {"type": "string"}
-            }
-        }
-    }]
-)
+router = get_router()
+response = router.chat(messages=[{"role": "user", "content": "Hello!"}])
 ```
 
-## REST API Endpoints
+## Auto-configuration and env vars
 
-### List Providers
+On first construction, `AgentLLMRouter._auto_configure()` reads:
 
-```bash
-GET /llm/providers
+| Env var | Used for | Default |
+|---------|----------|---------|
+| `VLLM_URL` | vLLM server base URL | `http://localhost:8000` |
+| `VISION_MODEL` | model name sent to vLLM | `""` (unset → `None`, adapter raises if no model configured at chat time) |
+| `VLLM_TIMEOUT` | HTTP request timeout (seconds) | `300` |
+| `VLLM_TEMPERATURE` | sampling temperature | `0.1` |
+| `VLLM_API_KEY` | optional `Authorization: Bearer` token | unset |
 
-# Response
-{
-    "success": true,
-    "providers": [
-        {
-            "name": "anthropic",
-            "provider_type": "anthropic",
-            "model": "claude-sonnet-4-20250514",
-            "priority": 1,
-            "enabled": true,
-            "status": {
-                "available": true,
-                "latency_ms": 0.0
-            }
-        }
-    ],
-    "count": 3,
-    "active_provider": {...}
-}
-```
+These populate an `LLMProviderConfig(name="vllm", supports_tools=True,
+supports_vision=True, ...)` and immediately trigger an availability check
+(`_check_availability()` → `VLLMAdapter.check_availability()`), whose result
+is stored on `ProviderStatus`.
 
-### Register Provider
+`core/config.py`'s `RouterConfig` dataclass (part of the app-wide `Config`)
+also declares:
 
-```bash
-POST /llm/providers
-Content-Type: application/json
+| Env var | Field | Default |
+|---------|-------|---------|
+| `LLM_ROUTER_FOR_CLASSIFICATION` | `router.use_for_classification` | `true` |
+| `LLM_ROUTER_FOR_CHAT` | `router.use_for_chat` | `true` |
 
-{
-    "name": "ollama-local",
-    "provider_type": "ollama",
-    "url": "http://localhost:11434",
-    "model": "llama3.2",
-    "priority": 1,
-    "supports_tools": true
-}
+`router.enabled` is hardcoded `True` (vLLM is the sole provider, so there's
+no "disabled" state). Note this is a separate config object from the
+router's own env-var reads above — `core.config.InferenceConfig` reads the
+same `VLLM_URL`/`VISION_MODEL`/`VLLM_TIMEOUT`/`VLLM_TEMPERATURE` vars
+independently for the rest of the app.
 
-# Response
-{
-    "success": true,
-    "registered": true,
-    "provider_name": "ollama-local"
-}
-```
+Retry/concurrency behavior (used by `VLLMAdapter`, not vLLM-specific) comes
+from `router/rate_limit_config.py`'s `RateLimitConfig`:
 
-### Unregister Provider
+| Env var | Field | Default |
+|---------|-------|---------|
+| `LLM_MAX_RETRIES` | `max_retries` | `5` |
+| `LLM_BACKOFF_BASE` | `backoff_base` | `2.0` |
+| `LLM_BACKOFF_MAX` | `backoff_max` | `30.0` |
+| `LLM_BACKOFF_JITTER` | `backoff_jitter` | `0.5` |
+| `LLM_MAX_CONCURRENCY` | `max_concurrency` | `2` |
+| `LLM_REQUEST_TIMEOUT` | `request_timeout` (seconds to wait for a concurrency slot) | `120.0` |
 
-```bash
-DELETE /llm/providers/{name}
-
-# Response
-{
-    "success": true,
-    "unregistered": true,
-    "provider_name": "ollama-local"
-}
-```
-
-### Check Health
-
-```bash
-GET /llm/health
-
-# Response
-{
-    "success": true,
-    "providers": {
-        "anthropic": true,
-        "ollama-local": false,
-        "vllm-server": true
-    },
-    "available": 2,
-    "unavailable": 1
-}
-```
-
-### Chat
-
-```bash
-POST /llm/chat
-Content-Type: application/json
-
-{
-    "messages": [
-        {"role": "user", "content": "Hello!"}
-    ],
-    "provider": "ollama-local"  // optional
-}
-
-# Response
-{
-    "success": true,
-    "response": {
-        "content": "Hello! How can I help you today?",
-        "provider": "ollama-local",
-        "model": "llama3.2",
-        "usage": {
-            "prompt_tokens": 5,
-            "completion_tokens": 10
-        }
-    }
-}
-```
-
-### Set Routing Strategy
-
-```bash
-PUT /llm/strategy
-Content-Type: application/json
-
-{
-    "strategy": "round_robin"
-}
-
-# Response
-{
-    "success": true,
-    "new_strategy": "round_robin"
-}
-```
-
-### Get Router Status
-
-```bash
-GET /llm/status
-
-# Response
-{
-    "success": true,
-    "routing_strategy": "failover",
-    "providers": [...],
-    "active_provider": {...}
-}
-```
-
-## Routing Strategies
-
-| Strategy | Description |
-|----------|-------------|
-| `priority` | Use highest priority (lowest number) available provider |
-| `round_robin` | Rotate between available providers |
-| `failover` | Use primary provider, automatically fail over on errors |
-| `latency` | Use provider with lowest measured latency |
-| `cost` | Use lowest cost provider (based on priority as proxy) |
+## `AgentLLMRouter` API
 
 ```python
-from webapp.router import RoutingStrategy
+def configure(
+    self,
+    url: Optional[str] = None,
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
+    timeout: Optional[int] = None,
+    temperature: Optional[float] = None,
+) -> None: ...
 
-router.set_routing_strategy(RoutingStrategy.ROUND_ROBIN)
+def get_config(self) -> Optional[LLMProviderConfig]: ...
+
+def check_health(self) -> Dict[str, Any]: ...
+    # {"vllm": bool, "available": bool, "url": str|None,
+    #  "model": str|None, "latency_ms": float|None}
+
+def is_available(self) -> bool: ...
+
+def list_providers(self) -> List[Dict[str, Any]]: ...
+    # returns a one-element list (for API compatibility with the old
+    # multi-provider shape) containing the vLLM config + status
+
+def list_models(self) -> List[str]: ...
+
+def get_active_provider(self) -> Optional[Dict[str, Any]]: ...
+
+def chat(
+    self,
+    messages: List[Dict[str, Any]],
+    tools: Optional[List[Dict[str, Any]]] = None,
+    **kwargs
+) -> ChatResponse: ...
+
+def chat_stream(
+    self,
+    messages: List[Dict[str, Any]],
+    tools: Optional[List[Dict[str, Any]]] = None,
+    **kwargs
+):  # generator of SSE-style dict events
+
+def to_dict(self) -> Dict[str, Any]: ...
+    # {"provider": "vllm", "config": {...}, "status": {...},
+    #  "active_provider": {...}}
 ```
 
-## Provider Configuration Options
+`chat()` raises `RuntimeError("vLLM provider not configured")` if
+`_config` is `None`, and the adapter itself raises `ValueError` if no model
+name has been set (`VISION_MODEL` unset and `configure(model=...)` never
+called).
+
+`chat_stream()` yields dict events forwarded from the adapter:
+`{"type": "token", "content": ...}`, `{"type": "tool_call", "id", "name",
+"arguments"}`, `{"type": "done", "response": ChatResponse}`, `{"type":
+"error", "error": ...}`. On `"done"`/`"complete"` events the router records
+token usage before re-yielding the event.
+
+Module-level convenience functions (`router/llm_router.py`):
 
 ```python
-LLMProviderConfig(
-    # Required
-    name="my-provider",           # Unique identifier
-    provider_type="ollama",       # Provider type (see supported list)
-    
-    # Connection
-    url="http://localhost:11434", # Server URL (for self-hosted)
-    api_key="sk-...",            # API key (for cloud APIs)
-    
-    # Model
-    model="llama3.2",            # Model name
-    max_tokens=4096,             # Max output tokens
-    temperature=0.7,             # Sampling temperature
-    
-    # Routing
-    priority=10,                 # Lower = higher priority
-    enabled=True,                # Enable/disable this provider
-    
-    # Capabilities
-    supports_tools=True,         # Function calling support
-    supports_vision=False,       # Image input support
-    
-    # Connection
-    timeout=60,                  # Request timeout in seconds
-    
-    # Additional
-    metadata={}                  # Custom metadata
-)
+def get_router() -> AgentLLMRouter:
+    """Get the global LLM router instance."""
+
+def chat(
+    messages: List[Dict[str, Any]],
+    tools: Optional[List[Dict[str, Any]]] = None,
+    **kwargs
+) -> ChatResponse:
+    """Send a chat request using the global router."""
 ```
 
-## Deploying Multiple LLM Backends
+Token usage is tracked separately from the router instance via a
+module-level `TokenUsageTracker`, exposed as `get_token_usage()` /
+`reset_token_usage()`.
 
-### Docker Compose Example
+## Data classes (`router/config.py`)
 
-```yaml
-version: '3.8'
-
-services:
-  # Your application
-  business-logic:
-    build: ./business-logic
-    environment:
-      # Cloud APIs
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # Local LLMs
-      - OLLAMA_URL=http://ollama:11434
-      - OLLAMA_MODEL=llama3.2
-      - LLM_SERVER_URL=http://vllm:8000/v1
-    ports:
-      - "8080:8080"
-
-  # Ollama for local inference
-  ollama:
-    image: ollama/ollama:latest
-    volumes:
-      - ollama_data:/root/.ollama
-    ports:
-      - "11434:11434"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
-  # vLLM for high-throughput inference
-  vllm:
-    image: vllm/vllm-openai:latest
-    command: ["--model", "meta-llama/Llama-3.2-8B-Instruct"]
-    ports:
-      - "8000:8000"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
-volumes:
-  ollama_data:
+```python
+@dataclass
+class LLMProviderConfig:
+    name: str = "vllm"
+    url: Optional[str] = None
+    model: Optional[str] = None
+    api_key: Optional[str] = None
+    max_tokens: int = 4096
+    temperature: float = 0.1
+    timeout: int = 60
+    enabled: bool = True
+    supports_tools: bool = True
+    supports_vision: bool = False
+    metadata: Dict[str, Any] = field(default_factory=dict)
 ```
 
-### Kubernetes Deployment
+`url` is normalized in `__post_init__` (adds `http://` if no scheme is
+present, strips trailing `/`). `to_dict()` never includes the raw
+`api_key` — it exposes `has_api_key: bool` instead.
 
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: llm-router-config
-data:
-  LLM_PROVIDERS: |
-    [
-      {
-        "name": "anthropic",
-        "provider_type": "anthropic",
-        "priority": 1
-      },
-      {
-        "name": "ollama",
-        "provider_type": "ollama",
-        "url": "http://ollama-service:11434",
-        "model": "llama3.2",
-        "priority": 10
+```python
+@dataclass
+class ChatResponse:
+    content: str
+    provider: str
+    model: str
+    tool_calls: Optional[List[Dict[str, Any]]] = None
+    usage: Optional[Dict[str, int]] = None
+    finish_reason: Optional[str] = None
+```
+
+`ProviderStatus` tracks `available`, `last_check`, `latency_ms`,
+`total_requests`, `error_count`, `last_error`, `models_available`.
+
+## `VLLMAdapter` (`router/adapters/vllm.py`)
+
+Implements `LLMAdapter` against vLLM's OpenAI-compatible HTTP API:
+
+- `check_availability()` — `GET {url}/v1/models` (falls back to `GET
+  {url}/health` if that doesn't return 200); returns `(available,
+  latency_ms, error)`.
+- `list_models()` — `GET {url}/v1/models`, returns the `id` field of each
+  entry in `data`.
+- `chat()` — `POST {url}/v1/chat/completions` with
+  `{"model", "messages", "max_tokens", "temperature", "tools"?}`. Adds
+  `Authorization: Bearer <api_key>` if `config.api_key` is set. Supports an
+  `extra_body` kwarg (merged into the payload — e.g. `chat_template_kwargs`
+  for Qwen3 thinking mode). Wrapped in a concurrency-limited retry loop
+  (`get_concurrency_limiter()`, `calculate_backoff()`) that retries
+  retryable errors (429/5xx/timeouts, see `rate_limit_config.py`) up to
+  `max_retries` times with exponential backoff + jitter.
+- `chat_stream()` — same endpoint with `"stream": True`, parses the SSE
+  `data: {...}` lines, accumulates `delta.content` into token events and
+  `delta.tool_calls` into a final `tool_call` event, then yields a `"done"`
+  event with the assembled `ChatResponse`.
+- `supports_streaming()` returns `True`.
+
+## Adapter base class (`router/base.py`)
+
+`LLMAdapter` is an ABC requiring `check_availability()`, `list_models()`,
+and `chat()`. It provides:
+
+- `_get_session()` — a shared `requests.Session` with connection pooling
+  (`pool_connections=20`, `pool_maxsize=50`) and a `urllib3` `Retry`
+  strategy built from `get_rate_limit_config()`.
+- `chat_stream()` — default (non-streaming) implementation that calls
+  `chat()` and yields one `{"type": "complete", ...}` event; `VLLMAdapter`
+  overrides this with true SSE streaming.
+- `supports_streaming()` — defaults to `False`.
+- `_convert_tools_to_openai_format()` — converts tool schemas to OpenAI
+  `{"type": "function", "function": {...}}` format. `VLLMAdapter.chat()`
+  and `chat_stream()` call this when `tools` are passed. Note: this is
+  unused by the VLM client's own tool-calling path (`agents/vlm/client.py`
+  parses tool calls out of the model's text response rather than using
+  structured `tools=`/`tool_calls`), so today it only matters for callers
+  that pass `tools=` directly through the router.
+
+## HTTP API (`app/api/v1/llm.py`)
+
+All routes are registered on `api_bp` (see `app/api/v1/__init__.py` for the
+blueprint's URL prefix).
+
+### `GET /llm/providers`
+
+Lists the (single) configured provider.
+
+```json
+{
+  "success": true,
+  "enabled": true,
+  "providers": [
+    {
+      "name": "vllm",
+      "provider_type": "vllm",
+      "url": "http://localhost:8000",
+      "model": "Qwen/Qwen3-VL-8B-Instruct",
+      "max_tokens": 4096,
+      "temperature": 0.1,
+      "enabled": true,
+      "supports_tools": true,
+      "supports_vision": true,
+      "has_api_key": false,
+      "status": {
+        "name": "vllm",
+        "available": true,
+        "last_check": 1735900000.0,
+        "latency_ms": 12.3,
+        "total_requests": 4,
+        "error_count": 0,
+        "last_error": null,
+        "models_available": []
       }
-    ]
+    }
+  ],
+  "active_provider": { "...": "same shape as above" },
+  "count": 1
+}
 ```
 
-## Error Handling and Failover
+If the router failed to import, returns `{"success": true, "enabled":
+false, "providers": [], "count": 0}` (HTTP 200).
 
-The router automatically handles failures:
+### `GET /llm/health`
 
-1. **Health Checks**: Periodically checks provider availability
-2. **Automatic Failover**: If a provider fails, tries the next available one
-3. **Error Tracking**: Tracks error counts and last errors per provider
-4. **Graceful Degradation**: Falls back to available providers seamlessly
+```json
+{
+  "success": true,
+  "health": {
+    "vllm": true,
+    "available": true,
+    "url": "http://localhost:8000",
+    "model": "Qwen/Qwen3-VL-8B-Instruct",
+    "latency_ms": 12.3
+  },
+  "all_healthy": true
+}
+```
+
+### `GET /llm/status`
+
+Full router state (`AgentLLMRouter.to_dict()`) plus token usage.
+
+```json
+{
+  "success": true,
+  "enabled": true,
+  "router": {
+    "provider": "vllm",
+    "config": { "...": "LLMProviderConfig.to_dict()" },
+    "status": { "...": "ProviderStatus.to_dict()" },
+    "active_provider": { "...": "config + status" }
+  },
+  "token_usage": {
+    "by_provider": { "vllm/Qwen/Qwen3-VL-8B-Instruct": { "prompt_tokens": 120, "completion_tokens": 45, "total_tokens": 165, "request_count": 3 } },
+    "totals": { "prompt_tokens": 120, "completion_tokens": 45, "total_tokens": 165, "request_count": 3 }
+  }
+}
+```
+
+### `PUT /llm/config`
+
+Runtime update of the vLLM connection (calls `router.configure(...)`).
+
+Request:
+
+```json
+{
+  "url": "http://llm-service:8000",
+  "model": "Qwen/Qwen3-VL-8B-Instruct",
+  "timeout": 300,
+  "temperature": 0.1
+}
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "vllm configuration updated",
+  "config": { "...": "LLMProviderConfig.to_dict()" }
+}
+```
+
+Returns `400` with `{"success": false, "error": "..."}` on failure.
+
+### `GET /llm/models`
+
+Lists models from the active provider (`router.list_models()`).
+
+```json
+{ "success": true, "provider": "vllm", "models": ["Qwen/Qwen3-VL-8B-Instruct"] }
+```
+
+### `POST /llm/models/fetch`
+
+Probes an arbitrary URL/adapter without touching the live router config —
+useful for a "test connection" UI flow. Uses `router.adapters.get_adapter()`
+and a throwaway `LLMProviderConfig(name="_temp_fetch", ...)`.
+
+Request:
+
+```json
+{ "url": "http://localhost:8000", "api_key": null, "provider_type": "vllm" }
+```
+
+Response:
+
+```json
+{ "success": true, "models": ["Qwen/Qwen3-VL-8B-Instruct"] }
+```
+
+or, if unreachable: `{"success": true, "models": [], "error": "..."}`.
+
+### `GET /llm/usage` / `DELETE /llm/usage`
+
+`GET` returns `{"success": true, "usage": {"by_provider": {...}, "totals":
+{...}}}`. `DELETE` resets counters and returns `{"success": true, "message":
+"Token usage reset"}`.
+
+### `POST /llm/chat`
+
+A test/debug endpoint — sends a single user message through the router.
+
+Request:
+
+```json
+{ "message": "Hello, what can you do?" }
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "response": {
+    "content": "...",
+    "provider": "vllm",
+    "model": "Qwen/Qwen3-VL-8B-Instruct",
+    "usage": { "prompt_tokens": 12, "completion_tokens": 30 },
+    "finish_reason": "stop"
+  }
+}
+```
+
+Returns `400` if `message` is missing/empty, `500` on router errors.
+
+## Extending
+
+The adapter layer is structurally pluggable — `LLMAdapter` (`router/base.py`)
+defines the contract (`check_availability`, `list_models`, `chat`, optional
+`chat_stream`/`supports_streaming`), and `router/adapters/__init__.py` keeps
+an `_ADAPTER_REGISTRY: dict[str, type[LLMAdapter]]` mapping provider-type
+strings to adapter classes, resolved via `get_adapter(provider_type=None)`
+(used by `POST /llm/models/fetch`). Today the registry only has:
 
 ```python
-# With failover strategy (default)
-response = router.chat(messages=[...])
-# If primary fails, automatically tries secondary providers
+_ADAPTER_REGISTRY = {
+    "vllm": VLLMAdapter,
+    "openai": VLLMAdapter,  # OpenAI-compatible API, same wire format
+}
 ```
 
-## Integration with Existing Agent
-
-The router integrates with the existing `agent_prompts.py` LLMManager:
-
-```python
-# In agent_prompts.py, the LLMManager can use the router
-from webapp.router import get_router, ChatResponse
-
-class LLMManager:
-    def __init__(self):
-        self.router = get_router()
-    
-    def chat(self, messages, tools=None):
-        return self.router.chat(messages, tools)
-```
-
-## Thread Safety
-
-The router is fully thread-safe:
-- Uses locks for registry modifications
-- Singleton pattern ensures single instance
-- Safe for use with multiple Flask workers
-
-## Extending with Custom Adapters
-
-```python
-from webapp.router import LLMAdapter, register_adapter, LLMProviderType
-
-class CustomAdapter(LLMAdapter):
-    def check_availability(self, config):
-        # Your implementation
-        return True, 0.0, None
-    
-    def list_models(self, config):
-        return ["model1", "model2"]
-    
-    def chat(self, config, messages, tools=None, **kwargs):
-        # Your chat implementation
-        pass
-
-# Register the adapter
-register_adapter(LLMProviderType.OPENAI_COMPATIBLE, CustomAdapter)
-```
-
-## Environment Variables Reference
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `ANTHROPIC_API_KEY` | Anthropic API key | - |
-| `ANTHROPIC_MODEL` | Default Anthropic model | claude-sonnet-4-20250514 |
-| `OPENAI_API_KEY` | OpenAI API key | - |
-| `OPENAI_MODEL` | Default OpenAI model | gpt-4o |
-| `GOOGLE_API_KEY` | Google API key | - |
-| `GOOGLE_MODEL` | Default Google model | gemini-1.5-pro |
-| `OLLAMA_URL` | Ollama server URL | http://localhost:11434 |
-| `OLLAMA_MODEL` | Default Ollama model | llama3.2 |
-| `USE_OLLAMA` | Enable Ollama discovery | - |
-| `LLM_SERVER_URL` | OpenAI-compatible server URL | - |
-| `LLM_MODEL_NAME` | Model name for generic server | default |
-| `LLM_API_KEY` | API key for generic server | - |
-| `LLM_SUPPORTS_TOOLS` | Enable tools for generic server | true |
-| `LLM_PROVIDERS` | JSON array of provider configs | - |
+Adding a new backend means writing a class that subclasses `LLMAdapter` and
+adding it to that registry. `AgentLLMRouter`, however, still hardcodes
+`self._adapter = VLLMAdapter()` in `__init__` — the registry is only
+consulted by the ad-hoc `/llm/models/fetch` probe endpoint today, so wiring
+a second *live* provider into `AgentLLMRouter` itself would require
+reintroducing some form of provider selection that does not exist now.

@@ -115,7 +115,6 @@ class MonitoringContext:
 - `stop()` — Stop the monitoring loop
 - `update_instruction(instruction)` — Update PCB inspection objective
 - `snapshot()` — Runtime state for dashboards and LLM context
-- `get_performance_metrics()` — Frames processed, inspections completed, etc.
 
 ### `detection_agent.py` — VLM Analysis Coordinator
 

@@ -3,8 +3,9 @@
 ## Route registration
 
 - API v1 blueprint is mounted at `/api`.
-- API v2 blueprint is mounted at `/api/v2` when enabled.
 - UI views blueprint is mounted at `/`.
+- `app/api/__init__.py` contains commented-out scaffolding for a future v2
+  blueprint (`app/api/v2`), but it is not implemented or registered.
 
 ## REST endpoints (v1)
 
@@ -33,7 +34,25 @@ All routes below are relative to `/api`.
 | GET, POST | `/config` |
 | GET | `/config/defaults` |
 | POST | `/config/reset` |
+| GET, PUT | `/config/inspection-prompt` |
 | GET, PUT | `/notifications/recipients` |
+
+### Defects (`app/api/v1/defects.py`)
+
+| Method | Path |
+| --- | --- |
+| GET | `/defects/summary` |
+| GET | `/defects/count` |
+| GET | `/defects/latest` |
+| GET | `/defects/trend` |
+| GET | `/defects/types` |
+| GET | `/defects/severity` |
+| GET | `/defects/sources` |
+| GET | `/defects/thresholds` |
+| GET | `/defects/report` |
+| GET | `/defects/insights` |
+| GET, PUT | `/notifications/preferences` |
+| GET | `/monitoring/status` |
 
 ### Health (`app/api/v1/health.py`)
 
@@ -102,6 +121,7 @@ All routes below are relative to `/api`.
 | GET | `/system/status` |
 | GET, POST | `/system/environment` |
 | GET, POST | `/system/logging` |
+| GET, POST | `/system/video_source` |
 | GET | `/test_camera` |
 | GET | `/test_inference` |
 | GET | `/test_vllm` |
