@@ -54,6 +54,9 @@ dmypy.json
 .env.*
 !.env.example
 
+# Auto-generated, persisted Flask secret key (core/config.py)
+.secret_key
+
 # TLS / certificates
 *.crt
 *.key
@@ -65,6 +68,7 @@ dmypy.json
 detected_images/
 processed_frames/
 *.pth
+*.MOV
 
 # Artifacts & reference archives (kept out of version control)
 artifacts/
@@ -105,6 +109,14 @@ Desktop.ini
 docker-compose.override.yml
 
 # ============================================================
+# Packaged Helm chart artifacts committed at the repo root
+# (build output of `helm package`, not source — the versioned
+# archives under helm/ are an intentional release-archive
+# directory and are not covered by this pattern)
+# ============================================================
+/*.tgz
+
+# ============================================================
 # Backups & temporary files
 # ============================================================
 *.bak
@@ -131,3 +143,9 @@ demo_*.py
 
 # Ensure repository tests remain tracked
 !tests/
+
+# ============================================================
+# Local drafts & scratch notes (never part of a release)
+# ============================================================
+BLOG.md
+DEBUG.md

@@ -1,0 +1,44 @@
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+
+# Docs, tests, and dev-only assets not needed inside the image
+docs/
+tests/
+*.md
+docs/reviews/
+
+# Retired code and packaged chart releases (see archive/README.md)
+archive/
+
+# Packaged Helm chart artifacts
+*.tgz
+
+# Runtime data (populated inside the container, not baked into the image)
+detected_images/
+processed_frames/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+
+# CI / VCS metadata
+.github/

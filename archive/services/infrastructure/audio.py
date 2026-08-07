@@ -214,10 +214,9 @@ class AudioPlayer:
 
         Returns
         -------
-        # Create temporary instance to get player configs
-        temp_instance = cls()
-        player_configs = temp_instance._get_player_configs()
-        return any(shutil.which(player) for player, _ in player_configs
+        bool
             True if at least one player is found.
         """
-        return any(shutil.which(player) for player, _ in cls._PLAYERS)
+        temp_instance = cls()
+        player_configs = temp_instance._get_player_configs()
+        return any(shutil.which(player) for player, _ in player_configs)
