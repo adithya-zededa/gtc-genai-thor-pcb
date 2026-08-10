@@ -71,10 +71,15 @@ def main():
         logger.warning("LLM Router failed to initialize: %s", exc)
     
     # 3. Initialize database
-    from app.database import init_db, ensure_database_directory
+    from app.database import init_db, ensure_database_directory, start_retention_worker
     ensure_database_directory()
     init_db()
     logger.info("Database initialized: %s", config.database.path)
+
+    # 3a. Start the retention sweep. The data volume is fixed-size and every
+    # write path (frames, detection logs, their JPEGs) is append-only, so
+    # without this the pod eventually fills its PVC.
+    start_retention_worker()
     
     # 4. Create Flask application (registers blueprints and websocket handlers)
     from app import create_app, socketio

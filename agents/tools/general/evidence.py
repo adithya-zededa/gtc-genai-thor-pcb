@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, Optional
 
+from core.config import get_config
 from core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -20,7 +19,7 @@ def tool_save_evidence(
     **kwargs,
 ) -> Dict[str, Any]:
     """Save detection image as evidence."""
-    evidence_dir = Path(os.getenv("DETECTED_IMAGES_DIR", "detected_images"))
+    evidence_dir = get_config().detected_images_dir
     evidence_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")

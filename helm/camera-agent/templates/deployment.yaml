@@ -94,22 +94,38 @@ spec:
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
-          livenessProbe:
+          # Startup gate. start.sh waits for the vLLM pods before exec'ing
+          # the app, which can take many minutes on a cold model load, so
+          # the slow boot is absorbed here rather than by a long
+          # initialDelaySeconds on the liveness probe.
+          startupProbe:
             httpGet:
-              path: /api/status
+              path: /api/health/live
               port: http
-            initialDelaySeconds: 60
-            periodSeconds: 30
-            timeoutSeconds: 10
-            failureThreshold: 20
-          readinessProbe:
-            httpGet:
-              path: /api/status
-              port: http
-            initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 5
-            failureThreshold: 30
+            failureThreshold: 90
+          # Liveness is deliberately dependency-free: /api/health/live
+          # touches neither the database nor the inference pods, so a vLLM
+          # outage can never restart a perfectly healthy app container.
+          livenessProbe:
+            httpGet:
+              path: /api/health/live
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          # Readiness gates Service traffic on local dependencies only
+          # (the SQLite database). /api/ready returns 503 when they fail;
+          # the old /api/status target always returned 200, so readiness
+          # was never able to pull a broken pod out of rotation.
+          readinessProbe:
+            httpGet:
+              path: /api/ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:

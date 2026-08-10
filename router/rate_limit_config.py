@@ -39,17 +39,7 @@ class RateLimitConfig:
     
     # Concurrency settings
     max_concurrency: int = field(default_factory=lambda: int(os.environ.get('LLM_MAX_CONCURRENCY', '2')))
-    request_queue_size: int = field(default_factory=lambda: int(os.environ.get('LLM_REQUEST_QUEUE_SIZE', '100')))
     request_timeout: float = field(default_factory=lambda: float(os.environ.get('LLM_REQUEST_TIMEOUT', '120.0')))
-    
-    # Token protection settings
-    max_prompt_tokens: int = field(default_factory=lambda: int(os.environ.get('LLM_MAX_PROMPT_TOKENS', '100000')))
-    max_output_tokens: int = field(default_factory=lambda: int(os.environ.get('LLM_MAX_OUTPUT_TOKENS', '4096')))
-    auto_truncate_prompts: bool = field(default_factory=lambda: os.environ.get('LLM_AUTO_TRUNCATE', 'true').lower() == 'true')
-    
-    # Deduplication settings
-    enable_deduplication: bool = field(default_factory=lambda: os.environ.get('LLM_ENABLE_DEDUP', 'true').lower() == 'true')
-    dedup_window_seconds: float = field(default_factory=lambda: float(os.environ.get('LLM_DEDUP_WINDOW', '5.0')))
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary for logging/serialization."""
@@ -59,13 +49,7 @@ class RateLimitConfig:
             "backoff_max": self.backoff_max,
             "backoff_jitter": self.backoff_jitter,
             "max_concurrency": self.max_concurrency,
-            "request_queue_size": self.request_queue_size,
             "request_timeout": self.request_timeout,
-            "max_prompt_tokens": self.max_prompt_tokens,
-            "max_output_tokens": self.max_output_tokens,
-            "auto_truncate_prompts": self.auto_truncate_prompts,
-            "enable_deduplication": self.enable_deduplication,
-            "dedup_window_seconds": self.dedup_window_seconds,
         }
     
     def log_config(self):

@@ -130,10 +130,7 @@ def log_diagnostics(log_id: int):
 @views_bp.route("/settings")
 def settings():
     """System settings page."""
-    import os
-
     from core.config import get_config
 
     cfg = get_config()
-    vllm_url = os.getenv("VLLM_URL", cfg.inference.vllm_url)
-    return render_template("settings.html", vllm_url=vllm_url)
+    return render_template("settings.html", vllm_url=cfg.inference.vllm_url)

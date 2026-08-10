@@ -41,9 +41,19 @@ The ZEDEDA Camera Monitoring Agent captures video from a camera device and runs 
 | **NVIDIA GPU Device Plugin** | For Kubernetes GPU scheduling |
 | **Python** | 3.11 (if running outside containers) |
 
-### Default Model
+### Default Models
 
-The default vision-language model is **`nvidia/Cosmos-Reason2-8B`** served via the NVIDIA Triton Server with vLLM backend (`nvcr.io/nvidia/tritonserver:25.12-vllm-python-py3`).
+The deployment serves **two models on two vLLM pods**, both via the NVIDIA Triton
+Server with vLLM backend (`nvcr.io/nvidia/tritonserver:25.12-vllm-python-py3`):
+
+| Role | Default model | Job |
+|---|---|---|
+| Vision | `LiquidAI/LFM2.5-VL-1.6B-PCB-Inspect` | Looks at frames, emits a structured defect verdict |
+| Agent | `LiquidAI/LFM2.5-2.6B` | Classifies intent, answers chat, drives tool calls — never sees pixels |
+
+They share one physical GPU through device-plugin **time slicing**, so the node
+must advertise at least 2 `nvidia.com/gpu` replicas. Set
+`vllmAgent.enabled=false` to run a single model serving both roles instead.
 
 > For gated models on Hugging Face, you will need a Hugging Face access token.
 
@@ -151,6 +161,10 @@ kubectl get nodes -o json | jq '.items[].status.allocatable["nvidia.com/gpu"]'
 # Should output "1" (or more)
 ```
 
+Because the chart runs **two** vLLM pods on one GPU, the node needs at least 2
+advertised replicas. Enable time slicing with `--set gpuTimeSlicing.enabled=true`
+(then restart the plugin), or set `vllmAgent.enabled=false` to run one model.
+
 ### 5. Install Helm
 
 ```bash
@@ -171,9 +185,10 @@ helm install camera-agent ./helm/camera-agent
 ```
 
 This deploys:
-- **Camera-agent pod** — Flask web app with proactive monitoring loop
-- **vLLM server pod** — GPU inference using `nvidia/Cosmos-Reason2-8B`
-- **Persistent volumes** — For model cache and application data
+- **Camera-agent pod** — Flask web app with the proactive monitoring loop
+- **vLLM vision pod** — `LiquidAI/LFM2.5-VL-1.6B-PCB-Inspect`
+- **vLLM agent pod** — `LiquidAI/LFM2.5-2.6B` (disable with `vllmAgent.enabled=false`)
+- **Persistent volumes** — model caches and application data
 
 ### Install with a Hugging Face Token (for Gated Models)
 
@@ -195,11 +210,15 @@ helm install camera-agent ./helm/camera-agent \
 
 ```bash
 helm install camera-agent ./helm/camera-agent \
-  --set vllmServer.model="nvidia/Cosmos-Reason2-8B" \
-  --set vllmServer.args.gpuMemoryUtilization=0.5 \
+  --set vllmServer.args.gpuMemoryUtilization=0.30 \
+  --set vllmAgent.args.gpuMemoryUtilization=0.25 \
   --set vllmServer.args.maxModelLen=16000 \
   --set camera.devicePath=/dev/video0
 ```
+
+> The two `gpuMemoryUtilization` values must sum to well under `1.0`. Time
+> slicing **shares** GPU memory rather than partitioning it, so overcommitting
+> here shows up as an OOM in whichever pod loads second.
 
 ### Check Deployment Status
 
@@ -238,17 +257,23 @@ Key values in `helm/camera-agent/values.yaml`:
 
 | Value | Default | Description |
 |-------|---------|-------------|
-| `vllmServer.enabled` | `true` | Deploy vLLM server alongside camera-agent |
-| `vllmServer.model` | `nvidia/Cosmos-Reason2-8B` | VLM model to serve |
+| `vllmServer.enabled` | `true` | Deploy the vision vLLM server |
+| `vllmServer.model` | `LiquidAI/LFM2.5-VL-1.6B-PCB-Inspect` | Vision model to serve |
+| `vllmServer.args.gpuMemoryUtilization` | `0.30` | Vision model's share of GPU memory |
+| `vllmAgent.enabled` | `true` | Deploy the agent (text) vLLM server |
+| `vllmAgent.model` | `LiquidAI/LFM2.5-2.6B` | Agent model to serve |
+| `vllmAgent.args.gpuMemoryUtilization` | `0.25` | Agent model's share of GPU memory |
+| `gpuTimeSlicing.enabled` | `false` | Advertise 2 GPU replicas via the device plugin |
 | `vllmServer.image.tag` | `25.12-vllm-python-py3` | Triton + vLLM container tag |
-| `vllmServer.args.gpuMemoryUtilization` | `0.5` | Fraction of GPU VRAM to use |
 | `vllmServer.args.maxModelLen` | `16000` | Max context length (tokens) |
 | `vllmServer.runtimeClassName` | `nvidia` | Kubernetes runtime class for GPU |
+| `replicaCount` | `1` | **Must stay 1** — SQLite, the camera device, and in-process singletons all assume one process |
 | `camera.enabled` | `true` | Mount camera device into pod |
 | `camera.devicePath` | `/dev/video0` | Host camera device path |
 | `service.nodePort` | `30080` | NodePort for web dashboard |
 | `persistence.data.size` | `10Gi` | PVC size for app data |
-| `vllmServer.persistence.size` | `50Gi` | PVC size for model cache |
+| `vllmServer.persistence.size` | `50Gi` | PVC size for the vision model cache |
+| `vllmAgent.persistence.size` | `30Gi` | PVC size for the agent model cache |
 
 ---
 
@@ -277,7 +302,7 @@ Access the dashboard at **http://localhost:8080**.
 
 2. **Start a vLLM server** (requires GPU):
    ```bash
-   vllm serve nvidia/Cosmos-Reason2-8B --host 0.0.0.0 --port 8000 \
+   vllm serve Qwen/Qwen3-VL-4B-Instruct --host 0.0.0.0 --port 8000 \
      --gpu-memory-utilization 0.5 --max-model-len 16000 --trust-remote-code
    ```
 
@@ -299,10 +324,11 @@ Access the dashboard at **http://localhost:8080**.
 ## Architecture
 
 ```
-Camera Feed → CV Gating → VLM (Cosmos Reason 2 8B) → Tool Execution → Alert Routing
-   ↓              ↓                  ↓                      ↓              ↓
-/dev/video0   Motion/Zone     Vision Analysis          send_email      Email / UI
-              Detection       & Reasoning              log_event       WebSocket
+Camera Feed → CV Gating → Vision VLM → Agent LLM → Tool Execution → Alert Routing
+   ↓              ↓             ↓            ↓             ↓              ↓
+/dev/video0   Motion/Zone   Structured    Intent,      send_email     Email / UI
+              Detection     defect        chat,        log_event      WebSocket
+                            verdict       tool choice
 ```
 
 ## Proactive Monitoring Loop
@@ -343,30 +369,39 @@ curl -X POST http://<JETSON_IP>:30080/api/monitoring/proactive/stop
 ├── config.yaml               # Configuration file
 │
 ├── core/                     # Core infrastructure
-│   ├── config.py             # Configuration management
+│   ├── config.py             # Configuration — the sole environment parser
 │   ├── logging.py            # Logging setup
+│   ├── resilience.py         # CircuitBreaker
 │   └── utils.py              # Utility functions
 │
 ├── app/                      # Flask application
 │   ├── __init__.py           # Application factory
-│   ├── api/v1/               # REST API endpoints
+│   ├── api/v1/               # REST API endpoints (incl. /chat, health probes)
 │   ├── views/                # HTML template routes
-│   ├── websocket/            # WebSocket handlers
-│   └── database/             # SQLite database layer
+│   ├── websocket/            # Socket.IO transport binding
+│   └── database/             # SQLite layer + retention sweep
 │
 ├── services/                 # Business logic
-│   ├── camera_service.py     # Camera frame publisher
-│   ├── monitoring_service.py # Monitoring orchestration
-│   └── config_service.py     # Config management
+│   ├── core/                 # Camera publisher, monitoring service, health
+│   ├── domains/pcb/          # Defect recording, alerting, reporting
+│   └── infrastructure/       # VLM client factory, config helpers
 │
 ├── agents/                   # AI agent components
+│   ├── conversation/           # The chat turn, independent of transport
+│   │   ├── orchestrator.py     # ConversationOrchestrator
+│   │   ├── events.py           # ConversationEventSink
+│   │   ├── session.py          # Chat sessions + signed tokens
+│   │   └── responses.py        # Agent-model prose + fallbacks
 │   ├── core/
 │   │   ├── monitoring_loop.py  # CV observation loop
 │   │   ├── detection_agent.py  # VLM detection/analysis agent
 │   │   └── state.py            # Agent memory & DetectionEvent
-│   ├── tools/                  # Tool executor (email, alerts)
+│   ├── mcp/                    # Proposal lifecycle, domains, audit log
+│   ├── classifiers/            # LLM intent classification (agent model)
+│   ├── tools/                  # Tool implementations (email, alerts, PCB)
 │   └── vlm/                    # Vision Language Model
 │       ├── client.py           # Unified VLM client
+│       ├── schemas.py          # Structured defect verdict
 │       └── prompts.py          # System prompts
 │
 ├── templates/                # Jinja2 HTML templates

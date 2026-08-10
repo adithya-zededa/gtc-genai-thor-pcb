@@ -8,13 +8,12 @@ Usage::
 
     from core.model_detect import detect_model
 
-    model = detect_model()                    # uses VLLM_URL env
+    model = detect_model()                    # uses Config.inference.vllm_url
     model = detect_model(base_url="http://vllm:8000")
 """
 
 from __future__ import annotations
 
-import os
 import threading
 import time
 from typing import Optional
@@ -22,6 +21,7 @@ from typing import Optional
 import requests
 from requests import RequestException
 
+from core.config import get_config
 from core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -82,17 +82,17 @@ def detect_model(
             backend,
         )
 
-    # 1. Explicit env override — never auto-detect
-    env_model = os.getenv("VISION_MODEL")
-    if env_model and env_model.strip() and env_model.strip().lower() != "auto":
-        return env_model.strip()
+    # 1. Explicit override — never auto-detect
+    configured = get_config().inference.model
+    if configured and configured.strip() and configured.strip().lower() != "auto":
+        return configured.strip()
 
     # 2. Cached
     if _state["detected_model"] and not force:
         return _state["detected_model"]
 
     # 3. Live detection
-    url = (base_url or os.getenv("VLLM_URL", "http://localhost:8000")).rstrip("/")
+    url = (base_url or get_config().inference.vllm_url).rstrip("/")
     fetch = _fetch_vllm_model
 
     model = fetch(url)

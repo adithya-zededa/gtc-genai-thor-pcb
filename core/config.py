@@ -130,6 +130,7 @@ class InferenceConfig:
     model: str = ""  # auto-detected from running server; set VISION_MODEL to override
     timeout: int = 300
     temperature: float = 0.1
+    api_key: Optional[str] = None
 
 
 @dataclass
@@ -147,11 +148,44 @@ class AgentInferenceConfig:
     model: str = ""
     timeout: int = 300
     temperature: float = 0.2
+    api_key: Optional[str] = None
+    # Optional override for intent classification only, when the classifier
+    # should use a different (usually smaller) model than chat.
+    classifier_model: str = ""
 
     @property
     def enabled(self) -> bool:
         """Whether a distinct agent endpoint is configured."""
         return bool(self.url)
+
+
+@dataclass
+class ChatSessionConfig:
+    """Bounds on in-memory chat state.
+
+    Chat history is durable in SQLite, so everything the process holds is
+    a cache. These limits decide how much of that cache a long-running
+    appliance keeps resident — evicted sessions rehydrate from the
+    database on the next (token-authenticated) bind.
+    """
+    idle_ttl_seconds: float = 3600.0
+    max_client_sessions: int = 200
+    max_messages_in_memory: int = 200
+
+
+@dataclass
+class RetentionConfig:
+    """Data-retention bounds for the append-only datasets.
+
+    Frame-store limits are expressed in seconds/rows because that table is
+    a working buffer, not history. The detection-log window is *not* here:
+    it is the operator-editable ``log_retention`` setting in the database,
+    read fresh on each sweep.
+    """
+    enabled: bool = True
+    interval_seconds: float = 3600.0
+    frame_max_age_seconds: int = 3600
+    frame_max_rows: int = 100
 
 
 @dataclass
@@ -186,6 +220,8 @@ class Config:  # pylint: disable=too-many-instance-attributes
     agent_inference: AgentInferenceConfig = field(default_factory=AgentInferenceConfig)
     flask: FlaskConfig = field(default_factory=FlaskConfig)
     router: RouterConfig = field(default_factory=RouterConfig)
+    retention: RetentionConfig = field(default_factory=RetentionConfig)
+    chat: ChatSessionConfig = field(default_factory=ChatSessionConfig)
 
     # Raw YAML config for backward compatibility
     _yaml_config: Dict[str, Any] = field(default_factory=dict)
@@ -219,12 +255,15 @@ class Config:  # pylint: disable=too-many-instance-attributes
                 model=os.getenv("VISION_MODEL", ""),  # resolved lazily via detect_model()
                 timeout=_safe_int_env("VLLM_TIMEOUT", 300),
                 temperature=_safe_float_env("VLLM_TEMPERATURE", 0.1),
+                api_key=os.getenv("VLLM_API_KEY") or None,
             ),
             agent_inference=AgentInferenceConfig(
                 url=os.getenv(ENV_AGENT_LLM_URL, ""),
                 model=os.getenv(ENV_AGENT_MODEL, ""),
                 timeout=_safe_int_env("AGENT_LLM_TIMEOUT", _safe_int_env("VLLM_TIMEOUT", 300)),
                 temperature=_safe_float_env("AGENT_LLM_TEMPERATURE", 0.2),
+                api_key=os.getenv("AGENT_LLM_API_KEY") or None,
+                classifier_model=os.getenv("CLASSIFIER_MODEL", ""),
             ),
             flask=FlaskConfig(
                 secret_key=os.getenv(ENV_SECRET_KEY) or "",
@@ -232,6 +271,18 @@ class Config:  # pylint: disable=too-many-instance-attributes
                 host=os.getenv("FLASK_RUN_HOST", "0.0.0.0"),
                 port=_safe_int_env("FLASK_RUN_PORT", 8080),
                 socketio_cors=os.getenv(ENV_SOCKETIO_CORS, DEFAULT_SOCKETIO_CORS),
+            ),
+            chat=ChatSessionConfig(
+                idle_ttl_seconds=_safe_float_env("CHAT_SESSION_IDLE_TTL_SECONDS", 3600.0),
+                max_client_sessions=_safe_int_env("CHAT_MAX_CLIENT_SESSIONS", 200),
+                max_messages_in_memory=_safe_int_env("CHAT_MAX_MESSAGES_IN_MEMORY", 200),
+            ),
+            retention=RetentionConfig(
+                enabled=os.getenv("RETENTION_ENABLED", "true").lower()
+                in {"1", "true", "yes", "on"},
+                interval_seconds=_safe_float_env("RETENTION_INTERVAL_SECONDS", 3600.0),
+                frame_max_age_seconds=_safe_int_env("FRAME_STORE_MAX_AGE_SECONDS", 3600),
+                frame_max_rows=_safe_int_env("FRAME_STORE_MAX_ROWS", 100),
             ),
             router=RouterConfig(
                 enabled=True,
@@ -281,8 +332,54 @@ class Config:  # pylint: disable=too-many-instance-attributes
             return self.load_yaml_config()
 
     @property
+    def agent_inference_url(self) -> str:
+        """Base URL for the agent (text) model, falling back to the vision pod.
+
+        A single-pod deployment leaves ``AGENT_LLM_URL`` unset; both roles
+        then address the same server. Everything that needs to reach the
+        agent model — the router, health checks — resolves it here so the
+        fallback rule is stated exactly once.
+        """
+        return self.agent_inference.url or self.inference.vllm_url
+
+    @property
+    def agent_inference_model(self) -> str:
+        """Model id for the agent role, falling back to the vision model."""
+        return self.agent_inference.model or self.inference.model
+
+    @property
+    def agent_inference_api_key(self) -> Optional[str]:
+        """API key for the agent role, falling back to the vision key."""
+        return self.agent_inference.api_key or self.inference.api_key
+
+    @property
+    def classifier_model(self) -> str:
+        """Model the intent classifier should use.
+
+        Defaults to the agent model — classification is an agent-role job —
+        with ``CLASSIFIER_MODEL`` as an escape hatch for pointing it at
+        something smaller.
+        """
+        return self.agent_inference.classifier_model or self.agent_inference_model
+
+    @property
     def detected_images_dir(self) -> Path:
         """Get the detected images directory path."""
+        return self.camera.detection_image_dir
+
+    def resolve_detection_image_dir(self, yaml_value: Optional[str] = None) -> Path:
+        """Resolve the detected-images directory: env > YAML > default.
+
+        Callers with a YAML ``camera.detection_image_dir`` pass it here
+        instead of consulting ``DETECTED_IMAGES_DIR`` themselves, so the
+        precedence rule exists in exactly one place. A relative YAML path
+        is anchored at ``data_dir``, matching how the default is built.
+        """
+        if os.getenv(ENV_DETECTED_DIR):
+            return self.camera.detection_image_dir
+        if yaml_value:
+            candidate = Path(str(yaml_value)).expanduser()
+            return candidate if candidate.is_absolute() else self.data_dir / candidate
         return self.camera.detection_image_dir
 
     @property

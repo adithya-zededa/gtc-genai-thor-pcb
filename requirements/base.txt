@@ -3,7 +3,6 @@
 
 # Web framework
 Flask>=3.0.0
-Flask-Cors>=4.0.0
 flask-socketio>=5.3.0
 # Signed chat-session tokens (app/websocket/chat.py). A Flask dependency, but
 # imported directly here, so pinned explicitly.
@@ -12,15 +11,9 @@ itsdangerous>=2.1.0
 # Configuration
 python-dotenv>=1.0.1
 PyYAML>=6.0.1
-pydantic>=2.0.0
 
 # HTTP client
 requests>=2.31.0
-
-# LLM Router - Cloud provider SDKs
-anthropic>=0.40.0
-openai>=1.50.0
-google-genai>=1.0.0
 
 # System monitoring
 psutil>=5.9.0
@@ -29,9 +22,3 @@ psutil>=5.9.0
 opencv-python>=4.8.0
 scikit-image>=0.22.0
 numpy>=1.26.0
-
-# Text-to-speech
-gTTS>=2.5.0
-
-# PDF generation
-weasyprint>=62.0

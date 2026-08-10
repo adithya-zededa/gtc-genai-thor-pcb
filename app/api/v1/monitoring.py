@@ -13,7 +13,7 @@ from flask import jsonify, request
 from core.config import get_config
 from core.logging import get_logger
 from services.core.camera import check_camera_availability
-from services.core.inference import check_inference_backend_availability
+from services.core.inference import check_inference_roles
 from services.core.monitoring import get_monitoring_service
 
 from . import api_bp
@@ -63,13 +63,19 @@ def _extract_proactive_config(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 @api_bp.route("/status")
 def get_status():
-    """Get comprehensive system status including circuit breaker state."""
+    """Get comprehensive system status including circuit breaker state.
+
+    This is a dashboard endpoint, not a probe — it reaches out to the
+    inference pods. Kubernetes probes use ``/api/health/live`` and
+    ``/api/ready`` instead.
+    """
     service = get_monitoring_service()
     stats: Dict[str, Any] = {}
     if service and hasattr(service, "_serialize_stats"):
         stats = service._serialize_stats()  # pylint: disable=protected-access
 
     config = get_config()
+    inference_roles = check_inference_roles()
     status = {
         "monitoring_active": (
             (service.get_active_monitoring_mode() != "idle")
@@ -78,7 +84,10 @@ def get_status():
         "camera_available": check_camera_availability(),
         "video_simulated": bool(config.camera.video_source),
         "inference_backend": "vllm",
-        "inference_available": check_inference_backend_availability(),
+        # True only when both the vision and agent models are reachable —
+        # a live vision pod alone still leaves chat dead.
+        "inference_available": all(inference_roles.values()),
+        "inference_roles": inference_roles,
         "stats": stats,
     }
 

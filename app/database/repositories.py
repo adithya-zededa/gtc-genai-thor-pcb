@@ -8,9 +8,10 @@ Each repository handles CRUD operations for a specific domain model.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from core.logging import get_logger
 
@@ -25,6 +26,26 @@ from .models import (
 )
 
 logger = get_logger(__name__)
+
+
+def _unlink_all(paths: Iterable[str]) -> int:
+    """Best-effort delete of image files whose rows have just been removed.
+
+    Failures are logged and skipped rather than raised: the row is already
+    gone, so an unreadable path means a leaked file, not a broken delete.
+    """
+    removed = 0
+    for path in paths:
+        if not path:
+            continue
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+                removed += 1
+        except OSError as exc:
+            logger.warning("Could not remove retired image %s: %s", path, exc)
+    return removed
+
 
 class UserRepository:
     """Repository for User data operations with caching for performance."""
@@ -214,19 +235,61 @@ class DetectionLogRepository:
 
     @staticmethod
     def delete(log_id: int) -> bool:
-        """Delete a specific log entry."""
+        """Delete a specific log entry and its captured image."""
         with get_db_connection() as conn:
+            row = conn.execute(
+                "SELECT image_path FROM detection_logs WHERE id = ?", (log_id,)
+            ).fetchone()
             conn.execute("DELETE FROM detection_logs WHERE id = ?", (log_id,))
             conn.commit()
+        if row:
+            _unlink_all([row["image_path"]])
         return True
 
     @staticmethod
     def delete_all() -> bool:
-        """Delete all detection logs."""
+        """Delete all detection logs and their captured images."""
         with get_db_connection() as conn:
+            rows = conn.execute(
+                "SELECT image_path FROM detection_logs"
+            ).fetchall()
             conn.execute("DELETE FROM detection_logs")
             conn.commit()
+        _unlink_all(row["image_path"] for row in rows)
         return True
+
+    @staticmethod
+    def delete_older_than(days: int) -> int:
+        """Delete logs older than *days*, with their images. Returns the count.
+
+        ``days <= 0`` is treated as "retain everything" so a misconfigured
+        setting can never wipe the log rather than skip the sweep.
+        """
+        if days <= 0:
+            return 0
+
+        with get_db_connection() as conn:
+            doomed = conn.execute(
+                """
+                SELECT id, image_path FROM detection_logs
+                WHERE timestamp < datetime('now', ? || ' days')
+                """,
+                (f"-{int(days)}",),
+            ).fetchall()
+
+            if not doomed:
+                return 0
+
+            ids = [row["id"] for row in doomed]
+            placeholders = ",".join("?" for _ in ids)
+            conn.execute(
+                f"DELETE FROM detection_logs WHERE id IN ({placeholders})",
+                ids,
+            )
+            conn.commit()
+
+        _unlink_all(row["image_path"] for row in doomed)
+        return len(ids)
 
     @staticmethod
     def get_all_for_export() -> List[DetectionLog]:
@@ -702,35 +765,40 @@ class PCBFrameStoreRepository:
         """Remove old frames to prevent unbounded growth.
 
         Deletes frames older than *max_age_seconds* AND trims to keep at most
-        *max_rows* most-recent rows.  Returns the number of rows removed.
-        """
-        deleted = 0
-        with get_db_connection() as conn:
-            # Age-based cleanup
-            cursor = conn.execute(
-                """
-                DELETE FROM pcb_frame_store
-                WHERE timestamp < datetime('now', ? || ' seconds')
-                """,
-                (f"-{max_age_seconds}",),
-            )
-            deleted += cursor.rowcount
+        *max_rows* most-recent rows. The backing image files are unlinked
+        too — deleting only the rows would leave the bytes on the data
+        volume forever, which is the growth this is meant to bound.
 
-            # Row-count based cleanup
-            cursor = conn.execute(
+        Returns the number of rows removed.
+        """
+        with get_db_connection() as conn:
+            # Select first so the image paths survive the DELETE.
+            doomed = conn.execute(
                 """
-                DELETE FROM pcb_frame_store
-                WHERE id NOT IN (
-                    SELECT id FROM pcb_frame_store
-                    ORDER BY timestamp DESC
-                    LIMIT ?
-                )
+                SELECT id, image_path FROM pcb_frame_store
+                WHERE timestamp < datetime('now', ? || ' seconds')
+                   OR id NOT IN (
+                        SELECT id FROM pcb_frame_store
+                        ORDER BY timestamp DESC
+                        LIMIT ?
+                   )
                 """,
-                (max_rows,),
+                (f"-{max_age_seconds}", max_rows),
+            ).fetchall()
+
+            if not doomed:
+                return 0
+
+            ids = [row["id"] for row in doomed]
+            placeholders = ",".join("?" for _ in ids)
+            conn.execute(
+                f"DELETE FROM pcb_frame_store WHERE id IN ({placeholders})",
+                ids,
             )
-            deleted += cursor.rowcount
             conn.commit()
-        return deleted
+
+        _unlink_all(row["image_path"] for row in doomed)
+        return len(ids)
 
     @staticmethod
     def deduplicate_similar(
@@ -752,8 +820,6 @@ class PCBFrameStoreRepository:
 
         Returns the number of frames removed.
         """
-        import os  # pylint: disable=import-outside-toplevel
-
         try:
             import cv2  # pylint: disable=import-outside-toplevel
         except ImportError:
@@ -857,12 +923,7 @@ class PCBFrameStoreRepository:
             )
             conn.commit()
 
-        for path in paths_to_delete:
-            try:
-                if path and os.path.isfile(path):
-                    os.remove(path)
-            except OSError:
-                pass
+        _unlink_all(paths_to_delete)
 
         logger.info(
             "Frame dedup: removed %d similar frames (threshold=%.2f, window=%.0fs)",

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import copy
 import logging
-import os
 import threading
 import time
 from dataclasses import asdict
@@ -20,6 +19,7 @@ import cv2
 import numpy as np
 import yaml
 
+from core.config import get_config
 from core.logging import get_logger
 from core.utils import coerce_bool
 from agents.core.state import AgentMemory, DetectionEvent
@@ -38,7 +38,7 @@ except ImportError:
 
 logger = get_logger(__name__)
 
-DEFAULT_CONFIG_PATH = os.getenv("CAMERA_AGENT_CONFIG", "config.yaml")
+DEFAULT_CONFIG_PATH = str(get_config().config_path)
 
 __all__ = [
     "StreamlinedAgent",
@@ -91,19 +91,11 @@ class StreamlinedAgent:  # pylint: disable=too-many-instance-attributes
         camera_cfg = config.get("camera", {})
         self.save_images = coerce_bool(camera_cfg.get("save_detection_images"), False)
 
-        # Resolve images directory: prefer DETECTED_IMAGES_DIR env var, fall back to config
-        env_images_dir = os.getenv("DETECTED_IMAGES_DIR")
-        if env_images_dir:
-            self.images_dir = Path(env_images_dir)
-        else:
-            config_images_dir = camera_cfg.get("detection_image_dir", "detected_images")
-            # If relative, make it relative to DATA_DIR
-            data_dir = Path(os.getenv("CAMERA_AGENT_DATA_DIR", "."))
-            images_path = Path(config_images_dir)
-            if not images_path.is_absolute():
-                self.images_dir = data_dir / images_path
-            else:
-                self.images_dir = images_path
+        # env > YAML > default; the precedence itself lives in core.config
+        # so this is not a second, drifting copy of the same rule.
+        self.images_dir = get_config().resolve_detection_image_dir(
+            camera_cfg.get("detection_image_dir")
+        )
 
         if self.save_images:
             self.images_dir.mkdir(parents=True, exist_ok=True)

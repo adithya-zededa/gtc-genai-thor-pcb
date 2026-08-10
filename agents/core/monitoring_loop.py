@@ -782,13 +782,9 @@ class MonitoringLoop:
 
         self._last_store_ts = now
         try:
-            import os  # pylint: disable=import-outside-toplevel
-            from pathlib import Path  # pylint: disable=import-outside-toplevel
+            from core.config import get_config  # pylint: disable=import-outside-toplevel
 
-            store_dir = (
-                Path(os.getenv("CAMERA_AGENT_DATA_DIR", "."))
-                / "pcb_frame_store"
-            )
+            store_dir = get_config().data_dir / "pcb_frame_store"
             store_dir.mkdir(parents=True, exist_ok=True)
             ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
             path = store_dir / f"pcb_{ts}.jpg"

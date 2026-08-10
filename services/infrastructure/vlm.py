@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any, Dict
 
 from agents.vlm.client import UnifiedVLMClient
@@ -13,21 +12,29 @@ logger = get_logger(__name__)
 
 
 def create_vlm_client_from_config(cfg: Dict[str, Any]) -> UnifiedVLMClient:
-    """Create a VLM client from configuration.
-    
+    """Create a VLM client for the vision role.
+
     All inference is routed through the centralized ``router`` package.
-    Environment variables take precedence over config file settings.
+    Precedence is environment > YAML > dataclass default; the environment
+    layer is applied once, inside ``core.config``, rather than re-read
+    here. Only values the YAML can legitimately override (``vllm.model``,
+    and the timeout/temperature when the env is silent) are read from
+    *cfg*.
     """
     app_config = get_config()
-    
+
     vllm_cfg = cfg.get("vllm", {})
-    vllm_url = os.getenv("VLLM_URL") or str(vllm_cfg.get("url", app_config.inference.vllm_url)).rstrip("/")
+    vllm_url = app_config.inference.vllm_url.rstrip("/")
     from core.model_detect import detect_model
-    default_model = detect_model(backend="vllm", base_url=vllm_url, wait=False)
     yaml_model = str(vllm_cfg.get("model", ""))
-    vision_model = yaml_model if yaml_model and yaml_model != "auto" else default_model
-    timeout = int(os.getenv("VLLM_TIMEOUT", vllm_cfg.get("timeout", app_config.inference.timeout)))
-    temperature = float(os.getenv("VLLM_TEMPERATURE", vllm_cfg.get("temperature", app_config.inference.temperature)))
+    if yaml_model and yaml_model != "auto":
+        vision_model = yaml_model
+    else:
+        vision_model = app_config.inference.model or detect_model(
+            backend="vllm", base_url=vllm_url, wait=False
+        )
+    timeout = int(vllm_cfg.get("timeout", app_config.inference.timeout))
+    temperature = float(vllm_cfg.get("temperature", app_config.inference.temperature))
     
     logger.info("Creating VLM client: model=%s (routed via centralized router)", vision_model)
     return UnifiedVLMClient(

@@ -23,13 +23,63 @@ def _ensure_list(value: Optional[List[str]]) -> List[str]:
     return [str(value)]
 
 
+def _email_settings() -> Dict[str, Any]:
+    """Resolve SMTP settings: environment > config.yaml > default.
+
+    The Settings page writes ``notifications.email.{smtp_server,smtp_port,
+    sender_email}`` into config.yaml. Those keys were previously read by
+    nothing — SMTP came from the environment alone — so configuring a mail
+    server through the UI silently had no effect. The YAML layer is
+    consulted here, with the environment still winning so a deployment can
+    override without editing a mounted file.
+    """
+    yaml_email: Dict[str, Any] = {}
+    try:
+        from services.infrastructure.config import load_camera_config
+
+        yaml_email = (load_camera_config().get("notifications", {})
+                      .get("email", {})) or {}
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.debug("Could not read email settings from config.yaml: %s", exc)
+
+    def _yaml(key, default):
+        value = yaml_email.get(key)
+        return default if value in (None, "") else value
+
+    try:
+        port = int(os.getenv("EMAIL_SMTP_PORT") or _yaml("smtp_port", 587))
+    except (TypeError, ValueError):
+        port = 587
+
+    use_tls_raw = os.getenv("EMAIL_USE_TLS")
+    if use_tls_raw is None:
+        use_tls = bool(_yaml("use_tls", True))
+    else:
+        use_tls = use_tls_raw.lower() in {"1", "true", "yes"}
+
+    return {
+        "host": os.getenv("EMAIL_SMTP_SERVER") or _yaml("smtp_server", "smtp.gmail.com"),
+        "port": port,
+        "use_tls": use_tls,
+        "username": os.getenv("EMAIL_USER"),
+        "password": os.getenv("EMAIL_PASS"),
+        "sender": (
+            os.getenv("EMAIL_FROM")
+            or _yaml("sender_email", "")
+            or os.getenv("EMAIL_USER")
+            or "noreply@example.com"
+        ),
+    }
+
+
 def _send_email_via_smtp(message: EmailMessage) -> str:
-    """Send email via SMTP using environment configuration."""
-    host = os.getenv("EMAIL_SMTP_SERVER", "smtp.gmail.com")
-    port = int(os.getenv("EMAIL_SMTP_PORT", "587"))
-    use_tls = os.getenv("EMAIL_USE_TLS", "true").lower() in {"1", "true", "yes"}
-    username = os.getenv("EMAIL_USER")
-    password = os.getenv("EMAIL_PASS")
+    """Send email via SMTP using the resolved configuration."""
+    settings = _email_settings()
+    host = settings["host"]
+    port = settings["port"]
+    use_tls = settings["use_tls"]
+    username = settings["username"]
+    password = settings["password"]
 
     if not username or not password:
         logger.warning("Email credentials not configured; skipping send.")
@@ -72,7 +122,7 @@ def send_email(payload: Dict[str, object]) -> str:
 
     message = EmailMessage()
     message["Subject"] = subject
-    message["From"] = os.getenv("EMAIL_FROM", os.getenv("EMAIL_USER", "noreply@example.com"))
+    message["From"] = _email_settings()["sender"]
     message["To"] = ", ".join(to)
 
     if cc:

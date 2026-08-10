@@ -17,7 +17,9 @@ from .core.camera import (
     check_camera_availability,
 )
 from .core.inference import (
+    check_agent_llm_availability,
     check_inference_backend_availability,
+    check_inference_roles,
     check_vllm_availability,
 )
 from .core.monitoring import (
@@ -53,7 +55,9 @@ __all__ = [
     "get_camera_publisher",
     "check_camera_availability",
     # Inference service
+    "check_agent_llm_availability",
     "check_inference_backend_availability",
+    "check_inference_roles",
     "check_vllm_availability",
     # Config service
     "load_camera_config",

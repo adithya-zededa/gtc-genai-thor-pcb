@@ -28,9 +28,12 @@ from core.logging import setup_logging
 setup_logging()
 
 # Initialize database
-from app.database import init_db, ensure_database_directory
+from app.database import init_db, ensure_database_directory, start_retention_worker
 ensure_database_directory()
 init_db()
+
+# Bound the append-only datasets (see app/database/maintenance.py)
+start_retention_worker()
 
 # Create application
 from app import create_app, socketio

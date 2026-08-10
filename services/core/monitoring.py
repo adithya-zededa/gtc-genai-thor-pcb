@@ -5,10 +5,13 @@ camera feed and runs the unified VLM-based detection pipeline.
 
 Design notes
 ~~~~~~~~~~~~
-* **Proactive-only runtime** — The only active monitoring mode is
-  ``PROACTIVE``.  The ``MonitoringMode`` enum retains an ``IDLE``
-  member for API consumers that inspect the current mode; there is no
-  separate "reactive" runtime.
+* **Proactive-only runtime** — Inspection is driven entirely by
+  ``MonitoringLoop``: deterministic CV decides *when* a board is worth
+  looking at, and only then is the VLM invoked.  ``MonitoringMode``
+  therefore has exactly two values — ``PROACTIVE`` while that loop is
+  running and ``IDLE`` when it is not.  There is no second (polling /
+  "reactive") runtime; ``is_monitoring`` is derived from the loop
+  rather than tracked as independent state.
 * **Dependency injection** — Database and SocketIO helpers are injected
   at construction time (``detection_repo``, ``inspection_repo``,
   ``socketio_emitter``) so the service is testable in isolation and
@@ -16,9 +19,9 @@ Design notes
   For backward-compatibility the service *also* supports late-import
   resolution when no dependency was injected, caching the reference on
   first successful import.
-* **Thread safety** — ``is_monitoring``, ``agent``, and ``publisher``
-  are guarded by ``_core_lock``.  Stats and prompt state each have
-  their own dedicated locks, which are never held simultaneously.
+* **Thread safety** — ``agent`` and ``publisher`` are guarded by
+  ``_core_lock``.  Stats, prompt state, and the proactive loop each
+  have their own dedicated locks, which are never held simultaneously.
 * **Config caching** — ``load_camera_config()`` is called in
   ``initialize()`` and cached; ``_run_analysis`` reads from the cache.
 """
@@ -26,13 +29,9 @@ Design notes
 from __future__ import annotations
 
 import threading
-import time
-from collections import deque
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Dict, Optional, Protocol
-from uuid import uuid4
 
 from agents.core.detection_agent import StreamlinedAgent
 from agents.core.monitoring_loop import MonitoringLoop
@@ -53,7 +52,13 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 class MonitoringMode(str, Enum):
-    """Supported monitoring runtime modes."""
+    """Runtime state of the monitoring service.
+
+    ``PROACTIVE`` means the ``MonitoringLoop`` thread is running;
+    ``IDLE`` means it is not.  These are states, not selectable modes —
+    ``start_monitoring(mode=...)`` accepts a value only so older API
+    callers keep working.
+    """
 
     IDLE = "idle"
     PROACTIVE = "proactive"
@@ -149,8 +154,6 @@ class StreamlinedMonitoringService:
 
     Parameters
     ----------
-    subscriber_id : str, optional
-        Unique ID used when subscribing to the camera publisher.
     publisher_getter : callable
         Factory that returns a camera publisher instance.
     auto_start_publisher : bool
@@ -169,7 +172,6 @@ class StreamlinedMonitoringService:
 
     def __init__(
         self,
-        subscriber_id: Optional[str] = None,
         publisher_getter: Callable = get_camera_publisher,
         auto_start_publisher: bool = True,
         *,
@@ -181,13 +183,10 @@ class StreamlinedMonitoringService:
         self._core_lock = threading.Lock()
         self._agent: Optional[StreamlinedAgent] = None
         self._publisher: Optional[Any] = None
-        self._is_monitoring: bool = False
         self._initialized: bool = False
 
-        self.subscriber_id = subscriber_id or f"monitor_{uuid4().hex[:8]}"
         self.last_frame: Optional[Dict[str, object]] = None
         self.last_error: Optional[str] = None
-        self._thread: Optional[threading.Thread] = None
         self._publisher_getter = publisher_getter
         self.auto_start_publisher = auto_start_publisher
 
@@ -204,20 +203,6 @@ class StreamlinedMonitoringService:
         self._prompt_version: int = 0
         self._prompt_lock = threading.Lock()
 
-        # --- Inference lock -------------------------------------------
-        self._inference_lock = threading.Lock()
-
-        # --- Timing configuration -------------------------------------
-        self.last_processed_time = 0.0
-        self.capture_interval = 30.0
-        self.analysis_workers = 1
-        self.max_pending_analyses = 3
-
-        # --- Analysis executor ----------------------------------------
-        self._analysis_executor: Optional[ThreadPoolExecutor] = None
-        self._analysis_futures: deque = deque()
-        self._futures_lock = threading.Lock()
-
         # --- Proactive agent state (guarded by _proactive_lock) -------
         self.proactive_agent: Optional[MonitoringLoop] = None
         self._proactive_instruction: str = ""
@@ -229,11 +214,6 @@ class StreamlinedMonitoringService:
         # --- Cached config (set during initialize) --------------------
         self._cached_config: Dict[str, Any] = {}
 
-        # --- Motion detection -----------------------------------------
-        self.ssim_threshold = 0.80
-        self.motion_burst_interval = 0.2
-        self._last_backpressure_log = 0.0
-
         # --- Stats tracking (guarded by _stats_lock) ------------------
         self._stats_lock = threading.Lock()
         self.stats: Dict[str, Any] = {
@@ -241,10 +221,7 @@ class StreamlinedMonitoringService:
             'processed_frames': 0,
             'detections': 0,
             'alerts_sent': 0,
-            'dropped_frames': 0,
             'single_frame_requests': 0,
-            'analysis_avg_ms': 0.0,
-            'analysis_samples': 0,
             'uptime_start': datetime.now().isoformat(),
         }
 
@@ -280,13 +257,13 @@ class StreamlinedMonitoringService:
 
     @property
     def is_monitoring(self) -> bool:
-        with self._core_lock:
-            return self._is_monitoring
+        """Whether inspection is currently running.
 
-    @is_monitoring.setter
-    def is_monitoring(self, value: bool) -> None:
-        with self._core_lock:
-            self._is_monitoring = value
+        Derived from the proactive loop rather than stored separately —
+        the loop is the only thing that monitors, so a flag that could
+        disagree with it would only ever be wrong.
+        """
+        return self.get_active_monitoring_mode() != MonitoringMode.IDLE.value
 
     # ------------------------------------------------------------------
     # Dependency resolution helpers
@@ -326,19 +303,6 @@ class StreamlinedMonitoringService:
             return None
 
     # ------------------------------------------------------------------
-    # Configuration
-    # ------------------------------------------------------------------
-
-    def _apply_configuration_settings(self, config: Dict[str, Any]) -> None:
-        """Apply configuration settings to runtime parameters."""
-        camera_cfg = config.get("camera", {})
-        advanced_cfg = config.get("advanced", {})
-
-        self.capture_interval = float(camera_cfg.get("capture_interval", self.capture_interval))
-        self.analysis_workers = int(advanced_cfg.get("max_concurrent_analyses", self.analysis_workers))
-        self.max_pending_analyses = int(advanced_cfg.get("max_pending_analyses", self.max_pending_analyses))
-
-    # ------------------------------------------------------------------
     # Initialization
     # ------------------------------------------------------------------
 
@@ -374,7 +338,6 @@ class StreamlinedMonitoringService:
                 self._publisher = pub
                 self._initialized = True
 
-            self._apply_configuration_settings(config)
             logger.info("Monitoring service initialized")
             return True
 
@@ -410,11 +373,6 @@ class StreamlinedMonitoringService:
 
         if self.is_monitoring:
             self.last_error = "Monitoring already active"
-            return False
-
-        # Avoid running both reactive and proactive loops simultaneously
-        if self.proactive_agent and self.proactive_agent.is_running:
-            self.last_error = "Proactive monitoring is currently active"
             return False
 
         if not self._ensure_initialized():
@@ -469,20 +427,12 @@ class StreamlinedMonitoringService:
         return True
 
     def stop_monitoring(self) -> None:
-        """Stop monitoring (proactive runtime and any legacy reactive loop)."""
-        self.is_monitoring = False
+        """Stop monitoring.
 
-        thread = self._thread
-        if thread and thread.is_alive():
-            thread.join(timeout=5.0)
-
-        pub = self.publisher
-        if pub:
-            try:
-                pub.unsubscribe(self.subscriber_id)
-            except Exception:
-                pass
-
+        The proactive loop owns its own camera subscription and tears it
+        down in ``MonitoringLoop.stop()``, so there is nothing for the
+        service itself to unsubscribe here.
+        """
         self.stop_proactive_monitoring()
         self._active_mode = MonitoringMode.IDLE
         logger.info("Monitoring stopped")
@@ -499,9 +449,7 @@ class StreamlinedMonitoringService:
         """Start or update the proactive monitoring agent.
 
         If proactive monitoring is already running, the instruction is
-        updated in-place without restarting the loop.  If a legacy
-        reactive loop is active it will be stopped cleanly first
-        *without* tearing down the proactive agent.
+        updated in-place without restarting the loop.
         """
         if not instruction or not instruction.strip():
             self.last_error = "Instruction is required"
@@ -521,23 +469,6 @@ class StreamlinedMonitoringService:
         if agent is None:
             self.last_error = "Agent initialization failed"
             return False
-
-        # Stop only the legacy reactive loop if it is running,
-        # WITHOUT touching the proactive agent (avoids circular teardown
-        # that previously occurred when stop_monitoring() called
-        # stop_proactive_monitoring()).
-        if self.is_monitoring:
-            logger.info("Stopping reactive loop before starting proactive mode")
-            self.is_monitoring = False
-            thread = self._thread
-            if thread and thread.is_alive():
-                thread.join(timeout=5.0)
-            pub = self.publisher
-            if pub:
-                try:
-                    pub.unsubscribe(self.subscriber_id)
-                except Exception:
-                    pass
 
         with self._proactive_lock:
             merged_config = {**self._proactive_config, **(config or {})}
@@ -777,7 +708,6 @@ class StreamlinedMonitoringService:
                     "Prompt changed - incrementing version to %d",
                     self._prompt_version
                 )
-                self._clear_pending_queue()
 
             self._current_task_type = task_type
             self._custom_prompt = custom_prompt
@@ -790,19 +720,6 @@ class StreamlinedMonitoringService:
             alerts_enabled,
             agentic_mode,
         )
-
-    def _clear_pending_queue(self) -> None:
-        """Clear all pending analysis futures."""
-        cancelled_count = 0
-        with self._futures_lock:
-            while self._analysis_futures:
-                future = self._analysis_futures.popleft()
-                if not future.done():
-                    future.cancel()
-                    cancelled_count += 1
-
-        if cancelled_count > 0:
-            logger.info("Cleared %d pending analyses", cancelled_count)
 
     def get_active_prompt_config(self) -> Dict[str, Any]:
         """Get the current prompt configuration."""
@@ -898,7 +815,6 @@ class StreamlinedMonitoringService:
             config = load_camera_config()
 
         self._cached_config = config
-        self._apply_configuration_settings(config)
         if self.agent and hasattr(self.agent, "apply_config"):
             self.agent.apply_config(config)
 
@@ -974,73 +890,3 @@ class StreamlinedMonitoringService:
         payload["monitoring_mode"] = self.get_active_monitoring_mode()
         payload["mode_decision_reason"] = self._last_mode_decision_reason
         return payload
-
-    # ------------------------------------------------------------------
-    # Legacy reactive monitoring loop (retained for backward compat)
-    # ------------------------------------------------------------------
-
-    def _monitoring_loop(self) -> None:
-        """Main monitoring loop (legacy reactive mode)."""
-        pub = self.publisher or self._publisher_getter()
-        self.publisher = pub
-
-        if not pub:
-            logger.error("Monitoring loop has no publisher")
-            self.is_monitoring = False
-            return
-
-        try:
-            while self.is_monitoring:
-                try:
-                    frame_obj = pub.get_frame(self.subscriber_id, timeout=1.0)
-                    if not frame_obj:
-                        continue
-
-                    with self._stats_lock:
-                        self.stats['total_frames'] += 1
-
-                    # Check if enough time has passed
-                    current_time = time.time()
-                    if current_time - self.last_processed_time < self.capture_interval:
-                        continue
-
-                    self.last_processed_time = current_time
-
-                    # Get current prompt config
-                    with self._prompt_lock:
-                        task_type = self._current_task_type
-                        custom_prompt = self._custom_prompt
-                        agentic = self._agentic_mode
-
-                    # Run analysis
-                    try:
-                        event = self._run_analysis(
-                            frame=frame_obj.raw_frame,
-                            task_type=task_type,
-                            custom_prompt=custom_prompt,
-                            agentic=agentic,
-                        )
-                    except Exception as e:
-                        logger.error("Analysis error: %s", e)
-                        continue
-
-                    if event:
-                        with self._stats_lock:
-                            self.stats['processed_frames'] += 1
-                            if event.detected:
-                                self.stats['detections'] += 1
-
-                        self._record_detection(event, {
-                            'frame_number': frame_obj.frame_number,
-                            'reason': 'scheduled_analysis',
-                        })
-
-                except Exception as e:
-                    logger.error("Monitoring loop error: %s", e)
-                    time.sleep(1.0)
-
-        finally:
-            try:
-                pub.unsubscribe(self.subscriber_id)
-            except Exception:
-                pass

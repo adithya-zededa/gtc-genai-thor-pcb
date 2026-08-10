@@ -426,18 +426,56 @@ def tool_get_top_defect_sources(
     }
 
 
+def _configured_thresholds() -> Dict[str, float]:
+    """Read the ``thresholds`` block from config.yaml, with fallbacks.
+
+    config.yaml documents these as "used by check_threshold_alerts", but
+    nothing read them — the tool hard-coded 10/24/5, so editing the file
+    changed nothing. They are read here so the documented knob works.
+    """
+    defaults = {
+        "max_defects_per_day": 10.0,
+        "max_high_severity_per_day": 5.0,
+        "trend_window_hours": 24.0,
+    }
+    try:
+        from services.infrastructure.config import load_camera_config
+
+        configured = load_camera_config().get("thresholds", {}) or {}
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.debug("Could not read thresholds from config.yaml: %s", exc)
+        return defaults
+
+    resolved = dict(defaults)
+    for key in defaults:
+        value = configured.get(key)
+        if value is None:
+            continue
+        try:
+            resolved[key] = float(value)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Ignoring non-numeric thresholds.%s=%r in config.yaml", key, value
+            )
+    return resolved
+
+
 def tool_check_threshold_alerts(
     rate_threshold: Optional[float] = None,
     window_hours: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Check whether any defects exceeded predefined thresholds or alerts.
 
+    Explicit arguments win; otherwise the ``thresholds`` block in
+    config.yaml supplies the limits.
+
     Parameters
     ----------
     rate_threshold : float, optional
-        Max acceptable defects per window (default: 10).
+        Max acceptable defects per window. Defaults to
+        ``thresholds.max_defects_per_day``.
     window_hours : float, optional
-        Time window in hours (default: 24).
+        Time window in hours. Defaults to ``thresholds.trend_window_hours``.
     """
     logger.info(
         "tool_check_threshold_alerts invoked (rate_threshold=%s, window_hours=%s)",
@@ -446,9 +484,19 @@ def tool_check_threshold_alerts(
 
     from services.domains.pcb.defect_store import check_threshold_alerts
 
+    configured = _configured_thresholds()
     check = check_threshold_alerts(
-        rate_threshold=rate_threshold or 10.0,
-        window_hours=window_hours or 24.0,
+        rate_threshold=(
+            rate_threshold
+            if rate_threshold is not None
+            else configured["max_defects_per_day"]
+        ),
+        window_hours=(
+            window_hours
+            if window_hours is not None
+            else configured["trend_window_hours"]
+        ),
+        high_severity_threshold=int(configured["max_high_severity_per_day"]),
     )
 
     if check["threshold_exceeded"]:

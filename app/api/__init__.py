@@ -26,6 +26,7 @@ def register_api_versions(app: Flask) -> None:
     from app.api.v1 import (
         analysis,
         camera,
+        chat,
         config,
         defects,
         health,
@@ -41,6 +42,7 @@ def register_api_versions(app: Flask) -> None:
     _ = (
         analysis,
         camera,
+        chat,
         config,
         defects,
         health,

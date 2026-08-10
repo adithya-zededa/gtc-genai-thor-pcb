@@ -44,18 +44,10 @@ from .rate_limit_config import (
 )
 
 from .resilience import (
-    ResilientLLMClient,
     RequestMetrics,
     ConcurrencyLimiter,
-    RequestDeduplicator,
-    RateLimitErrorResponse,
-    RateLimitException,
-    make_resilient_request,
     get_concurrency_limiter,
-    get_deduplicator,
-    get_resilience_stats,
-    estimate_tokens,
-    estimate_messages_tokens,
+    get_concurrency_stats,
     calculate_backoff,
 )
 
@@ -88,17 +80,9 @@ __all__ = [
     "RETRYABLE_STATUS_CODES",
     "NON_RETRYABLE_STATUS_CODES",
     # Resilience
-    "ResilientLLMClient",
     "RequestMetrics",
     "ConcurrencyLimiter",
-    "RequestDeduplicator",
-    "RateLimitErrorResponse",
-    "RateLimitException",
-    "make_resilient_request",
     "get_concurrency_limiter",
-    "get_deduplicator",
-    "get_resilience_stats",
-    "estimate_tokens",
-    "estimate_messages_tokens",
+    "get_concurrency_stats",
     "calculate_backoff",
 ]

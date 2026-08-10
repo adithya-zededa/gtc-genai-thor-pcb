@@ -7,6 +7,7 @@ lets a single-pod deployment keep working.
 
 import pytest
 
+from core.config import reset_config
 from router import llm_router
 from router.llm_router import ROLE_AGENT, ROLE_VISION, get_router, reset_routers
 from router.resilience import get_concurrency_limiter
@@ -26,9 +27,11 @@ def _isolated_routers(monkeypatch):
     monkeypatch.setattr(
         llm_router.AgentLLMRouter, "_check_availability", lambda self: False
     )
+    reset_config()
     reset_routers()
     yield
     reset_routers()
+    reset_config()
 
 
 def _configure(monkeypatch, *, agent_url=AGENT_URL, agent_model="LiquidAI/LFM2.5-2.6B"):
@@ -39,6 +42,10 @@ def _configure(monkeypatch, *, agent_url=AGENT_URL, agent_model="LiquidAI/LFM2.5
             monkeypatch.delenv(key, raising=False)
         else:
             monkeypatch.setenv(key, value)
+    # The router reads core.config, which caches — drop it so this test's
+    # environment is what gets parsed.
+    reset_config()
+    reset_routers()
 
 
 def test_roles_resolve_to_separate_routers(monkeypatch):

@@ -18,13 +18,20 @@ python -m venv .venv && source .venv/bin/activate
 # Install dev dependencies (includes testing & linting)
 pip install -r requirements/dev.txt
 
-# Copy and edit configuration
+# Point at a vLLM server (required — the app has no built-in inference)
+export VLLM_URL=http://localhost:8000
+
+# Optional: edit a copy of the config instead of the tracked file.
+# CAMERA_AGENT_CONFIG is what selects it — copying alone does nothing.
 cp config.yaml config.local.yaml
-# Edit config.local.yaml with your API keys / camera settings
+export CAMERA_AGENT_CONFIG=config.local.yaml
 
 # Run the development server
 python run.py
 ```
+
+Settings precedence is **environment > `config.yaml` > default**. The
+environment is parsed in one place, [`core/config.py`](../../core/config.py).
 
 ## Running Tests
 
@@ -56,6 +63,8 @@ mypy agents/ services/ app/ core/
 |----------------- |------------------------------------------- |
 | `agents/core/`   | Monitoring loop, detection agent, state     |
 | `agents/tools/`  | Callable tools (each file = one domain)    |
+| `agents/conversation/` | The chat turn, independent of transport |
 | `services/core/` | Stateless business logic (camera, monitor) |
-| `config/`        | Pydantic models, defaults, schemas         |
-| `core/`          | Cross-cutting utilities & error classes    |
+| `core/`          | Config (the sole env parser), logging, errors |
+| `app/websocket/` | Socket.IO transport binding only            |
+| `app/api/v1/`    | REST endpoints                              |

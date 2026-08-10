@@ -50,51 +50,44 @@ def _mark_initialized(service, agent, publisher=None):
 
 @pytest.fixture
 def dummy_agent():
-    ollama_client = SimpleNamespace(test_connection=lambda: True)
+    applied = []
     return SimpleNamespace(
         config={
             "camera": {"capture_interval": 1.5},
             "advanced": {"max_concurrent_analyses": 2},
         },
-        ollama_client=ollama_client,
+        applied_configs=applied,
+        apply_config=applied.append,
         process_detection=lambda event: False,
     )
 
 
-def test_apply_configuration_settings_updates_runtime_parameters():
-    service = CameraMonitoringService(auto_start_publisher=False)
-    config = {
-        "camera": {
-            "capture_interval": 2.5,
-        },
-        "advanced": {
-            "max_concurrent_analyses": 3,
-            "max_pending_analyses": 9,
-        },
-    }
-
-    service._apply_configuration_settings(
-        config
-    )  # pylint: disable=protected-access
-
-    assert service.capture_interval == pytest.approx(2.5)
-    assert service.analysis_workers == 3
-    assert service.max_pending_analyses == 9
-
-
-def test_refresh_configuration_uses_agent_defaults(dummy_agent):
+def test_refresh_configuration_caches_agent_config(dummy_agent):
+    """With no explicit config, the agent's own config is cached and reapplied."""
     service = CameraMonitoringService(auto_start_publisher=False)
     service.agent = dummy_agent
 
     service.refresh_configuration()
 
-    assert service.capture_interval == pytest.approx(1.5)
-    assert service.analysis_workers == 2
+    assert service._cached_config is dummy_agent.config  # pylint: disable=protected-access
+    assert dummy_agent.applied_configs == [dummy_agent.config]
 
 
-def test_start_and_stop_monitoring_manage_subscriptions(
+def test_refresh_configuration_prefers_explicit_config(dummy_agent):
+    service = CameraMonitoringService(auto_start_publisher=False)
+    service.agent = dummy_agent
+    override = {"camera": {"index": 2}}
+
+    service.refresh_configuration(override)
+
+    assert service._cached_config is override  # pylint: disable=protected-access
+    assert dummy_agent.applied_configs == [override]
+
+
+def test_start_and_stop_monitoring_toggle_the_proactive_loop(
     monkeypatch, dummy_agent
 ):
+    """is_monitoring tracks the proactive loop, which owns its own subscription."""
     fake_publisher = FakePublisher(running=True)
     service = CameraMonitoringService(
         publisher_getter=lambda: fake_publisher, auto_start_publisher=False
@@ -108,11 +101,33 @@ def test_start_and_stop_monitoring_manage_subscriptions(
     )
 
     assert service.start_monitoring() is True
+    assert service.is_monitoring is True
+    assert service.get_active_monitoring_mode() == "proactive"
 
     service.stop_monitoring()
 
     assert service.is_monitoring is False
-    assert service.subscriber_id in fake_publisher.unsubscribe_calls
+    assert service.get_active_monitoring_mode() == "idle"
+
+
+def test_start_monitoring_rejects_a_second_start(monkeypatch, dummy_agent):
+    """The guard now reflects the real loop rather than a flag nothing sets."""
+    fake_publisher = FakePublisher(running=True)
+    service = CameraMonitoringService(
+        publisher_getter=lambda: fake_publisher, auto_start_publisher=False
+    )
+    _mark_initialized(service, dummy_agent, fake_publisher)
+    monkeypatch.setattr(
+        "agents.core.monitoring_loop.MonitoringLoop.validate_instruction_scope",
+        classmethod(lambda cls, instruction: None),
+    )
+
+    assert service.start_monitoring() is True
+    try:
+        assert service.start_monitoring() is False
+        assert service.last_error == "Monitoring already active"
+    finally:
+        service.stop_monitoring()
 
 
 def test_start_monitoring_autostarts_publisher_when_allowed(

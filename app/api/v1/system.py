@@ -14,7 +14,7 @@ from core.config import get_config
 from core.logging import apply_log_preferences, get_logger
 from services.core.camera import check_camera_availability, reset_publisher
 from services.core.inference import (
-    check_inference_backend_availability,
+    check_inference_roles,
     check_vllm_availability,
 )
 
@@ -111,12 +111,14 @@ def system_status():
         config = get_config()
         uptime_seconds = int(time.time() - APP_START_TIME)
 
+        inference_roles = check_inference_roles()
         status = {
             "cpu_percent": psutil.cpu_percent(interval=1),
             "memory_percent": psutil.virtual_memory().percent,
             "disk_percent": psutil.disk_usage("/").percent,
             "camera_available": check_camera_availability(),
-            "inference_available": check_inference_backend_availability(),
+            "inference_available": all(inference_roles.values()),
+            "inference_roles": inference_roles,
             "inference_backend": "vllm",
             "uptime_seconds": uptime_seconds,
         }
@@ -389,31 +391,3 @@ def test_vllm():
         )
     except requests.RequestException as exc:
         return jsonify({"success": False, "error": f"vLLM connectivity failed: {exc}"})
-
-
-@api_bp.route("/test_ollama")
-def test_ollama():
-    """Legacy endpoint — redirects to vLLM health check via router."""
-    from router import get_router
-    health = get_router().check_health()
-    available = health.get("vllm", False)
-    return jsonify(
-        {
-            "success": available,
-            "message": (
-                "vLLM connection successful" if available else "vLLM not available"
-            ),
-        }
-    )
-
-
-@api_bp.route("/ollama_models")
-def ollama_models():
-    """Legacy endpoint — lists vLLM models via router."""
-    from router import get_router
-    try:
-        models = get_router().list_models()
-        return jsonify({"success": True, "models": models})
-    except Exception as exc:
-        logger.exception("Failed to list vLLM models: %s", exc)
-        return jsonify({"success": False, "error": "Unable to list models", "models": []})

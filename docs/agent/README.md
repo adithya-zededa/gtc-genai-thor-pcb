@@ -147,15 +147,8 @@ The `StreamlinedAgent` does NOT decide when to analyze. It's called by the LLM v
 | `defect_monitor.py` | Duplicate polling loop — LLM uses existing MCP tools |
 | `alerting.py` | Hardcoded alert dispatch — LLM calls alert tools (`send_defect_alert` / `send_alert_email`) |
 | `opencv_pcb_presence_test.py` | Dead code (zero importers) |
-
-## Backward-Compatibility Modules (still present)
-
-These files remain for import stability but are wrappers/re-exports:
-
-| Module | Current behavior |
-|--------|------------------|
-| `proactive_monitoring.py` | Deprecated shim that re-exports `MonitoringLoop` from `monitoring_loop.py` |
-| `resilience.py` | Re-exports `CircuitBreaker`/`CircuitState` from `core/resilience.py` |
+| `proactive_monitoring.py` | Removed — `MonitoringLoop` lives in `monitoring_loop.py` |
+| `agents/core/resilience.py` | Removed — `CircuitBreaker` lives in `core/resilience.py` |
 
 ## Integration Example
 
@@ -183,8 +176,9 @@ service.stop_monitoring()
 
 ```bash
 pytest tests/unit/agents/ -v
-pytest tests/integration/test_proactive_monitoring.py -v
 ```
+
+`tests/integration/` is a placeholder package with no tests in it yet.
 
 ## Key Principles
 

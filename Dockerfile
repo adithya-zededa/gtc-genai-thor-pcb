@@ -2,7 +2,10 @@
 # This image does NOT include Ollama - inference is handled by external vLLM server
 FROM python:3.11-slim
 
-# Install system dependencies for OpenCV, PDF generation (WeasyPrint), and audio playback
+# System dependencies for OpenCV, plus curl for the start.sh readiness wait.
+# The WeasyPrint (Pango/Cairo) and ALSA/ffmpeg packages that used to live here
+# were dropped along with their Python packages: reports are generated as
+# JSON, not PDF, and the audio playback module is archived.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
@@ -10,15 +13,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     libxrender-dev \
     curl \
-    # WeasyPrint PDF generation dependencies
-    libpango-1.0-0 \
-    libpangocairo-1.0-0 \
-    libgdk-pixbuf-2.0-0 \
-    libffi-dev \
-    shared-mime-info \
-    # Audio playback tools
-    alsa-utils \
-    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

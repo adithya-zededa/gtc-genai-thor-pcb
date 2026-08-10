@@ -1,20 +1,8 @@
-advanced:
-  # ═══════════════════════════════════════════════════════════════════════
-  # LEGACY REACTIVE MODE SETTINGS
-  # These are used ONLY for the old reactive monitoring mode.
-  # The new proactive agentic mode does NOT use SSIM thresholds or rules.
-  # ═══════════════════════════════════════════════════════════════════════
-  agent_ssim_recheck_seconds: 30  # Legacy: reactive mode only
-  agent_ssim_skip_threshold: 0.95  # Legacy: NOT used in proactive mode
-  max_concurrent_analyses: 1
-  max_pending_analyses: 3
 memory:
   max_events: 50
   summary_window: 10
 camera:
-  capture_interval: 30
   detection_image_dir: detected_images
-  device_index: 0
   save_detection_images: true
 
 proactive:

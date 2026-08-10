@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import threading
 import time
@@ -250,21 +249,18 @@ class LLMIntentClassifier:
         if self._base_url:
             return self._base_url
         from core.config import get_config
-        cfg = get_config()
-        return (
-            os.getenv("AGENT_LLM_URL")
-            or cfg.agent_inference.url
-            or os.getenv("VLLM_URL", cfg.inference.vllm_url)
-        ).rstrip("/")
+        # agent_inference_url already encodes the fallback to the vision pod.
+        return get_config().agent_inference_url.rstrip("/")
 
     @property
     def model(self) -> str:
         if self._model:
             return self._model
-        # Explicit override wins, then the configured agent model.
-        classifier_model = os.getenv("CLASSIFIER_MODEL") or os.getenv("AGENT_MODEL")
-        if classifier_model:
-            return classifier_model
+        from core.config import get_config
+        # CLASSIFIER_MODEL > AGENT_MODEL > VISION_MODEL, resolved in config.
+        configured = get_config().classifier_model
+        if configured:
+            return configured
         from core.model_detect import detect_model
         # Detect against the agent endpoint, not whatever VLLM_URL points at.
         return detect_model(backend="vllm", base_url=self.base_url, wait=False)

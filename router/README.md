@@ -2,9 +2,13 @@
 
 A single-provider router that sends all LLM requests to the project's vLLM
 deployment. There is no multi-provider registry, failover, or routing
-strategy — `AgentLLMRouter` auto-configures one vLLM connection from
-environment variables and exposes a small `chat()` / `chat_stream()` API on
-top of it.
+strategy — `AgentLLMRouter` configures a vLLM connection from
+`core.config` and exposes a small `chat()` / `chat_stream()` API on top of it.
+
+There is one router instance **per role**: `vision` (the VLM that looks at
+frames) and `agent` (the text model that classifies intent, answers chat, and
+selects tools). Each role has its own endpoint, model, and concurrency
+limiter. See `get_vision_router()` / `get_agent_router()`.
 
 ## What it is (and isn't)
 
@@ -20,7 +24,7 @@ top of it.
 
 | File | Contents |
 |------|----------|
-| `router/llm_router.py` | `AgentLLMRouter` (singleton), module-level `get_router()`/`chat()`, token usage tracking |
+| `router/llm_router.py` | `AgentLLMRouter` (one cached instance per role), `get_router(role)`/`get_vision_router()`/`get_agent_router()`/`chat()`, token usage tracking |
 | `router/config.py` | `LLMProviderConfig`, `ProviderStatus`, `ChatMessage`, `ChatResponse` dataclasses |
 | `router/base.py` | `LLMAdapter` abstract base class shared by all adapters |
 | `router/adapters/vllm.py` | `VLLMAdapter` — the only concrete adapter today |

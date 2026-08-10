@@ -15,11 +15,12 @@ Usage:
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+
+from core.config import get_config
 
 from .config import (
     LLMProviderConfig,
@@ -142,13 +143,16 @@ class AgentLLMRouter:
     router instance per *role* rather than one global instance:
 
     ``vision``
-        The fine-tuned VLM that looks at frames. Configured from ``VLLM_URL``
-        and ``VISION_MODEL``.
+        The fine-tuned VLM that looks at frames. Reads
+        ``Config.inference`` (``VLLM_URL`` / ``VISION_MODEL``).
     ``agent``
         The text model that classifies intent, answers chat, and drives tool
-        calls. Configured from ``AGENT_LLM_URL`` and ``AGENT_MODEL``, each
-        falling back to the vision endpoint so a single-pod deployment (or a
-        chart with ``agentServer.enabled=false``) keeps working unchanged.
+        calls. Reads ``Config.agent_inference`` (``AGENT_LLM_URL`` /
+        ``AGENT_MODEL``), each falling back to the vision endpoint so a
+        single-pod deployment keeps working unchanged.
+
+    All configuration is resolved through ``core.config.get_config()``;
+    this module reads no environment variables of its own.
 
     Instances are cached per role — ``get_router(role)`` is the entry point.
     Each role also gets its own concurrency limiter, so a slow vision
@@ -181,25 +185,30 @@ class AgentLLMRouter:
         logger.info("AgentLLMRouter initialized (role=%s)", role)
 
     def _auto_configure(self) -> None:
-        """Auto-configure the vLLM provider for this role from the environment."""
-        vision_url = os.environ.get("VLLM_URL", "http://localhost:8000")
-        vision_model = os.environ.get("VISION_MODEL", "")
+        """Configure this role's vLLM provider from the application config.
+
+        Every value comes from ``core.config``, which is the single place
+        the environment is parsed. The router used to re-read the same
+        variables itself, so the two could disagree — and did, whenever a
+        fallback rule was changed in one and not the other.
+        """
+        app_config = get_config()
 
         if self.role == ROLE_AGENT:
-            # Falling back to the vision endpoint keeps single-pod deployments
-            # working: the agent role then shares the vision server.
-            url = os.environ.get("AGENT_LLM_URL") or vision_url
-            model = os.environ.get("AGENT_MODEL", "") or vision_model
-            timeout = int(os.environ.get("AGENT_LLM_TIMEOUT", os.environ.get("VLLM_TIMEOUT", "300")))
-            temperature = float(os.environ.get("AGENT_LLM_TEMPERATURE", "0.2"))
-            api_key = os.environ.get("AGENT_LLM_API_KEY") or os.environ.get("VLLM_API_KEY")
+            # agent_inference_url/_model encode the fallback to the vision
+            # endpoint, so a single-pod deployment keeps working.
+            url = app_config.agent_inference_url
+            model = app_config.agent_inference_model
+            timeout = app_config.agent_inference.timeout
+            temperature = app_config.agent_inference.temperature
+            api_key = app_config.agent_inference_api_key
             supports_vision = False
         else:
-            url = vision_url
-            model = vision_model
-            timeout = int(os.environ.get("VLLM_TIMEOUT", "300"))
-            temperature = float(os.environ.get("VLLM_TEMPERATURE", "0.1"))
-            api_key = os.environ.get("VLLM_API_KEY")
+            url = app_config.inference.vllm_url
+            model = app_config.inference.model
+            timeout = app_config.inference.timeout
+            temperature = app_config.inference.temperature
+            api_key = app_config.inference.api_key
             supports_vision = True
 
         # The provider name doubles as the concurrency-limiter key, so the two
@@ -458,9 +467,12 @@ def get_vision_router() -> AgentLLMRouter:
 
 
 def reset_routers() -> None:
-    """Drop cached routers so the next call re-reads the environment.
+    """Drop cached routers so the next call re-reads ``core.config``.
 
-    Used by tests and by config endpoints that change endpoint settings.
+    ``Config`` is itself a cached singleton, so picking up an environment
+    change needs both: ``core.config.reset_config()`` first, then this.
+    Runtime edits made through ``AgentLLMRouter.configure()`` do not need
+    either — they mutate the live provider config directly.
     """
     with AgentLLMRouter._lock:
         AgentLLMRouter._instances.clear()

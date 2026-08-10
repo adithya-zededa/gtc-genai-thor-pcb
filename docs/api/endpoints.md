@@ -56,10 +56,25 @@ All routes below are relative to `/api`.
 
 ### Health (`app/api/v1/health.py`)
 
-| Method | Path |
-| --- | --- |
-| GET | `/health` |
-| GET | `/ready` |
+Three endpoints with three distinct jobs — see
+[Health and probes](../architecture/README.md#health-and-probes).
+
+| Method | Path | Purpose | Fails (503) when |
+| --- | --- | --- | --- |
+| GET | `/health/live` | Liveness probe; no dependencies | never, while the process serves requests |
+| GET | `/ready` | Readiness probe; SQLite only | the database is unusable |
+| GET | `/health` | Diagnostics; database, camera, per-role inference | the database is down |
+
+### Chat (`app/api/v1/chat.py`)
+
+Runs the same `ConversationOrchestrator` as the websocket, so a REST caller
+gets identical behaviour. Continuing an existing session requires the signed
+`session_token` issued with it.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | `/chat/message` | Run one conversation turn; returns every message it produced |
+| GET | `/chat/history` | Fetch a client session's transcript (token required) |
 
 ### LLM (`app/api/v1/llm.py`)
 
@@ -125,8 +140,6 @@ All routes below are relative to `/api`.
 | GET | `/test_camera` |
 | GET | `/test_inference` |
 | GET | `/test_vllm` |
-| GET | `/test_ollama` |
-| GET | `/ollama_models` |
 
 ### Users (`app/api/v1/users.py`)
 

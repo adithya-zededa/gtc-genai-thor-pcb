@@ -4,9 +4,9 @@ Get the monitoring loop running and inspecting PCBs in three steps.
 
 ## Prerequisites
 
-1. **VLM backend** running (vLLM or Ollama)
+1. **vLLM backend** running (the only supported backend)
    ```bash
-   vllm serve Qwen/Qwen3-VL-8B-Instruct --port 8000
+   vllm serve Qwen/Qwen3-VL-4B-Instruct --port 8000
    ```
 
 2. **Camera** available (or video file)
@@ -28,15 +28,15 @@ Edit `config.yaml`:
 ```yaml
 proactive:
   enabled: true
-  frame_interval_seconds: 1.5       # How often to observe
-  stationary_motion_threshold: 5.0   # Motion threshold for "stopped"
+  frame_interval_seconds: 0.1        # How often to observe
+  stationary_motion_threshold: 1.8   # Motion threshold for "stopped"
 
 camera:
   device_index: 0
 
 vllm:
   url: http://localhost:8000
-  model: Qwen/Qwen3-VL-8B-Instruct
+  model: auto  # auto-detected from the server; VISION_MODEL overrides
 ```
 
 ## Step 2 — Start the server
@@ -128,9 +128,9 @@ Agent: "🚨 Defect detected — solder bridge on U3. Alert sent to admin@acme.c
 | Key | Default | Effect |
 |-----|---------|--------|
 | `proactive.enabled` | `true` | Enable/disable proactive mode |
-| `proactive.frame_interval_seconds` | `1.5` | Seconds between CV observations |
+| `proactive.frame_interval_seconds` | `0.1` | Seconds between CV observations |
 | `proactive.fast_observation_mode` | `true` | Use fast CV path |
-| `proactive.stationary_motion_threshold` | `5.0` | Motion score below = "stopped" |
+| `proactive.stationary_motion_threshold` | `1.8` | Motion score below = "stopped" |
 
 Zone crop, segmentation, and tracking parameters are also available in
 `config/defaults.yaml`.
